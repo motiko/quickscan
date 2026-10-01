@@ -1,0 +1,112 @@
+# 📸 QuickScan
+
+A mobile-first Progressive Web App for scanning documents using your phone's camera. Inspired by GeniusScan — capture, crop, enhance, and export documents as PDFs, entirely client-side.
+
+> **No server, no signup, no cloud** — your documents stay on your device.
+
+## ✨ Features (v1)
+
+- **Camera capture** — Open rear camera with live preview, tap to scan
+- **Manual crop** — Drag 4-corner handles to precisely crop your document
+- **Image filters** — Original, grayscale, and black & white modes
+- **Multi-page documents** — Combine multiple scans into a single document
+- **PDF export** — Generate and download multi-page PDFs
+- **Document gallery** — Browse, rename, and delete saved scans
+- **Offline-first** — All data stored locally in IndexedDB, works without internet
+- **Installable PWA** — Add to home screen for native app experience
+
+## 🛠️ Tech Stack
+
+| Layer | Technology |
+|:---|:---|
+| Framework | [Next.js 16](https://nextjs.org/) (App Router) |
+| UI | React 19, [Tailwind CSS 4](https://tailwindcss.com/), [shadcn/ui](https://ui.shadcn.com/) |
+| Camera | `getUserMedia` API + Canvas |
+| Edge Detection | [jscanify](https://github.com/nickodev/jscanify) (OpenCV.js) |
+| Local Storage | [Dexie.js](https://dexie.org/) (IndexedDB) |
+| PDF Generation | [pdf-lib](https://pdf-lib.js.org/) |
+| PWA | [@serwist/next](https://serwist.pages.dev/) |
+| Hosting | [Vercel](https://vercel.com/) |
+| CI | GitHub Actions |
+
+## 🚀 Getting Started
+
+### Prerequisites
+
+- Node.js 20+
+- npm 10+
+
+### Development
+
+```bash
+# Clone the repo
+git clone https://github.com/motiko/quickscan.git
+cd quickscan
+
+# Install dependencies
+npm install
+
+# Start dev server
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) in your mobile browser (or use Chrome DevTools mobile emulation).
+
+> **Note:** Camera access requires HTTPS in production. The local dev server works over `localhost` without HTTPS.
+
+### Available Scripts
+
+| Command | Description |
+|:---|:---|
+| `npm run dev` | Start development server |
+| `npm run build` | Production build |
+| `npm run start` | Start production server |
+| `npm run lint` | Run ESLint |
+| `npm run typecheck` | Run TypeScript type checking |
+| `npm run test` | Run tests |
+
+## 📁 Project Structure
+
+```
+src/
+├── app/                    # Next.js App Router pages
+│   ├── layout.tsx          # Root layout, PWA meta tags
+│   ├── manifest.ts         # Web App Manifest
+│   ├── page.tsx            # Home — document gallery
+│   ├── scan/page.tsx       # Camera & scanning UI
+│   └── doc/[id]/page.tsx   # Document viewer & export
+├── components/
+│   ├── camera/             # Camera, crop overlay, filters
+│   ├── documents/          # Gallery cards & list
+│   └── ui/                 # shadcn/ui components
+├── lib/
+│   ├── db.ts               # Dexie.js database schema
+│   ├── camera.ts           # getUserMedia utilities
+│   ├── pdf.ts              # PDF generation with pdf-lib
+│   ├── image-processing.ts # Canvas filters & transforms
+│   └── scanner.worker.ts   # Web Worker for edge detection
+├── hooks/                  # React hooks (useCamera, useDocuments, etc.)
+└── types/                  # TypeScript type definitions
+```
+
+## 🗺️ Roadmap
+
+- [x] Project setup & CI
+- [ ] **Phase 1:** Camera capture, manual crop, filters, PDF export, gallery
+- [ ] **Phase 2:** Auto edge detection, auto-capture, image enhancement, Share API
+- [ ] **Phase 3:** User accounts, cloud sync, folders & tags
+- [ ] **Phase 4:** OCR/text extraction, AI document naming, annotation
+
+## 🤝 Contributing
+
+1. Fork the repo
+2. Create a feature branch (`git checkout -b feature/my-feature`)
+3. Commit your changes (`git commit -m 'feat: add my feature'`)
+4. Push to the branch (`git push origin feature/my-feature`)
+5. Open a Pull Request
+
+Please follow [Conventional Commits](https://www.conventionalcommits.org/) for commit messages.
+
+## 📄 License
+
+MIT
