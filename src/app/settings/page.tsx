@@ -174,15 +174,7 @@ export default function SettingsPage() {
 
         {!isLoading && (
           <section className="mt-4 rounded-xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
-            <h2 className="px-4 pt-4 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-              Document naming
-            </h2>
-
-            <p className="px-4 pt-1 pb-3 text-xs text-gray-500 dark:text-gray-400">
-              New scans are named from the recognized text, e.g. “Rechnung – Telekom – 2026-09-14”. Names you set are never changed.
-            </p>
-
-            <label className="flex items-center justify-between gap-4 border-t border-gray-100 dark:border-neutral-800 px-4 py-3">
+            <label className="flex items-center justify-between gap-4 px-4 py-3">
               <span>
                 <span className="block text-sm font-medium text-gray-900 dark:text-gray-100">
                   Use Cloud LLM
