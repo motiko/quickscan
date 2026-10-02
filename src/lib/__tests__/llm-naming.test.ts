@@ -166,14 +166,15 @@ describe('resolveLlmConfig', () => {
     expect(resolveLlmConfig({ ...DEFAULT_SETTINGS, llmProvider: 'anthropic', anthropicApiKey: 'sk-ant' })).toMatchObject({
       schema: 'anthropic-messages',
       baseUrl: 'https://api.anthropic.com/v1',
-      model: 'claude-opus-5-5',
+      model: '',
     });
   });
 
-  it('resolves the custom endpoint, which may have no key but needs a model', () => {
+  it('resolves the custom endpoint, which needs a URL but may have no key or model', () => {
     const endpoint = { schema: 'anthropic-messages' as const, baseUrl: 'http://localhost:11434/v1', apiKey: '', model: '' };
     const settings = { ...DEFAULT_SETTINGS, llmProvider: 'custom' as const };
-    expect(resolveLlmConfig({ ...settings, llmCustomEndpoint: endpoint })).toBeNull();
+    expect(resolveLlmConfig({ ...settings, llmCustomEndpoint: { ...endpoint, baseUrl: '' } })).toBeNull();
+    expect(resolveLlmConfig({ ...settings, llmCustomEndpoint: endpoint })).toMatchObject({ model: '' });
     expect(resolveLlmConfig({ ...settings, llmCustomEndpoint: { ...endpoint, model: 'gemma' } })).toMatchObject({
       schema: 'anthropic-messages',
       model: 'gemma',
@@ -213,7 +214,7 @@ describe('migrateLegacyLlmSettings', () => {
   });
 
   it('does nothing without legacy keys and drops an empty endpoint', () => {
-    expect(migrateLegacyLlmSettings({ ocrEnabled: true })).toBeNull();
+    expect(migrateLegacyLlmSettings({ ocrLanguages: ['eng'] })).toBeNull();
     expect(migrateLegacyLlmSettings({ llmBaseUrl: '', llmModel: '' })).toEqual({});
     expect(migrateLegacyLlmSettings({ llmCustomEndpoints: [], llmCustomEndpointId: '' })).toEqual({});
   });

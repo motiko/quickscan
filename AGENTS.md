@@ -38,6 +38,12 @@ All changes must go through the Pull Request flow:
    git checkout main
    git pull origin main
    ```
+   In a git worktree `main` is checked out in the main checkout, so run both there instead:
+   ```bash
+   MAIN_DIR="$(git worktree list --porcelain | sed -n '1s/^worktree //p')"
+   git -C "$MAIN_DIR" checkout main
+   git -C "$MAIN_DIR" pull origin main
+   ```
 
 
 ## Project Overview

@@ -3,6 +3,7 @@
 import { useId, useState } from 'react';
 import { getSettings, updateSettings } from '@/lib/settings';
 import { resolveLlmConfig } from '@/lib/llm/client';
+import { resolveModel } from '@/lib/llm/models';
 import { suggestNameWithLlm } from '@/lib/llm/naming';
 import { detectEndpoint, guessSchema } from '@/lib/llm/detect-endpoint';
 import type { AppSettings, CustomLlmEndpoint, LlmApiSchema, LlmProvider } from '@/types';
@@ -153,7 +154,7 @@ function HostedProviderFields({ provider, settings }: { provider: (typeof HOSTED
       <DraftTextField
         label="Model"
         value={settings[provider.modelField]}
-        placeholder="Model ID"
+        placeholder="Automatic, picked from your account"
         onSave={(v) => updateSettings({ [provider.modelField]: v })}
       />
     </>
@@ -276,12 +277,11 @@ export function AiProviderSettings({ settings }: { settings: AppSettings }) {
       }
       const config = resolveLlmConfig(current);
       if (!config) {
-        throw new Error(
-          current.llmProvider === 'custom' ? 'Enter the endpoint URL and a model first.' : 'Fill in the API key and model first.'
-        );
+        throw new Error(current.llmProvider === 'custom' ? 'Enter the endpoint URL first.' : 'Fill in the API key first.');
       }
-      const title = await suggestNameWithLlm(SAMPLE_TEXT, config);
-      setTestResult({ ok: true, message: `Works! Sample title: “${title}”` });
+      const model = await resolveModel(config);
+      const title = await suggestNameWithLlm(SAMPLE_TEXT, { ...config, model });
+      setTestResult({ ok: true, message: `Works with ${model}! Sample title: “${title}”` });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setTestResult({
@@ -303,7 +303,7 @@ export function AiProviderSettings({ settings }: { settings: AppSettings }) {
           <ProviderOption
             key={provider.id}
             label={provider.label}
-            detail={settings[provider.modelField]}
+            detail={settings[provider.modelField] || 'auto'}
             selected={settings.llmProvider === provider.id}
             onSelect={() => select({ llmProvider: provider.id })}
           >

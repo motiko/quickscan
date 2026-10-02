@@ -5,7 +5,7 @@ test.describe('Escape and confirm dialogs', () => {
   test.beforeEach(async ({ page, browserName }) => {
     test.skip(browserName === 'webkit', "Playwright's WebKit can't store Blobs in IndexedDB");
     await resetDatabase(page);
-    await seedDocument(page, { text: 'Hello', ocrEnabled: true });
+    await seedDocument(page, { text: 'Hello' });
   });
 
   test('Escape closes the topmost layer first', async ({ page }) => {

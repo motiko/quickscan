@@ -12,11 +12,9 @@ import { AiProviderSettings } from '@/components/settings/AiProviderSettings';
 /** Selected languages as removable chips, plus a searchable list of all languages. */
 function OcrLanguagePicker({
   selected,
-  disabled,
   onToggle,
 }: {
   selected: string[];
-  disabled: boolean;
   onToggle: (code: string) => void;
 }) {
   const [query, setQuery] = useState('');
@@ -31,9 +29,9 @@ function OcrLanguagePicker({
             <button
               key={code}
               onClick={() => onToggle(code)}
-              disabled={disabled || selected.length === 1}
+              disabled={selected.length === 1}
               aria-label={`Remove ${label}`}
-              className={`flex items-center gap-1 rounded-full border border-blue-600 bg-blue-600 py-1.5 pl-3 pr-2 text-xs font-semibold text-white${disabled ? ' opacity-50' : ''}`}
+              className="flex items-center gap-1 rounded-full border border-blue-600 bg-blue-600 py-1.5 pl-3 pr-2 text-xs font-semibold text-white"
             >
               {label}
               {selected.length > 1 && (
@@ -51,10 +49,9 @@ function OcrLanguagePicker({
         type="search"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        disabled={disabled}
         placeholder="Search languages"
         aria-label="Search languages"
-        className="w-full rounded-lg border border-gray-300 dark:border-neutral-700 bg-white dark:bg-neutral-950 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none focus:border-blue-600 disabled:opacity-50"
+        className="w-full rounded-lg border border-gray-300 dark:border-neutral-700 bg-white dark:bg-neutral-950 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none focus:border-blue-600"
       />
 
       <ul
@@ -67,10 +64,10 @@ function OcrLanguagePicker({
             <li key={code} className="border-b border-gray-100 dark:border-neutral-800 last:border-b-0">
               <button
                 onClick={() => onToggle(code)}
-                disabled={disabled || (isSelected && selected.length === 1)}
+                disabled={isSelected && selected.length === 1}
                 aria-pressed={isSelected}
                 aria-label={label}
-                className={`flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-sm hover:bg-gray-50 dark:hover:bg-neutral-800 disabled:cursor-default${disabled ? ' opacity-50' : ''}`}
+                className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-sm hover:bg-gray-50 dark:hover:bg-neutral-800 disabled:cursor-default"
               >
                 <span className="min-w-0">
                   <span className="text-gray-900 dark:text-gray-100">{label}</span>
@@ -140,26 +137,13 @@ export default function SettingsPage() {
               Text recognition (OCR)
             </h2>
 
-            <label className="flex items-center justify-between px-4 py-3">
-              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                Recognize text in scans
-              </span>
-              <input
-                type="checkbox"
-                checked={settings.ocrEnabled}
-                onChange={(e) => void updateSettings({ ocrEnabled: e.target.checked })}
-                className="h-5 w-5 accent-blue-600"
-              />
-            </label>
-
-            <div className="border-t border-gray-100 dark:border-neutral-800 px-4 py-3">
+            <div className="px-4 py-3">
               <p className="mb-2 text-sm font-medium text-gray-900 dark:text-gray-100">Languages</p>
               <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
                 Each language is downloaded once (a few MB) and then works offline.
               </p>
               <OcrLanguagePicker
                 selected={settings.ocrLanguages}
-                disabled={!settings.ocrEnabled}
                 onToggle={(code) => void toggleLanguage(code)}
               />
             </div>
@@ -167,8 +151,7 @@ export default function SettingsPage() {
             <div className="border-t border-gray-100 dark:border-neutral-800 px-4 py-3">
               <button
                 onClick={handleRescanAll}
-                disabled={!settings.ocrEnabled}
-                className="text-sm font-semibold text-blue-600 dark:text-blue-400 disabled:opacity-50"
+                className="text-sm font-semibold text-blue-600 dark:text-blue-400"
               >
                 Re-run recognition on all pages
               </button>
@@ -178,15 +161,7 @@ export default function SettingsPage() {
 
         {!isLoading && (
           <section className="mt-4 rounded-xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
-            <h2 className="px-4 pt-4 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-              Document naming
-            </h2>
-
-            <p className="px-4 pt-1 pb-3 text-xs text-gray-500 dark:text-gray-400">
-              New scans are named from the recognized text, e.g. “Rechnung – Telekom – 2026-09-14”. Names you set are never changed.
-            </p>
-
-            <label className="flex items-center justify-between gap-4 border-t border-gray-100 dark:border-neutral-800 px-4 py-3">
+            <label className="flex items-center justify-between gap-4 px-4 py-3">
               <span>
                 <span className="block text-sm font-medium text-gray-900 dark:text-gray-100">
                   Use Cloud LLM

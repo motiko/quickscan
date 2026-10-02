@@ -19,6 +19,8 @@ import { useEscape } from '@/hooks/useEscape';
 import { alertDialog, confirmDialog } from '@/lib/dialogs';
 import { importPagesToDocument } from '@/lib/import';
 import { TextSheet } from '@/components/documents/TextSheet';
+import { SummaryCard } from '@/components/documents/SummaryCard';
+import { resolveLlmConfig } from '@/lib/llm/client';
 import { LiveTextIcon } from '@/components/ui/LiveTextIcon';
 import { collectDocumentText } from '@/lib/ocr-text';
 import { getImageSize, getRenderedBlob } from '@/lib/annotations/flatten';
@@ -76,6 +78,7 @@ export default function DocumentViewer() {
   const [copiedAll, setCopiedAll] = useState(false);
   const [isAddingPages, setIsAddingPages] = useState(false);
   const { settings } = useSettings();
+  const llmConfigured = settings.llmEnabled && resolveLlmConfig(settings) !== null;
   const inputRef = useRef<HTMLInputElement>(null);
 
   const selectedIndex = selectedPageId ? pages.findIndex((p) => p.id === selectedPageId) : -1;
@@ -396,6 +399,9 @@ export default function DocumentViewer() {
             Adding pasted pages…
           </div>
         )}
+        {llmConfigured && pages.length > 0 && (
+          <SummaryCard document={document} pages={pages} />
+        )}
         <div className="grid grid-cols-2 gap-4">
           {pages.map((page, index) => (
             <PageItem
@@ -460,7 +466,6 @@ export default function DocumentViewer() {
         <TextSheet
           pages={pages}
           title="Text · All pages"
-          ocrEnabled={settings.ocrEnabled}
           ocrLanguages={settings.ocrLanguages}
           documentId={id}
           onClose={() => setShowDocumentText(false)}
@@ -599,7 +604,6 @@ export default function DocumentViewer() {
             <TextSheet
               pages={[selectedPage]}
               title={`Text · Page ${selectedPage.pageNumber}`}
-              ocrEnabled={settings.ocrEnabled}
               ocrLanguages={settings.ocrLanguages}
               onClose={() => setShowText(false)}
             />

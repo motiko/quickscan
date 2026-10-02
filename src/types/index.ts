@@ -46,6 +46,16 @@ export interface ScannedDocument {
   // How the current name was chosen; auto-naming only replaces 'default' names.
   // Documents created before this field existed are treated like 'user'.
   nameSource?: 'default' | 'auto' | 'user';
+  summary?: DocumentSummary;
+}
+
+/** LLM-written summary of a document's recognized text. */
+export interface DocumentSummary {
+  text: string;
+  model: string;
+  createdAt: Date;
+  // Hash of the page text it was written from; differs from the current hash once pages change
+  sourceHash: string;
 }
 
 export type OcrStatus = 'pending' | 'processing' | 'done' | 'error';
@@ -56,13 +66,25 @@ export interface OcrWord {
   confidence: number;
 }
 
-export interface OcrInfo {
-  engine: 'tesseract';
-  languages: string[]; // traineddata used
+interface OcrInfoBase {
   detectedLanguage?: string; // Tesseract language code
-  confidence?: number; // 0-100
   recognizedAt: Date;
 }
+
+export interface TesseractOcrInfo extends OcrInfoBase {
+  engine: 'tesseract';
+  languages: string[]; // traineddata used
+  confidence?: number; // 0-100
+}
+
+/** Text transcribed by a cloud model; the page keeps its Tesseract word boxes. */
+export interface LlmOcrInfo extends OcrInfoBase {
+  engine: 'llm';
+  provider: LlmProvider;
+  model: string;
+}
+
+export type OcrInfo = TesseractOcrInfo | LlmOcrInfo;
 
 export interface Page {
   id: string;
@@ -102,7 +124,6 @@ export interface Signature {
 }
 
 export interface AppSettings {
-  ocrEnabled: boolean;
   ocrLanguages: string[]; // Tesseract language codes, e.g. ['eng', 'deu']
   llmEnabled: boolean;
   llmProvider: LlmProvider;

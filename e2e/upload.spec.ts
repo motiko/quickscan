@@ -25,24 +25,6 @@ async function textImage(page: Page, name: string, lines: string[], mimeType = '
   return { name, mimeType, buffer: Buffer.from(base64, 'base64') };
 }
 
-async function disableOcr(page: Page) {
-  await page.evaluate(
-    () =>
-      new Promise<void>((resolve, reject) => {
-        const req = indexedDB.open('QuickScanDB');
-        req.onsuccess = () => {
-          const tx = req.result.transaction('settings', 'readwrite');
-          tx.objectStore('settings').put({ key: 'ocrEnabled', value: false });
-          tx.oncomplete = () => {
-            req.result.close();
-            resolve();
-          };
-          tx.onerror = () => reject(tx.error);
-        };
-      })
-  );
-}
-
 test.describe('File upload', () => {
   test.beforeEach(async ({ page, browserName }) => {
     test.skip(browserName === 'webkit', "Playwright's WebKit can't store Blobs in IndexedDB");
@@ -53,7 +35,6 @@ test.describe('File upload', () => {
   });
 
   test('imports a batch of images, one document each, and reports unsupported files', async ({ page }) => {
-    await disableOcr(page);
     const files = [
       await textImage(page, 'Lease Agreement.png', ['Lease']),
       await textImage(page, 'IMG_0042.jpg', ['Photo'], 'image/jpeg'),

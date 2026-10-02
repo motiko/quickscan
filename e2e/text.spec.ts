@@ -17,8 +17,7 @@ test.describe('Recognized text', () => {
     await expect(sheet.getByRole('heading', { name: 'Text · All pages' })).toBeVisible();
     await expect(sheet.locator('pre')).toHaveText(TEXT);
     await expect(sheet.getByRole('button', { name: 'Copy text' })).toBeVisible();
-    // Background OCR is off in the seeded settings, so there's nothing to retry with
-    await expect(sheet.getByRole('button', { name: 'Retry text recognition' })).toHaveCount(0);
+    await expect(sheet.getByRole('button', { name: 'Retry text recognition' })).toBeEnabled();
     await sheet.getByRole('button', { name: 'Close' }).click();
     await expect(sheet).not.toBeVisible();
   });
@@ -38,7 +37,6 @@ test.describe('Text recognition info', () => {
     await resetDatabase(page);
     await seedDocument(page, {
       text: TEXT,
-      ocrEnabled: true,
       ocrInfo: { languages: ['eng'], detectedLanguage: 'deu', confidence: 87 },
     });
     await page.goto('/doc/d1');
