@@ -91,12 +91,19 @@ export default function DocumentViewer() {
     setShowText(false);
   };
 
-  // Arrow keys switch pages while the viewer is open (not while annotating or reading text)
+  const closePageViewer = () => {
+    setSelectedPageId(null);
+    setShowText(false);
+    setIsAnnotating(false);
+  };
+
+  // Arrow keys switch pages and Escape closes the viewer (not while annotating or reading text)
   useEffect(() => {
     if (!selectedPageId || isAnnotating || showText) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'ArrowLeft') goToPage(-1);
       if (e.key === 'ArrowRight') goToPage(1);
+      if (e.key === 'Escape') closePageViewer();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
@@ -201,12 +208,6 @@ export default function DocumentViewer() {
     } catch (err) {
       console.error('Copy failed:', err);
     }
-  };
-
-  const closePageViewer = () => {
-    setSelectedPageId(null);
-    setShowText(false);
-    setIsAnnotating(false);
   };
 
   const handleSwipeStart = (e: React.TouchEvent) => {
