@@ -21,7 +21,6 @@ interface TextSheetProps {
   /** One page for the page viewer, or all pages of the document. */
   pages: Page[];
   title: string;
-  ocrEnabled: boolean;
   /** Languages currently configured for OCR. */
   ocrLanguages: string[];
   /** Set when showing the whole document, so retry re-runs every page. */
@@ -55,13 +54,11 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 function PageInfo({
   page,
   heading,
-  ocrEnabled,
   ocrLanguages,
   onAddLanguage,
 }: {
   page: Page;
   heading?: string;
-  ocrEnabled: boolean;
   ocrLanguages: string[];
   onAddLanguage: (code: string) => void;
 }) {
@@ -72,7 +69,7 @@ function PageInfo({
   const detected = info?.detectedLanguage;
   // Adding a Tesseract language only matters for Tesseract's own text
   const missing =
-    ocrEnabled && info?.engine !== 'llm' && detected && !ocrLanguages.includes(detected) ? detected : undefined;
+    info?.engine !== 'llm' && detected && !ocrLanguages.includes(detected) ? detected : undefined;
 
   return (
     <div className="rounded-lg bg-gray-50 dark:bg-neutral-800/60 px-3 py-2 text-xs">
@@ -129,7 +126,7 @@ function PageInfo({
   );
 }
 
-function PageText({ page, ocrEnabled, cloud }: { page: Page; ocrEnabled: boolean; cloud?: CloudOcrState }) {
+function PageText({ page, cloud }: { page: Page; cloud?: CloudOcrState }) {
   const status = page.ocrStatus;
   const text = status === 'done' ? page.ocrText?.trim() ?? '' : '';
 
@@ -152,13 +149,13 @@ function PageText({ page, ocrEnabled, cloud }: { page: Page; ocrEnabled: boolean
           </button>
         </div>
       )}
-      {ocrEnabled && (status === 'pending' || status === 'processing') && (
+      {(status === 'pending' || status === 'processing') && (
         <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
           <Spinner />
           Recognizing text…
         </div>
       )}
-      {ocrEnabled && status === 'error' && (
+      {status === 'error' && (
         <div className="flex items-center justify-between text-sm text-red-600 dark:text-red-400">
           <span>Text recognition failed.</span>
           <button
@@ -168,11 +165,6 @@ function PageText({ page, ocrEnabled, cloud }: { page: Page; ocrEnabled: boolean
             Retry
           </button>
         </div>
-      )}
-      {!ocrEnabled && status !== 'done' && (
-        <p className="text-sm text-gray-500 dark:text-gray-400">
-          Text recognition is turned off. Enable it in Settings.
-        </p>
       )}
       {status === 'done' &&
         (text ? (
@@ -186,14 +178,14 @@ function PageText({ page, ocrEnabled, cloud }: { page: Page; ocrEnabled: boolean
   );
 }
 
-export function TextSheet({ pages, title, ocrEnabled, ocrLanguages, documentId, onClose }: TextSheetProps) {
+export function TextSheet({ pages, title, ocrLanguages, documentId, onClose }: TextSheetProps) {
   const [copied, setCopied] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
   const text = collectDocumentText(pages);
   const showPageHeadings = pages.length > 1;
   const busy = pages.some(isBusy);
   const { settings } = useSettings();
-  const cloudAvailable = ocrEnabled && settings.llmEnabled && resolveLlmConfig(settings) !== null;
+  const cloudAvailable = settings.llmEnabled && resolveLlmConfig(settings) !== null;
   const cloudStates = useSyncExternalStore(subscribeCloudOcr, getCloudOcrStates, () => NO_CLOUD_STATES);
   const cloudBusy = pages.some((p) => cloudStates.get(p.id)?.status === 'running');
 
@@ -242,7 +234,7 @@ export function TextSheet({ pages, title, ocrEnabled, ocrLanguages, documentId, 
                 <InfoIcon />
               </button>
             )}
-            {ocrEnabled && pages.length > 0 && (
+            {pages.length > 0 && (
               <button
                 onClick={() => void retry()}
                 disabled={busy || cloudBusy}
@@ -292,7 +284,6 @@ export function TextSheet({ pages, title, ocrEnabled, ocrLanguages, documentId, 
                   key={page.id}
                   page={page}
                   heading={showPageHeadings ? `Page ${index + 1}` : undefined}
-                  ocrEnabled={ocrEnabled}
                   ocrLanguages={ocrLanguages}
                   onAddLanguage={(code) => void addLanguageAndRetry(code)}
                 />
@@ -312,7 +303,7 @@ export function TextSheet({ pages, title, ocrEnabled, ocrLanguages, documentId, 
                   Page {index + 1}
                 </h3>
               )}
-              <PageText page={page} ocrEnabled={ocrEnabled} cloud={cloudStates.get(page.id)} />
+              <PageText page={page} cloud={cloudStates.get(page.id)} />
             </section>
           ))}
         </div>

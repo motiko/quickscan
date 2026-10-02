@@ -9,7 +9,6 @@ import { CheckIcon, CopyIcon, RetryIcon } from '@/components/ui/icons';
 interface SummaryCardProps {
   document: ScannedDocument;
   pages: Page[];
-  ocrEnabled: boolean;
 }
 
 const COLLAPSED_KEY = 'quickscan.summaryCollapsed';
@@ -73,7 +72,7 @@ function Skeleton() {
 }
 
 /** LLM summary of the document, shown above the page grid. Only rendered when an LLM is configured. */
-export function SummaryCard({ document, pages, ocrEnabled }: SummaryCardProps) {
+export function SummaryCard({ document, pages }: SummaryCardProps) {
   const summary = document.summary;
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -83,7 +82,7 @@ export function SummaryCard({ document, pages, ocrEnabled }: SummaryCardProps) {
   const [copied, setCopied] = useState(false);
   const textRef = useRef<HTMLParagraphElement>(null);
 
-  const ocrBusy = ocrEnabled && pages.some((p) => p.ocrStatus === 'pending' || p.ocrStatus === 'processing');
+  const ocrBusy = pages.some((p) => p.ocrStatus === 'pending' || p.ocrStatus === 'processing');
   const hasText = collectDocumentText(pages).length > 0;
   const canGenerate = hasText && !ocrBusy && !isGenerating;
   // Text is in flux while OCR runs; only flag the summary once it has settled
@@ -151,9 +150,7 @@ export function SummaryCard({ document, pages, ocrEnabled }: SummaryCardProps) {
     const hint = ocrBusy
       ? 'Available once text recognition finishes'
       : !hasText
-        ? ocrEnabled
-          ? 'No recognized text to summarize yet'
-          : 'Turn on text recognition in Settings to summarize'
+        ? 'No recognized text to summarize yet'
         : null;
     return (
       <section className="mb-4" aria-label="Summary">

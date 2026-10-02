@@ -50,7 +50,6 @@ export async function processPendingOcr(): Promise<void> {
     do {
       rerunRequested = false;
       const settings = await getSettings();
-      if (!settings.ocrEnabled) return;
 
       const pending = await db.pages.where('ocrStatus').equals('pending').toArray();
       for (const page of pending) {

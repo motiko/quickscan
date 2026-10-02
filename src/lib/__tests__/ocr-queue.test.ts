@@ -104,16 +104,6 @@ describe('processPendingOcr', () => {
     expect((await db.pages.get('p1'))?.ocrStatus).toBe('error');
   });
 
-  it('does nothing when OCR is disabled', async () => {
-    await updateSettings({ ocrEnabled: false });
-    await db.pages.add(makePage('p1', 1));
-
-    await processPendingOcr();
-
-    expect(mockRecognize).not.toHaveBeenCalled();
-    expect((await db.pages.get('p1'))?.ocrStatus).toBe('pending');
-  });
-
   it('discards results if the image changed during recognition', async () => {
     mockRecognize.mockImplementation(async () => {
       // Simulate a rotate while OCR is running

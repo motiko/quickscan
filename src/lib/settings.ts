@@ -2,7 +2,6 @@ import { db } from '@/lib/db';
 import type { AppSettings } from '@/types';
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  ocrEnabled: true,
   ocrLanguages: ['eng'],
   llmEnabled: false,
   llmProvider: 'openai',

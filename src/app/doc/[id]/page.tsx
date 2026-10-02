@@ -378,7 +378,7 @@ export default function DocumentViewer() {
           </div>
         )}
         {llmConfigured && pages.length > 0 && (
-          <SummaryCard document={document} pages={pages} ocrEnabled={settings.ocrEnabled} />
+          <SummaryCard document={document} pages={pages} />
         )}
         <div className="grid grid-cols-2 gap-4">
           {pages.map((page, index) => (
@@ -444,7 +444,6 @@ export default function DocumentViewer() {
         <TextSheet
           pages={pages}
           title="Text · All pages"
-          ocrEnabled={settings.ocrEnabled}
           ocrLanguages={settings.ocrLanguages}
           documentId={id}
           onClose={() => setShowDocumentText(false)}
@@ -583,7 +582,6 @@ export default function DocumentViewer() {
             <TextSheet
               pages={[selectedPage]}
               title={`Text · Page ${selectedPage.pageNumber}`}
-              ocrEnabled={settings.ocrEnabled}
               ocrLanguages={settings.ocrLanguages}
               onClose={() => setShowText(false)}
             />
