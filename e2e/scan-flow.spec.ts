@@ -22,19 +22,16 @@ test.describe('Scan Flow', () => {
     const bodyText = await page.locator('body').innerText();
     console.log('Body text on /scan:\n', bodyText);
 
-    // If it says "Camera Unavailable", wait and see
+    const applyCropButton = page.getByRole('button', { name: /Apply Crop/ });
     const shutterButton = page.getByLabel('Take photo');
-    await expect(shutterButton).toBeVisible({ timeout: 5000 });
-    await expect(shutterButton).toBeVisible({ timeout: 10000 });
 
-    // Wait a brief moment for video stream and potential auto-detection
-    await page.waitForTimeout(1000);
-
-    // Take a photo
-    await shutterButton.click();
+    // If auto-captured during stabilization, crop overlay is already visible
+    if (!(await applyCropButton.isVisible())) {
+      await expect(shutterButton).toBeVisible({ timeout: 5000 });
+      await shutterButton.click();
+    }
 
     // Crop overlay appears
-    const applyCropButton = page.getByRole('button', { name: 'Apply Crop' });
     await expect(applyCropButton).toBeVisible();
 
     // Apply crop

@@ -53,7 +53,10 @@ export function useScannerWorker() {
   }, []);
 
   const detect = useCallback(
-    async (imageData: ImageData): Promise<DetectionResult> => {
+    async (
+      imageData: ImageData,
+      options?: { detector?: 'classical' | 'ml' }
+    ): Promise<DetectionResult> => {
       const worker = workerRef.current;
       if (!worker) {
         return { normalizedCorners: null, confidence: 0 };
@@ -66,6 +69,7 @@ export function useScannerWorker() {
           id: reqId,
           type: 'DETECT',
           imageData,
+          detector: options?.detector || 'classical',
         });
 
         // Safety timeout in case worker drops frame

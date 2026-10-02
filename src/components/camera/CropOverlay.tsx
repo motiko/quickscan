@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import type { Point, Quad } from '@/types';
 import { warpPerspective } from '@/lib/image-processing';
 import { useBlobUrl } from '@/hooks/useBlobUrl';
+import { useScannerWorker } from '@/hooks/useScannerWorker';
 
 interface CropOverlayProps {
   imageBlob: Blob;
@@ -67,6 +68,52 @@ export function CropOverlay({
   const [activeCorner, setActiveCorner] = useState<number | null>(null);
   const [touchPos, setTouchPos] = useState<Point | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+
+  const { detect } = useScannerWorker();
+  const [isDetecting, setIsDetecting] = useState(false);
+  const autoDetectTriggeredRef = useRef(false);
+
+  const handleAutoDetect = useCallback(async () => {
+    if (isDetecting || naturalSize.width === 0 || !imageUrl) return;
+    setIsDetecting(true);
+    try {
+      const maxDim = 600;
+      const scale = Math.min(maxDim / naturalSize.width, maxDim / naturalSize.height, 1);
+      const dw = Math.round(naturalSize.width * scale);
+      const dh = Math.round(naturalSize.height * scale);
+
+      const canvas = document.createElement('canvas');
+      canvas.width = dw;
+      canvas.height = dh;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        const img = new Image();
+        img.src = imageUrl;
+        await new Promise((resolve, reject) => {
+          img.onload = resolve;
+          img.onerror = reject;
+        });
+        ctx.drawImage(img, 0, 0, dw, dh);
+        const imgData = ctx.getImageData(0, 0, dw, dh);
+        const res = await detect(imgData, { detector: 'classical' });
+        if (res.normalizedCorners) {
+          setCorners(res.normalizedCorners);
+        }
+      }
+    } catch (err) {
+      console.warn('Auto detect failed:', err);
+    } finally {
+      setIsDetecting(false);
+    }
+  }, [detect, isDetecting, naturalSize, imageUrl]);
+
+  // If corners were not passed from camera, run auto-detect once image loads
+  useEffect(() => {
+    if (!initialCorners && naturalSize.width > 0 && !autoDetectTriggeredRef.current) {
+      autoDetectTriggeredRef.current = true;
+      handleAutoDetect();
+    }
+  }, [initialCorners, naturalSize, handleAutoDetect]);
 
   // Compute displayed image bounding box inside container from state
   const bounds = useMemo(() => {
@@ -221,14 +268,23 @@ export function CropOverlay({
           Cancel
         </button>
         <span className="text-white text-sm font-semibold tracking-wide">
-          Adjust Document Corners
+          Adjust Corners
         </span>
-        <button
-          onClick={handleResetFull}
-          className="text-blue-400 hover:text-blue-300 px-3 py-1.5 rounded-lg text-sm font-medium"
-        >
-          Select All
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleAutoDetect}
+            disabled={isDetecting}
+            className="text-emerald-400 hover:text-emerald-300 px-2.5 py-1 rounded-lg text-xs font-semibold border border-emerald-500/40 active:scale-95 transition-all disabled:opacity-50"
+          >
+            {isDetecting ? 'Detecting...' : 'Auto Detect'}
+          </button>
+          <button
+            onClick={handleResetFull}
+            className="text-blue-400 hover:text-blue-300 px-2.5 py-1 rounded-lg text-xs font-medium active:scale-95 transition-all"
+          >
+            Select All
+          </button>
+        </div>
       </div>
 
       {/* Main View Area */}

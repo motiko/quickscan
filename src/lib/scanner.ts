@@ -1,4 +1,10 @@
 import type { Point, Quad } from '@/types';
+import { scanDocument } from 'scanic';
+
+export interface DetectionOptions {
+  detector?: 'classical' | 'ml';
+  minConfidence?: number;
+}
 
 // Orders 4 points into [topLeft, topRight, bottomRight, bottomLeft]
 export function orderCorners(points: Point[]): Quad {
@@ -188,4 +194,42 @@ export function detectDocumentQuad(imageData: ImageData): { corners: Quad; confi
   }
 
   return null;
+}
+
+/**
+ * Asynchronously detects document corners in an ImageData frame.
+ * Uses high-performance WebAssembly edge detection with multi-pass contour cascades,
+ * or optional neural coordinate classification (DocCornerNet) for challenging scenes.
+ */
+export async function detectDocumentQuadAsync(
+  imageData: ImageData,
+  options: DetectionOptions = {}
+): Promise<{ corners: Quad; confidence: number } | null> {
+  const { detector = 'classical', minConfidence = 0.3 } = options;
+
+  try {
+    const result = await scanDocument(imageData, {
+      mode: 'detect',
+      detector,
+      minDetectionConfidence: minConfidence,
+      minDocumentCoverageRatio: 0.15,
+      maxProcessingDimension: 600,
+    });
+
+    if (result.success && result.corners) {
+      const { topLeft, topRight, bottomRight, bottomLeft } = result.corners;
+      const rawPoints: Point[] = [topLeft, topRight, bottomRight, bottomLeft];
+      const ordered = orderCorners(rawPoints);
+      const confidence = result.confidence ?? (result.score ?? 0.85);
+
+      return {
+        corners: ordered,
+        confidence: Math.max(0, Math.min(1, confidence)),
+      };
+    }
+  } catch (err) {
+    console.warn('WASM document detection error, trying fallback:', err);
+  }
+
+  return detectDocumentQuad(imageData);
 }
