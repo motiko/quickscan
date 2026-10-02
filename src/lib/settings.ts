@@ -1,20 +1,28 @@
 import { db } from '@/lib/db';
-import type { AppSettings } from '@/types';
+import type { AppSettings, CustomLlmEndpoint } from '@/types';
 
 export const DEFAULT_SETTINGS: AppSettings = {
   ocrEnabled: true,
   ocrLanguages: ['eng'],
   autoName: true,
   llmEnabled: false,
-  llmBaseUrl: '',
-  llmApiKey: '',
-  llmModel: '',
+  llmProvider: 'openai',
+  llmCustomEndpointId: '',
+  openaiApiKey: '',
+  openaiModel: 'gpt-5-mini',
+  anthropicApiKey: '',
+  anthropicModel: 'claude-opus-5-5',
+  googleApiKey: '',
+  googleModel: 'gemini-2.5-flash',
+  llmCustomEndpoints: [],
 };
 
-export const LLM_PRESETS: { label: string; baseUrl: string }[] = [
-  { label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1' },
-  { label: 'Ollama Cloud', baseUrl: 'https://ollama.com/v1' },
-  { label: 'Ollama (local)', baseUrl: 'http://localhost:11434/v1' },
+/** Starting points for a new custom endpoint. */
+export const CUSTOM_ENDPOINT_PRESETS: Omit<CustomLlmEndpoint, 'id' | 'apiKey' | 'model'>[] = [
+  { name: 'OpenRouter', schema: 'chat-completions', baseUrl: 'https://openrouter.ai/api/v1' },
+  { name: 'Ollama Cloud', schema: 'chat-completions', baseUrl: 'https://ollama.com/v1' },
+  { name: 'Ollama (local)', schema: 'chat-completions', baseUrl: 'http://localhost:11434/v1' },
+  { name: 'LM Studio', schema: 'chat-completions', baseUrl: 'http://localhost:1234/v1' },
 ];
 
 export const OCR_LANGUAGES: { code: string; label: string }[] = [

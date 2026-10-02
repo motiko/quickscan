@@ -1,91 +1,14 @@
 'use client';
 
-import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSettings } from '@/hooks/useSettings';
-import { LLM_PRESETS, OCR_LANGUAGES, getSettings, updateSettings } from '@/lib/settings';
+import { OCR_LANGUAGES, updateSettings } from '@/lib/settings';
 import { requeueAllOcr } from '@/lib/ocr-queue';
-import { suggestNameWithLlm } from '@/lib/naming/llm';
-import type { AppSettings } from '@/types';
-
-type TextSettingKey = 'llmBaseUrl' | 'llmApiKey' | 'llmModel';
-
-const SAMPLE_TEXT =
-  'Telekom Deutschland GmbH\nRechnung\nRechnungsdatum: 14.09.2026\nRechnungsbetrag: 39,95 EUR';
-
-/** Text input that keeps local state while typing and saves on blur. */
-function SettingTextField({
-  label,
-  settingKey,
-  settings,
-  type = 'text',
-  placeholder,
-}: {
-  label: string;
-  settingKey: TextSettingKey;
-  settings: AppSettings;
-  type?: 'text' | 'password' | 'url';
-  placeholder?: string;
-}) {
-  const saved = settings[settingKey];
-  const [draft, setDraft] = useState<string | null>(null);
-  const value = draft ?? saved;
-
-  return (
-    <label className="block">
-      <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{label}</span>
-      <input
-        type={type}
-        value={value}
-        placeholder={placeholder}
-        autoComplete="off"
-        autoCapitalize="off"
-        spellCheck={false}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={async () => {
-          if (draft !== null && draft !== saved) await updateSettings({ [settingKey]: draft.trim() });
-          setDraft(null);
-        }}
-        className="w-full rounded-lg border border-gray-300 dark:border-neutral-700 bg-white dark:bg-neutral-950 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none focus:border-blue-500"
-      />
-    </label>
-  );
-}
+import { AiProviderSettings } from '@/components/settings/AiProviderSettings';
 
 export default function SettingsPage() {
   const router = useRouter();
   const { settings, isLoading } = useSettings();
-  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
-  const [isTesting, setIsTesting] = useState(false);
-
-  const handleTestConnection = async () => {
-    // Let a focused field save its value first
-    (document.activeElement as HTMLElement | null)?.blur();
-    setIsTesting(true);
-    setTestResult(null);
-    try {
-      await new Promise((r) => setTimeout(r, 50));
-      const current = await getSettings();
-      const title = await suggestNameWithLlm(SAMPLE_TEXT, {
-        baseUrl: current.llmBaseUrl,
-        apiKey: current.llmApiKey,
-        model: current.llmModel,
-      });
-      setTestResult({ ok: true, message: `Works! Sample title: “${title}”` });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setTestResult({
-        ok: false,
-        message:
-          message === 'Failed to fetch' || message.includes('NetworkError') || message.includes('Load failed')
-            ? 'Could not reach the server. Check the URL, and for local Ollama allow this site via OLLAMA_ORIGINS.'
-            : message,
-      });
-    } finally {
-      setIsTesting(false);
-    }
-  };
-
   const toggleLanguage = async (code: string) => {
     const current = settings.ocrLanguages;
     const next = current.includes(code)
@@ -205,7 +128,7 @@ export default function SettingsPage() {
                   Use an AI model
                 </span>
                 <span className="block text-xs text-gray-500 dark:text-gray-400">
-                  Any OpenAI-compatible API (OpenRouter, Ollama, …). Falls back to on-device naming if it fails.
+                  OpenAI, Anthropic, Google or your own endpoint (OpenRouter, Ollama, …). Falls back to on-device naming if it fails.
                 </span>
               </span>
               <input
@@ -216,72 +139,7 @@ export default function SettingsPage() {
               />
             </label>
 
-            {settings.llmEnabled && (
-              <div className="space-y-3 border-t border-gray-100 dark:border-neutral-800 px-4 py-3">
-                <div className="flex flex-wrap gap-2" role="group" aria-label="Provider presets">
-                  {LLM_PRESETS.map((preset) => (
-                    <button
-                      key={preset.label}
-                      onClick={() => void updateSettings({ llmBaseUrl: preset.baseUrl })}
-                      aria-pressed={settings.llmBaseUrl === preset.baseUrl}
-                      className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
-                        settings.llmBaseUrl === preset.baseUrl
-                          ? 'border-blue-600 bg-blue-600 text-white'
-                          : 'border-gray-300 dark:border-neutral-700 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-neutral-800'
-                      }`}
-                    >
-                      {preset.label}
-                    </button>
-                  ))}
-                </div>
-
-                {/* key forces the fields to pick up a preset-changed URL */}
-                <SettingTextField
-                  key={`url-${settings.llmBaseUrl}`}
-                  label="Base URL"
-                  settingKey="llmBaseUrl"
-                  settings={settings}
-                  type="url"
-                  placeholder="https://openrouter.ai/api/v1"
-                />
-                <SettingTextField
-                  label="API key"
-                  settingKey="llmApiKey"
-                  settings={settings}
-                  type="password"
-                  placeholder="Not needed for local Ollama"
-                />
-                <SettingTextField
-                  label="Model"
-                  settingKey="llmModel"
-                  settings={settings}
-                  placeholder="Model ID from your provider"
-                />
-
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={handleTestConnection}
-                    disabled={isTesting}
-                    className="rounded-full bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    {isTesting ? 'Testing…' : 'Test connection'}
-                  </button>
-                </div>
-                {testResult && (
-                  <p
-                    role="status"
-                    className={`text-xs ${testResult.ok ? 'text-green-700 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}
-                  >
-                    {testResult.message}
-                  </p>
-                )}
-
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  The recognized text of each scan is sent to this provider to generate a name. Your API key is
-                  stored only on this device.
-                </p>
-              </div>
-            )}
+            {settings.llmEnabled && <AiProviderSettings settings={settings} />}
           </section>
         )}
       </main>
