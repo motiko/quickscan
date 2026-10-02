@@ -4,7 +4,6 @@ import type { AppSettings } from '@/types';
 export const DEFAULT_SETTINGS: AppSettings = {
   ocrEnabled: true,
   ocrLanguages: ['eng'],
-  autoName: true,
   llmEnabled: false,
   llmProvider: 'openai',
   openaiApiKey: '',

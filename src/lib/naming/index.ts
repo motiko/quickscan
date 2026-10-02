@@ -44,9 +44,6 @@ export async function suggestDocumentName(documentId: string): Promise<NameSugge
  * have been recognized. Never touches names the user chose.
  */
 export async function autoNameIfDefault(documentId: string): Promise<void> {
-  const settings = await getSettings();
-  if (!settings.autoName) return;
-
   const doc = await db.documents.get(documentId);
   if (doc?.nameSource !== 'default') return;
 

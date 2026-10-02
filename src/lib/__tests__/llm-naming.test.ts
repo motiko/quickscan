@@ -213,7 +213,7 @@ describe('migrateLegacyLlmSettings', () => {
   });
 
   it('does nothing without legacy keys and drops an empty endpoint', () => {
-    expect(migrateLegacyLlmSettings({ autoName: true })).toBeNull();
+    expect(migrateLegacyLlmSettings({ ocrEnabled: true })).toBeNull();
     expect(migrateLegacyLlmSettings({ llmBaseUrl: '', llmModel: '' })).toEqual({});
     expect(migrateLegacyLlmSettings({ llmCustomEndpoints: [], llmCustomEndpointId: '' })).toEqual({});
   });
