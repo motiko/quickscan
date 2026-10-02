@@ -47,6 +47,7 @@ export async function createDocument(
       updatedAt: now,
       pageCount: 1,
       thumbnailBlob,
+      nameSource: 'default',
     });
 
     await db.pages.add({
@@ -160,5 +161,5 @@ export async function renameDocument(
   documentId: string,
   name: string
 ): Promise<void> {
-  await db.documents.update(documentId, { name, updatedAt: new Date() });
+  await db.documents.update(documentId, { name, nameSource: 'user', updatedAt: new Date() });
 }
