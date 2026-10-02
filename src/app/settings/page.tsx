@@ -6,6 +6,7 @@ import { useSettings } from '@/hooks/useSettings';
 import { updateSettings } from '@/lib/settings';
 import { filterOcrLanguages, getOcrLanguage } from '@/lib/ocr-languages';
 import { requeueAllOcr } from '@/lib/ocr-queue';
+import { confirmDialog } from '@/lib/dialogs';
 import { AiProviderSettings } from '@/components/settings/AiProviderSettings';
 
 /** Selected languages as removable chips, plus a searchable list of all languages. */
@@ -104,9 +105,12 @@ export default function SettingsPage() {
   };
 
   const handleRescanAll = async () => {
-    if (window.confirm('Re-run text recognition on all pages with the current languages?')) {
-      await requeueAllOcr();
-    }
+    const confirmed = await confirmDialog({
+      title: 'Re-run recognition on all pages?',
+      message: `Every page is recognized again with ${settings.ocrLanguages.map((c) => getOcrLanguage(c)?.label ?? c).join(', ')}. This runs in the background and replaces the current text.`,
+      confirmLabel: 'Re-run',
+    });
+    if (confirmed) await requeueAllOcr();
   };
 
   return (

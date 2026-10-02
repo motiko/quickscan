@@ -5,6 +5,8 @@ import { nanoid } from 'nanoid';
 import type { Annotation, Page, Point, Signature } from '@/types';
 import { useBlobUrl } from '@/hooks/useBlobUrl';
 import { useAnnotationHistory } from '@/hooks/useAnnotationHistory';
+import { useEscape } from '@/hooks/useEscape';
+import { confirmDialog } from '@/lib/dialogs';
 import { drawAnnotations, canvasMeasure, textFont, type SignatureImages } from '@/lib/annotations/render';
 import {
   getBounds,
@@ -388,10 +390,19 @@ export function AnnotationEditor({ page, onSave, onCancel }: AnnotationEditorPro
     }
   };
 
-  const handleCancel = () => {
-    if (history.isDirty && !window.confirm('Discard your annotation changes?')) return;
+  const handleCancel = async () => {
+    if (history.isDirty) {
+      const confirmed = await confirmDialog({
+        title: 'Discard your changes?',
+        message: 'Annotations you added or changed since opening the editor will be lost.',
+        confirmLabel: 'Discard',
+        destructive: true,
+      });
+      if (!confirmed) return;
+    }
     onCancel();
   };
+  useEscape(() => void handleCancel());
 
   // Keyboard shortcuts for desktop
   useEffect(() => {
@@ -426,7 +437,7 @@ export function AnnotationEditor({ page, onSave, onCancel }: AnnotationEditorPro
     <div className="fixed inset-0 z-[60] flex flex-col bg-neutral-950 select-none" role="dialog" aria-label="Annotate page">
       <div className="flex items-center justify-between gap-2 px-3 pb-2 pt-safe-offset-2">
         <button
-          onClick={handleCancel}
+          onClick={() => void handleCancel()}
           className="rounded-full px-3 py-1.5 text-sm font-semibold text-gray-300 hover:bg-white/10"
         >
           Cancel
@@ -493,7 +504,10 @@ export function AnnotationEditor({ page, onSave, onCancel }: AnnotationEditorPro
                 onChange={(e) => setTextEdit({ ...textEdit, text: e.target.value })}
                 onBlur={commitTextEdit}
                 onKeyDown={(e) => {
-                  if (e.key === 'Escape') setTextEdit(null);
+                  if (e.key === 'Escape') {
+                    e.preventDefault(); // discard the text box only, not the editor
+                    setTextEdit(null);
+                  }
                   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) commitTextEdit();
                 }}
                 rows={Math.max(1, textEdit.text.split('\n').length)}

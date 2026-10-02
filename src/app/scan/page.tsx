@@ -9,6 +9,8 @@ import { FilterBar } from '@/components/camera/FilterBar';
 import { applyFilter, rotateImage } from '@/lib/image-processing';
 import { createDocument, addPageToDocument } from '@/hooks/useDocuments';
 import { useBlobUrl } from '@/hooks/useBlobUrl';
+import { useEscape } from '@/hooks/useEscape';
+import { alertDialog, confirmDialog } from '@/lib/dialogs';
 
 function ScanPageContent() {
   const router = useRouter();
@@ -121,17 +123,26 @@ function ScanPageContent() {
     } catch (err) {
       console.error('Failed to save document:', err);
       setPhase('review');
-      alert('Failed to save document. Please try again.');
+      void alertDialog({ title: 'Couldn’t save the document', message: 'Please try again.' });
     }
   };
 
-  const handleClose = () => {
-    if (capturedBlobs.length === 0 && !currentBlob) {
-      router.back();
-    } else if (window.confirm('Discard current scan(s)?')) {
-      router.back();
+  const handleClose = async () => {
+    if (capturedBlobs.length > 0 || currentBlob) {
+      const count = capturedBlobs.length + (currentBlob ? 1 : 0);
+      const confirmed = await confirmDialog({
+        title: count === 1 ? 'Discard this scan?' : `Discard ${count} scans?`,
+        message: 'Pages you haven’t saved yet will be lost.',
+        confirmLabel: 'Discard',
+        destructive: true,
+      });
+      if (!confirmed) return;
     }
+    router.back();
   };
+
+  // Escape leaves the camera (and the review screen) like the close button; crop handles its own
+  useEscape(() => void handleClose(), phase === 'camera' || phase === 'review');
 
   if (phase === 'saving') {
     return (
@@ -239,7 +250,7 @@ function ScanPageContent() {
 
   return (
     <div className="h-[100dvh] bg-black">
-      <CameraView onCapture={handleCapture} onClose={handleClose} />
+      <CameraView onCapture={handleCapture} onClose={() => void handleClose()} />
       {capturedBlobs.length > 0 && (
         <div className="absolute left-4 top-[calc(env(safe-area-inset-top,0px)+5rem)] z-30 flex items-center justify-center rounded-full bg-blue-600/90 px-3.5 py-1 shadow-lg backdrop-blur">
           <span className="text-xs font-semibold text-white">{capturedBlobs.length} page(s) ready</span>

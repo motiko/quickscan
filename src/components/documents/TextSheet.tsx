@@ -15,6 +15,7 @@ import { useSettings } from '@/hooks/useSettings';
 import { collectDocumentText } from '@/lib/ocr-text';
 import { ocrLanguageName } from '@/lib/ocr-languages';
 import { getSettings, updateSettings } from '@/lib/settings';
+import { useEscape } from '@/hooks/useEscape';
 import { CheckIcon, CloseIcon, CloudIcon, CopyIcon, InfoIcon, RetryIcon } from '@/components/ui/icons';
 
 interface TextSheetProps {
@@ -184,6 +185,7 @@ export function TextSheet({ pages, title, ocrLanguages, documentId, onClose }: T
   const text = collectDocumentText(pages);
   const showPageHeadings = pages.length > 1;
   const busy = pages.some(isBusy);
+  useEscape(onClose);
   const { settings } = useSettings();
   const cloudAvailable = settings.llmEnabled && resolveLlmConfig(settings) !== null;
   const cloudStates = useSyncExternalStore(subscribeCloudOcr, getCloudOcrStates, () => NO_CLOUD_STATES);
