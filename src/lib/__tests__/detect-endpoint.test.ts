@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { candidateBaseUrls, detectEndpoint, guessSchema } from '@/lib/naming/detect-endpoint';
+import { candidateBaseUrls, detectEndpoint, guessSchema } from '@/lib/llm/detect-endpoint';
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status });

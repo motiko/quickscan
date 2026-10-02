@@ -1,4 +1,4 @@
-import { PROXY_TARGET_HEADER, isProxiedUrl } from '@/lib/naming/llm';
+import { PROXY_TARGET_HEADER, isProxiedUrl } from '@/lib/llm/client';
 
 /**
  * Forwards chat completion requests (POST) and model listings (GET) to LLM providers that
