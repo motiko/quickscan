@@ -1,11 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import {
-  cleanLlmTitle,
-  chatCompletionsUrl,
-  resolveLlmConfig,
-  suggestNameWithLlm,
-  type LlmConfig,
-} from '@/lib/naming/llm';
+import { chatCompletionsUrl, resolveLlmConfig, type LlmConfig } from '@/lib/llm/client';
+import { cleanLlmTitle, suggestNameWithLlm } from '@/lib/llm/naming';
 import { migrateLegacyLlmSettings } from '@/lib/llm-settings-migration';
 import { DEFAULT_SETTINGS } from '@/lib/settings';
 
@@ -47,6 +42,8 @@ describe('suggestNameWithLlm', () => {
     const body = JSON.parse(init.body);
     expect(body.model).toBe('some/model');
     expect(body.messages[1].content).toHaveLength(4000);
+    expect(body).toMatchObject({ temperature: 0.2, max_tokens: 100 });
+    expect(body.max_completion_tokens).toBeUndefined();
   });
 
   it('routes CORS-less providers like Ollama Cloud through the same-origin proxy', async () => {
@@ -101,7 +98,7 @@ describe('provider schemas', () => {
     const fetchImpl = vi.fn().mockResolvedValue(reply('Invoice'));
     await suggestNameWithLlm('text', { ...config, baseUrl: 'https://api.openai.com/v1', openaiNative: true }, { fetchImpl });
     const body = JSON.parse(fetchImpl.mock.calls[0][1].body);
-    expect(body.max_completion_tokens).toBeGreaterThan(100);
+    expect(body.max_completion_tokens).toBe(1024);
     expect(body.max_tokens).toBeUndefined();
     expect(body.temperature).toBeUndefined();
   });
@@ -126,6 +123,8 @@ describe('provider schemas', () => {
     const body = JSON.parse(init.body);
     expect(body.system).toContain('You name scanned documents');
     expect(body.messages).toEqual([{ role: 'user', content: 'text' }]);
+    expect(body.max_tokens).toBe(1024);
+    expect(body.temperature).toBeUndefined();
   });
 
   it('treats an Anthropic refusal as a failure', async () => {
@@ -155,7 +154,9 @@ describe('provider schemas', () => {
     const [url, init] = fetchImpl.mock.calls[0];
     expect(url).toBe('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent');
     expect(init.headers['x-goog-api-key']).toBe('AIza');
-    expect(JSON.parse(init.body).contents[0].parts[0].text).toBe('text');
+    const body = JSON.parse(init.body);
+    expect(body.contents[0].parts).toEqual([{ text: 'text' }]);
+    expect(body.generationConfig).toEqual({ maxOutputTokens: 1024 });
   });
 });
 

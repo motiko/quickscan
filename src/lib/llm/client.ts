@@ -1,5 +1,5 @@
 /**
- * Document naming through a hosted or custom LLM, called directly from the browser.
+ * Shared LLM client, called directly from the browser for naming, text extraction and summaries.
  * Supports OpenAI, Anthropic and Google natively, plus custom endpoints speaking either
  * OpenAI Chat Completions (OpenRouter, Ollama, LM Studio, ...) or Anthropic Messages.
  * Providers that don't send CORS headers go through the same-origin /api/llm proxy.
@@ -16,22 +16,42 @@ export interface LlmConfig {
   openaiNative?: boolean;
 }
 
+export type LlmImageMediaType = 'image/jpeg' | 'image/png' | 'image/webp';
+
+export type LlmContentPart =
+  | { type: 'text'; text: string }
+  /** `data` is base64 without a `data:` prefix. */
+  | { type: 'image'; mediaType: LlmImageMediaType; data: string };
+
+export interface LlmRequest {
+  system: string;
+  content: string | LlmContentPart[];
+  maxTokens: number;
+  timeoutMs: number;
+  /** Defaults to 0.2 for Chat Completions endpoints; never sent to OpenAI itself. */
+  temperature?: number;
+}
+
+export interface LlmCallOptions {
+  fetchImpl?: typeof fetch;
+  signal?: AbortSignal;
+}
+
+/** Thrown when the model explicitly refuses to answer. */
+export class LlmRefusalError extends Error {
+  constructor() {
+    super('The model declined the request');
+    this.name = 'LlmRefusalError';
+  }
+}
+
 export const PROVIDER_BASE_URLS = {
   openai: 'https://api.openai.com/v1',
   anthropic: 'https://api.anthropic.com/v1',
   google: 'https://generativelanguage.googleapis.com/v1beta',
 } as const;
 
-const MAX_INPUT_CHARS = 4000;
-const MAX_TITLE_CHARS = 80;
-const DEFAULT_TIMEOUT_MS = 15000;
-// Room for models that think before answering; the title itself is a few tokens
-const REASONING_MAX_TOKENS = 1024;
-
-const SYSTEM_PROMPT =
-  'You name scanned documents. Reply with only a concise, filename-style title of at most 60 characters, ' +
-  'in the same language as the document. Use the pattern "<document type> – <sender or subject> – <YYYY-MM-DD>" ' +
-  'and leave out any part you cannot determine. No quotes, no explanation.';
+const DEFAULT_TEMPERATURE = 0.2;
 
 /** Hosts whose API rejects browser preflights; only these may be reached through the proxy. */
 export const PROXIED_HOSTS = ['ollama.com'];
@@ -79,7 +99,7 @@ export function resolveLlmConfig(settings: AppSettings): LlmConfig | null {
   return config;
 }
 
-function joinUrl(baseUrl: string, path: string): string {
+export function joinUrl(baseUrl: string, path: string): string {
   return `${baseUrl.trim().replace(/\/+$/, '')}/${path}`;
 }
 
@@ -96,31 +116,9 @@ export function isProxiedUrl(url: string): boolean {
   }
 }
 
-/** Reduce a model reply to a single safe title line. */
-export function cleanLlmTitle(raw: string): string {
-  const withoutThinking = raw.replace(/<think>[\s\S]*?(<\/think>|$)/gi, '');
-  const line =
-    withoutThinking
-      .split('\n')
-      .map((l) => l.trim())
-      .find(Boolean) ?? '';
-
-  let title = line
-    .replace(/[*`#]/g, '')
-    .replace(/_/g, ' ')
-    .replace(/^\s*(title|titel|name)\s*:\s*/i, '')
-    .replace(/^["'“”„‚‘’«»]+|["'“”„‚‘’«»]+$/g, '')
-    .replace(/[\\/:*?"<>|]/g, '-')
-    .replace(/\.pdf$/i, '')
-    .replace(/\s+/g, ' ')
-    .replace(/[.\s]+$/, '')
-    .trim();
-
-  if (title.length > MAX_TITLE_CHARS) {
-    const cut = title.slice(0, MAX_TITLE_CHARS);
-    title = cut.slice(0, cut.lastIndexOf(' ') > 40 ? cut.lastIndexOf(' ') : MAX_TITLE_CHARS).trim();
-  }
-  return title;
+/** Remove `<think>` blocks that some models put inline in their reply. */
+export function stripThinking(text: string): string {
+  return text.replace(/<think>[\s\S]*?(<\/think>|$)/gi, '');
 }
 
 interface ProviderRequest {
@@ -130,9 +128,34 @@ interface ProviderRequest {
   readText: (data: unknown) => string;
 }
 
-function buildRequest(text: string, config: LlmConfig): ProviderRequest {
-  const input = text.slice(0, MAX_INPUT_CHARS);
+function chatCompletionsContent(content: string | LlmContentPart[]) {
+  if (typeof content === 'string') return content;
+  return content.map((part) =>
+    part.type === 'text'
+      ? { type: 'text', text: part.text }
+      : { type: 'image_url', image_url: { url: `data:${part.mediaType};base64,${part.data}` } }
+  );
+}
+
+function anthropicContent(content: string | LlmContentPart[]) {
+  if (typeof content === 'string') return content;
+  return content.map((part) =>
+    part.type === 'text'
+      ? { type: 'text', text: part.text }
+      : { type: 'image', source: { type: 'base64', media_type: part.mediaType, data: part.data } }
+  );
+}
+
+function geminiParts(content: string | LlmContentPart[]) {
+  if (typeof content === 'string') return [{ text: content }];
+  return content.map((part) =>
+    part.type === 'text' ? { text: part.text } : { inlineData: { mimeType: part.mediaType, data: part.data } }
+  );
+}
+
+export function buildRequest(request: LlmRequest, config: LlmConfig): ProviderRequest {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const { system, content, maxTokens, temperature } = request;
 
   switch (config.schema) {
     case 'anthropic-messages':
@@ -144,13 +167,14 @@ function buildRequest(text: string, config: LlmConfig): ProviderRequest {
         headers,
         body: {
           model: config.model,
-          max_tokens: REASONING_MAX_TOKENS,
-          system: SYSTEM_PROMPT,
-          messages: [{ role: 'user', content: input }],
+          max_tokens: maxTokens,
+          ...(temperature !== undefined && { temperature }),
+          system,
+          messages: [{ role: 'user', content: anthropicContent(content) }],
         },
         readText: (data) => {
           const reply = data as { stop_reason?: string; content?: { type: string; text?: string }[] };
-          if (reply.stop_reason === 'refusal') throw new Error('The model declined to name this document');
+          if (reply.stop_reason === 'refusal') throw new LlmRefusalError();
           return (reply.content ?? [])
             .filter((b) => b.type === 'text')
             .map((b) => b.text ?? '')
@@ -165,9 +189,9 @@ function buildRequest(text: string, config: LlmConfig): ProviderRequest {
         url: joinUrl(config.baseUrl, `models/${encodeURIComponent(model)}:generateContent`),
         headers,
         body: {
-          systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-          contents: [{ role: 'user', parts: [{ text: input }] }],
-          generationConfig: { maxOutputTokens: REASONING_MAX_TOKENS },
+          systemInstruction: { parts: [{ text: system }] },
+          contents: [{ role: 'user', parts: geminiParts(content) }],
+          generationConfig: { maxOutputTokens: maxTokens, ...(temperature !== undefined && { temperature }) },
         },
         readText: (data) => {
           const reply = data as { candidates?: { content?: { parts?: { text?: string; thought?: boolean }[] } }[] };
@@ -187,11 +211,11 @@ function buildRequest(text: string, config: LlmConfig): ProviderRequest {
         body: {
           model: config.model,
           ...(config.openaiNative
-            ? { max_completion_tokens: REASONING_MAX_TOKENS }
-            : { temperature: 0.2, max_tokens: 100 }),
+            ? { max_completion_tokens: maxTokens }
+            : { temperature: temperature ?? DEFAULT_TEMPERATURE, max_tokens: maxTokens }),
           messages: [
-            { role: 'system', content: SYSTEM_PROMPT },
-            { role: 'user', content: input },
+            { role: 'system', content: system },
+            { role: 'user', content: chatCompletionsContent(content) },
           ],
         },
         readText: (data) =>
@@ -200,26 +224,26 @@ function buildRequest(text: string, config: LlmConfig): ProviderRequest {
   }
 }
 
-export async function suggestNameWithLlm(
-  text: string,
-  config: LlmConfig,
-  options: { timeoutMs?: number; fetchImpl?: typeof fetch } = {}
-): Promise<string> {
-  const { timeoutMs = DEFAULT_TIMEOUT_MS, fetchImpl = fetch } = options;
+/** Send a single-turn request and return the model's reply text, without thinking parts the API marks as such. */
+export async function callLlm(request: LlmRequest, config: LlmConfig, options: LlmCallOptions = {}): Promise<string> {
+  const { fetchImpl = fetch, signal } = options;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const timer = setTimeout(() => controller.abort(), request.timeoutMs);
+  const onAbort = () => controller.abort(signal?.reason);
+  if (signal?.aborted) onAbort();
+  else signal?.addEventListener('abort', onAbort, { once: true });
 
   try {
-    const request = buildRequest(text, config);
+    const built = buildRequest(request, config);
     // The proxy only forwards chat completions requests to allowlisted hosts
-    const viaProxy = config.schema === 'chat-completions' && isProxiedUrl(request.url);
-    if (viaProxy) request.headers[PROXY_TARGET_HEADER] = request.url;
+    const viaProxy = config.schema === 'chat-completions' && isProxiedUrl(built.url);
+    if (viaProxy) built.headers[PROXY_TARGET_HEADER] = built.url;
 
-    const response = await fetchImpl(viaProxy ? PROXY_PATH : request.url, {
+    const response = await fetchImpl(viaProxy ? PROXY_PATH : built.url, {
       method: 'POST',
-      headers: request.headers,
+      headers: built.headers,
       signal: controller.signal,
-      body: JSON.stringify(request.body),
+      body: JSON.stringify(built.body),
     });
 
     if (!response.ok) {
@@ -227,10 +251,9 @@ export async function suggestNameWithLlm(
       throw new Error(`LLM request failed (${response.status}): ${detail.slice(0, 200)}`);
     }
 
-    const title = cleanLlmTitle(request.readText(await response.json()));
-    if (!title) throw new Error('LLM returned an empty title');
-    return title;
+    return built.readText(await response.json());
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener('abort', onAbort);
   }
 }

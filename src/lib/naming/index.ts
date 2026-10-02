@@ -1,7 +1,8 @@
 import { db } from '@/lib/db';
 import { getSettings } from '@/lib/settings';
 import { suggestName } from './heuristic';
-import { resolveLlmConfig, suggestNameWithLlm } from './llm';
+import { resolveLlmConfig } from '@/lib/llm/client';
+import { suggestNameWithLlm } from '@/lib/llm/naming';
 
 export interface NameSuggestion {
   name: string;

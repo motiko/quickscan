@@ -4,7 +4,7 @@
  */
 
 import type { LlmApiSchema } from '@/types';
-import { PROXY_PATH, PROXY_TARGET_HEADER, isProxiedUrl } from './llm';
+import { PROXY_PATH, PROXY_TARGET_HEADER, isProxiedUrl } from './client';
 
 export interface DetectedEndpoint {
   /** The base URL that answered, which may differ from the one entered. */

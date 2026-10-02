@@ -2,8 +2,9 @@
 
 import { useId, useState } from 'react';
 import { getSettings, updateSettings } from '@/lib/settings';
-import { resolveLlmConfig, suggestNameWithLlm } from '@/lib/naming/llm';
-import { detectEndpoint, guessSchema } from '@/lib/naming/detect-endpoint';
+import { resolveLlmConfig } from '@/lib/llm/client';
+import { suggestNameWithLlm } from '@/lib/llm/naming';
+import { detectEndpoint, guessSchema } from '@/lib/llm/detect-endpoint';
 import type { AppSettings, CustomLlmEndpoint, LlmApiSchema, LlmProvider } from '@/types';
 
 const SAMPLE_TEXT =
