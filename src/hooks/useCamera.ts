@@ -48,12 +48,13 @@ export function useCamera(options: UseCameraOptions = {}): UseCameraReturn {
         }
       }
     } catch (err) {
+      console.error('Camera start error:', err);
       const message =
         err instanceof DOMException && err.name === 'NotAllowedError'
           ? 'Camera access denied. Please allow camera access in your browser settings.'
           : err instanceof DOMException && err.name === 'NotFoundError'
             ? 'No camera found on this device.'
-            : 'Failed to start camera. Please try again.';
+            : `Failed to start camera: ${err instanceof Error ? err.message : String(err)}. Please try again.`;
       setError(message);
       setIsActive(false);
     }
