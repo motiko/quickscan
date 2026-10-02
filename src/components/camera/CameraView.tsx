@@ -110,74 +110,19 @@ export function CameraView({ onCapture, onClose }: CameraViewProps) {
           const result = await detect(imageData);
 
           if (result.normalizedCorners && result.confidence > 0.3) {
-            const current = result.normalizedCorners;
+            // Use the pre-smoothed corners from the worker
+            setDetectedCorners(result.normalizedCorners);
+            setIsStable(result.isStable);
+            setAutoProgress(Math.round(result.stability * 100));
 
-            // Exponential Moving Average smoothing (60% previous, 40% current) to prevent polygon jitter
-            const smoothedCorners: Quad = prevSmoothedRef.current
-              ? [
-                  {
-                    x: prevSmoothedRef.current[0].x * 0.6 + current[0].x * 0.4,
-                    y: prevSmoothedRef.current[0].y * 0.6 + current[0].y * 0.4,
-                  },
-                  {
-                    x: prevSmoothedRef.current[1].x * 0.6 + current[1].x * 0.4,
-                    y: prevSmoothedRef.current[1].y * 0.6 + current[1].y * 0.4,
-                  },
-                  {
-                    x: prevSmoothedRef.current[2].x * 0.6 + current[2].x * 0.4,
-                    y: prevSmoothedRef.current[2].y * 0.6 + current[2].y * 0.4,
-                  },
-                  {
-                    x: prevSmoothedRef.current[3].x * 0.6 + current[3].x * 0.4,
-                    y: prevSmoothedRef.current[3].y * 0.6 + current[3].y * 0.4,
-                  },
-                ]
-              : current;
-
-            prevSmoothedRef.current = smoothedCorners;
-            setDetectedCorners(smoothedCorners);
-
-            // Check stability against previous frame
-            if (prevCornersRef.current) {
-              const prev = prevCornersRef.current;
-              let maxDelta = 0;
-              for (let i = 0; i < 4; i++) {
-                const dx = current[i].x - prev[i].x;
-                const dy = current[i].y - prev[i].y;
-                maxDelta = Math.max(maxDelta, Math.hypot(dx, dy));
-              }
-
-              // Corner shift < 3% of viewport is considered steady
-              if (maxDelta < 0.03) {
-                stableCountRef.current += 1;
-              } else {
-                stableCountRef.current = Math.max(0, stableCountRef.current - 1);
-              }
-            }
-
-            prevCornersRef.current = current;
-
-            // Stable for 4 checks (~480ms)
-            const requiredStable = 4;
-            const progress = Math.min(100, Math.round((stableCountRef.current / requiredStable) * 100));
-            setAutoProgress(progress);
-
-            if (stableCountRef.current >= requiredStable) {
-              setIsStable(true);
-              if (mode === 'auto' && !isCapturingRef.current) {
-                // Auto capture trigger with smoothed coordinates!
-                handleCapture(smoothedCorners);
-              }
-            } else {
-              setIsStable(false);
+            if (result.isStable && mode === 'auto' && !isCapturingRef.current) {
+              // Auto capture trigger driven by the worker's stability logic
+              handleCapture(result.normalizedCorners);
             }
           } else {
-            stableCountRef.current = 0;
+            setDetectedCorners(null);
             setIsStable(false);
             setAutoProgress(0);
-            prevCornersRef.current = null;
-            prevSmoothedRef.current = null;
-            setDetectedCorners(null);
           }
         } catch (err) {
           console.warn('Frame detection error:', err);

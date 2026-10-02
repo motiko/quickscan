@@ -16,6 +16,10 @@
     "sim": "./scripts/ios-simulator.sh"
   },
   "dependencies": {
+    "@tensorflow/tfjs-backend-wasm": "^4.22.0",
+    "@tensorflow/tfjs-backend-webgpu": "^4.22.0",
+    "@tensorflow/tfjs-core": "^4.22.0",
+    "canvas": "^3.2.3",
     "dexie": "^4.4.6",
     "dexie-react-hooks": "^4.4.0",
     "nanoid": "^6.0.1",
