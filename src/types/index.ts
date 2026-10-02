@@ -42,6 +42,15 @@ export interface ScannedDocument {
   updatedAt: Date;
   pageCount: number;
   thumbnailBlob?: Blob;
+  searchText?: string; // lower-cased OCR text of all pages, for gallery search
+}
+
+export type OcrStatus = 'pending' | 'processing' | 'done' | 'error';
+
+export interface OcrWord {
+  text: string;
+  bbox: { x0: number; y0: number; x1: number; y1: number }; // processed-image pixels
+  confidence: number;
 }
 
 export interface Page {
@@ -54,6 +63,15 @@ export interface Page {
   filter: ImageFilter;
   rotation?: number; // 0, 90, 180, 270
   createdAt: Date;
+  ocrStatus?: OcrStatus;
+  ocrText?: string;
+  ocrWords?: OcrWord[];
+  ocrLang?: string;
+}
+
+export interface AppSettings {
+  ocrEnabled: boolean;
+  ocrLanguages: string[]; // Tesseract language codes, e.g. ['eng', 'deu']
 }
 
 export interface CameraConstraints {

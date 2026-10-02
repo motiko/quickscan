@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useDocuments, deleteDocument } from '@/hooks/useDocuments';
 import { DocumentList } from '@/components/documents/DocumentList';
@@ -7,6 +8,15 @@ import { DocumentList } from '@/components/documents/DocumentList';
 export default function Home() {
   const router = useRouter();
   const { documents, isLoading } = useDocuments();
+  const [query, setQuery] = useState('');
+
+  const filteredDocuments = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return documents;
+    return documents.filter(
+      (d) => d.name.toLowerCase().includes(q) || d.searchText?.includes(q)
+    );
+  }, [documents, query]);
 
   if (isLoading) {
     return (
@@ -23,19 +33,47 @@ export default function Home() {
           <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">
             QuickScan <span role="img" aria-label="camera">📸</span>
           </h1>
+          <button
+            onClick={() => router.push('/settings')}
+            className="-mr-2 flex h-11 w-11 items-center justify-center rounded-full text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-neutral-800"
+            aria-label="Settings"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+          </button>
         </div>
+        {documents.length > 0 && (
+          <div className="px-4 pb-3">
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search names and text"
+              aria-label="Search documents"
+              className="w-full rounded-lg bg-gray-100 dark:bg-neutral-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-500 outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+        )}
       </header>
-      
+
       <main className="flex-1">
-        <DocumentList
-          documents={documents}
-          onScanClick={() => router.push('/scan')}
-          onDeleteDocument={async (id: string) => {
-            if (window.confirm('Are you sure you want to delete this document?')) {
-              await deleteDocument(id);
-            }
-          }}
-        />
+        {query && filteredDocuments.length === 0 ? (
+          <p className="p-8 text-center text-sm text-gray-500 dark:text-gray-400">
+            No documents match “{query}”.
+          </p>
+        ) : (
+          <DocumentList
+            documents={filteredDocuments}
+            onScanClick={() => router.push('/scan')}
+            onDeleteDocument={async (id: string) => {
+              if (window.confirm('Are you sure you want to delete this document?')) {
+                await deleteDocument(id);
+              }
+            }}
+          />
+        )}
       </main>
 
       <button

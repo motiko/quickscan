@@ -9,9 +9,11 @@ import {
   deletePage,
   updatePage,
 } from '@/hooks/useDocuments';
-import { generatePdf, shareOrDownload, shareImage } from '@/lib/pdf';
+import { generatePdf, pagesToPdfInput, shareOrDownload, shareImage } from '@/lib/pdf';
 import { rotateImage } from '@/lib/image-processing';
 import { useBlobUrl } from '@/hooks/useBlobUrl';
+import { useSettings } from '@/hooks/useSettings';
+import { PageTextSheet } from '@/components/documents/PageTextSheet';
 import { Page } from '@/types';
 
 function PageItem({
@@ -58,6 +60,9 @@ export default function DocumentViewer() {
   const [selectedPage, setSelectedPage] = useState<{ page: Page; url: string } | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [isUpdatingPage, setIsUpdatingPage] = useState(false);
+  const [showText, setShowText] = useState(false);
+  const [copiedAll, setCopiedAll] = useState(false);
+  const { settings } = useSettings();
   const inputRef = useRef<HTMLInputElement>(null);
 
   if (isLoading) {
@@ -114,8 +119,7 @@ export default function DocumentViewer() {
     if (pages.length === 0 || isExporting) return;
     setIsExporting(true);
     try {
-      const blobs = pages.map((p) => p.processedBlob || p.originalBlob).filter(Boolean) as Blob[];
-      const pdfBlob = await generatePdf(blobs);
+      const pdfBlob = await generatePdf(pagesToPdfInput(pages));
       await shareOrDownload(pdfBlob, `${document.name}.pdf`, document.name);
     } catch (err) {
       console.error('Export failed:', err);
@@ -124,6 +128,29 @@ export default function DocumentViewer() {
       setIsExporting(false);
     }
   };
+
+  const handleCopyAllText = async () => {
+    const text = pages
+      .map((p) => (p.ocrStatus === 'done' ? p.ocrText ?? '' : ''))
+      .filter(Boolean)
+      .join('\n\n');
+    if (!text) {
+      alert('No recognized text yet.');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedAll(true);
+      setTimeout(() => setCopiedAll(false), 1500);
+    } catch (err) {
+      console.error('Copy failed:', err);
+    }
+  };
+
+  // The modal keeps a snapshot of the page; read OCR progress from the live query
+  const liveSelectedPage = selectedPage
+    ? pages.find((p) => p.id === selectedPage.page.id) ?? selectedPage.page
+    : null;
 
   const handleRotateCurrentPage = async () => {
     if (!selectedPage || isUpdatingPage) return;
@@ -163,6 +190,7 @@ export default function DocumentViewer() {
     if (window.confirm(`Delete page ${selectedPage.page.pageNumber}?`)) {
       await deletePage(selectedPage.page.id);
       setSelectedPage(null);
+      setShowText(false);
     }
   };
 
@@ -205,6 +233,22 @@ export default function DocumentViewer() {
               {pages.length} page{pages.length !== 1 ? 's' : ''} • Tap title to rename
             </p>
           </div>
+
+          <button
+            onClick={handleCopyAllText}
+            className="flex h-9 items-center justify-center rounded-full px-2.5 text-xs font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-neutral-800"
+            aria-label="Copy all text"
+            title="Copy all text"
+          >
+            {copiedAll ? (
+              'Copied'
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+            )}
+          </button>
 
           <button
             onClick={handleExport}
@@ -288,7 +332,10 @@ export default function DocumentViewer() {
               Page {selectedPage.page.pageNumber} of {pages.length}
             </span>
             <button
-              onClick={() => setSelectedPage(null)}
+              onClick={() => {
+                setSelectedPage(null);
+                setShowText(false);
+              }}
               className="rounded-full bg-white/20 p-2 text-white hover:bg-white/30"
               aria-label="Close"
             >
@@ -323,6 +370,18 @@ export default function DocumentViewer() {
             </button>
 
             <button
+              onClick={() => setShowText(true)}
+              className="flex flex-col items-center text-gray-300 hover:text-white"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="4 7 4 4 20 4 20 7"></polyline>
+                <line x1="9" y1="20" x2="15" y2="20"></line>
+                <line x1="12" y1="4" x2="12" y2="20"></line>
+              </svg>
+              <span className="text-[11px] font-medium mt-1">Text</span>
+            </button>
+
+            <button
               onClick={handleShareCurrentPage}
               className="flex flex-col items-center text-gray-300 hover:text-white"
             >
@@ -347,6 +406,14 @@ export default function DocumentViewer() {
               <span className="text-[11px] font-medium mt-1">Delete Page</span>
             </button>
           </div>
+
+          {showText && liveSelectedPage && (
+            <PageTextSheet
+              page={liveSelectedPage}
+              ocrEnabled={settings.ocrEnabled}
+              onClose={() => setShowText(false)}
+            />
+          )}
         </div>
       )}
     </div>

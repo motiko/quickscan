@@ -1,8 +1,85 @@
-export async function generatePdf(imageBlobs: Blob[]): Promise<Blob> {
-  const { PDFDocument } = await import('pdf-lib');
-  const pdfDoc = await PDFDocument.create();
+import type { OcrWord, Page } from '@/types';
 
-  for (const blob of imageBlobs) {
+export interface PdfPageInput {
+  blob: Blob;
+  words?: OcrWord[];
+}
+
+/** Use OCR words only when they were recognized from the page's current image. */
+export function pagesToPdfInput(pages: Page[]): PdfPageInput[] {
+  return pages.map((p) => ({
+    blob: p.processedBlob || p.originalBlob,
+    words: p.ocrStatus === 'done' ? p.ocrWords : undefined,
+  }));
+}
+
+export interface PdfTextPlacement {
+  text: string;
+  x: number;
+  y: number;
+  size: number;
+  horizontalScale: number; // percent, stretches glyphs to span the word's bbox
+}
+
+// Characters Helvetica (WinAnsi) can encode, beyond printable ASCII
+const WIN_ANSI_EXTRA = new Set(
+  '€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ¡¢£¤¥¦§¨©ª«¬®¯°±²³´µ¶·¸¹º»¼½¾¿ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖ×ØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõö÷øùúûüýþÿ'
+);
+
+/** Drop characters the standard PDF fonts can't encode so export never fails on odd OCR output. */
+export function sanitizeWinAnsi(text: string): string {
+  let out = '';
+  for (const ch of text) {
+    const code = ch.codePointAt(0)!;
+    if ((code >= 0x20 && code <= 0x7e) || WIN_ANSI_EXTRA.has(ch)) out += ch;
+  }
+  return out;
+}
+
+/**
+ * Map an OCR word (image pixels, origin top-left) to a PDF text placement
+ * (points, origin bottom-left). Pages are sized 1:1 with image pixels.
+ */
+export function wordToPdfPlacement(
+  word: OcrWord,
+  pageHeight: number,
+  measureWidth: (text: string, size: number) => number
+): PdfTextPlacement | null {
+  const text = sanitizeWinAnsi(word.text);
+  const { x0, y0, x1, y1 } = word.bbox;
+  const boxW = x1 - x0;
+  const boxH = y1 - y0;
+  if (!text || boxW <= 0 || boxH <= 0) return null;
+
+  const size = boxH;
+  const naturalWidth = measureWidth(text, size);
+  const horizontalScale = naturalWidth > 0 ? (boxW / naturalWidth) * 100 : 100;
+
+  return {
+    text,
+    x: x0,
+    // Baseline sits a little above the bbox bottom to account for descenders
+    y: pageHeight - y1 + boxH * 0.2,
+    size,
+    horizontalScale,
+  };
+}
+
+export async function generatePdf(pages: PdfPageInput[]): Promise<Blob> {
+  const {
+    PDFDocument,
+    StandardFonts,
+    TextRenderingMode,
+    setCharacterSqueeze,
+    setTextRenderingMode,
+    pushGraphicsState,
+    popGraphicsState,
+  } = await import('pdf-lib');
+  const pdfDoc = await PDFDocument.create();
+  const hasText = pages.some((p) => p.words && p.words.length > 0);
+  const font = hasText ? await pdfDoc.embedFont(StandardFonts.Helvetica) : null;
+
+  for (const { blob, words } of pages) {
     const bytes = new Uint8Array(await blob.arrayBuffer());
     let image;
 
@@ -20,6 +97,28 @@ export async function generatePdf(imageBlobs: Blob[]): Promise<Blob> {
       width: image.width,
       height: image.height,
     });
+
+    // Invisible text layer so the PDF is searchable and selectable
+    if (font && words) {
+      for (const word of words) {
+        const placement = wordToPdfPlacement(word, image.height, (t, size) =>
+          font.widthOfTextAtSize(t, size)
+        );
+        if (!placement) continue;
+        page.pushOperators(
+          pushGraphicsState(),
+          setTextRenderingMode(TextRenderingMode.Invisible),
+          setCharacterSqueeze(placement.horizontalScale)
+        );
+        page.drawText(placement.text, {
+          x: placement.x,
+          y: placement.y,
+          size: placement.size,
+          font,
+        });
+        page.pushOperators(popGraphicsState());
+      }
+    }
   }
 
   const pdfBytes = await pdfDoc.save();

@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
+import { OcrRunner } from '@/components/OcrRunner';
 
 export const metadata: Metadata = {
   title: 'QuickScan',
@@ -27,6 +28,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body className="antialiased">
+        <OcrRunner />
         {children}
       </body>
     </html>
