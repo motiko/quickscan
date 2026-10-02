@@ -8,14 +8,18 @@ import {
   renameDocument,
   deletePage,
   updatePage,
+  savePageAnnotations,
 } from '@/hooks/useDocuments';
 import { generatePdf, pagesToPdfInput, shareOrDownload, shareImage } from '@/lib/pdf';
 import { rotateImage } from '@/lib/image-processing';
-import { useBlobUrl } from '@/hooks/useBlobUrl';
+import { useRenderedPageUrl } from '@/hooks/useRenderedPageUrl';
 import { useSettings } from '@/hooks/useSettings';
 import { PageTextSheet } from '@/components/documents/PageTextSheet';
 import { suggestDocumentName } from '@/lib/naming';
-import { Page } from '@/types';
+import { getImageSize, getRenderedBlob } from '@/lib/annotations/flatten';
+import { rotateAnnotations90 } from '@/lib/annotations/geometry';
+import { AnnotationEditor } from '@/components/annotate/AnnotationEditor';
+import { Annotation, Page } from '@/types';
 
 function PageItem({
   page,
@@ -24,14 +28,14 @@ function PageItem({
 }: {
   page: Page;
   index: number;
-  onClick: (page: Page, url: string) => void;
+  onClick: (page: Page) => void;
 }) {
-  const url = useBlobUrl(page.processedBlob || page.originalBlob);
+  const url = useRenderedPageUrl(page);
 
   return (
     <div
       className="relative aspect-[3/4] overflow-hidden rounded-xl bg-gray-200 dark:bg-neutral-800 shadow-sm hover:shadow-md cursor-pointer transition-shadow"
-      onClick={() => url && onClick(page, url)}
+      onClick={() => url && onClick(page)}
     >
       {url ? (
         /* eslint-disable-next-line @next/next/no-img-element */
@@ -58,7 +62,8 @@ export default function DocumentViewer() {
   const { document, pages, isLoading } = useDocument(id);
   const [isEditingName, setIsEditingName] = useState(false);
   const [editName, setEditName] = useState('');
-  const [selectedPage, setSelectedPage] = useState<{ page: Page; url: string } | null>(null);
+  const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
+  const [isAnnotating, setIsAnnotating] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [isUpdatingPage, setIsUpdatingPage] = useState(false);
   const [showText, setShowText] = useState(false);
@@ -66,6 +71,9 @@ export default function DocumentViewer() {
   const [isSuggesting, setIsSuggesting] = useState(false);
   const { settings } = useSettings();
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const selectedPage = selectedPageId ? pages.find((p) => p.id === selectedPageId) ?? null : null;
+  const selectedPageUrl = useRenderedPageUrl(selectedPage);
 
   if (isLoading) {
     return (
@@ -139,7 +147,7 @@ export default function DocumentViewer() {
     if (pages.length === 0 || isExporting) return;
     setIsExporting(true);
     try {
-      const pdfBlob = await generatePdf(pagesToPdfInput(pages));
+      const pdfBlob = await generatePdf(await pagesToPdfInput(pages, getRenderedBlob));
       await shareOrDownload(pdfBlob, `${document.name}.pdf`, document.name);
     } catch (err) {
       console.error('Export failed:', err);
@@ -167,23 +175,24 @@ export default function DocumentViewer() {
     }
   };
 
-  // The modal keeps a snapshot of the page; read OCR progress from the live query
-  const liveSelectedPage = selectedPage
-    ? pages.find((p) => p.id === selectedPage.page.id) ?? selectedPage.page
-    : null;
+  const closePageViewer = () => {
+    setSelectedPageId(null);
+    setShowText(false);
+    setIsAnnotating(false);
+  };
 
   const handleRotateCurrentPage = async () => {
     if (!selectedPage || isUpdatingPage) return;
     setIsUpdatingPage(true);
     try {
-      const currentBlob = selectedPage.page.processedBlob || selectedPage.page.originalBlob;
-      const rotatedBlob = await rotateImage(currentBlob, 90);
-      await updatePage(selectedPage.page.id, { processedBlob: rotatedBlob });
-      const newUrl = URL.createObjectURL(rotatedBlob);
-      setSelectedPage({
-        page: { ...selectedPage.page, processedBlob: rotatedBlob },
-        url: newUrl,
-      });
+      const currentBlob = selectedPage.processedBlob || selectedPage.originalBlob;
+      const [rotatedBlob, size] = await Promise.all([rotateImage(currentBlob, 90), getImageSize(currentBlob)]);
+      await updatePage(selectedPage.id, { processedBlob: rotatedBlob });
+      // Keep annotations aligned with the rotated image (also refreshes the thumbnail for page 1)
+      await savePageAnnotations(
+        selectedPage.id,
+        rotateAnnotations90(selectedPage.annotations ?? [], size.width, size.height)
+      );
     } catch (err) {
       console.error('Failed to rotate page:', err);
     } finally {
@@ -194,11 +203,11 @@ export default function DocumentViewer() {
   const handleShareCurrentPage = async () => {
     if (!selectedPage) return;
     try {
-      const currentBlob = selectedPage.page.processedBlob || selectedPage.page.originalBlob;
+      const currentBlob = await getRenderedBlob(selectedPage);
       await shareImage(
         currentBlob,
-        `${document.name}_Page_${selectedPage.page.pageNumber}.${currentBlob.type === 'image/png' ? 'png' : 'jpg'}`,
-        `${document.name} - Page ${selectedPage.page.pageNumber}`
+        `${document.name}_Page_${selectedPage.pageNumber}.${currentBlob.type === 'image/png' ? 'png' : 'jpg'}`,
+        `${document.name} - Page ${selectedPage.pageNumber}`
       );
     } catch (err) {
       console.error('Failed to share page:', err);
@@ -207,10 +216,20 @@ export default function DocumentViewer() {
 
   const handleDeleteCurrentPage = async () => {
     if (!selectedPage) return;
-    if (window.confirm(`Delete page ${selectedPage.page.pageNumber}?`)) {
-      await deletePage(selectedPage.page.id);
-      setSelectedPage(null);
-      setShowText(false);
+    if (window.confirm(`Delete page ${selectedPage.pageNumber}?`)) {
+      await deletePage(selectedPage.id);
+      closePageViewer();
+    }
+  };
+
+  const handleSaveAnnotations = async (annotations: Annotation[]) => {
+    if (!selectedPage) return;
+    try {
+      await savePageAnnotations(selectedPage.id, annotations);
+      setIsAnnotating(false);
+    } catch (err) {
+      console.error('Failed to save annotations:', err);
+      alert('Failed to save annotations.');
     }
   };
 
@@ -316,7 +335,7 @@ export default function DocumentViewer() {
               key={page.id}
               page={page}
               index={index}
-              onClick={(p, url) => setSelectedPage({ page: p, url })}
+              onClick={(p) => setSelectedPageId(p.id)}
             />
           ))}
         </div>
@@ -366,13 +385,10 @@ export default function DocumentViewer() {
           {/* Top modal header */}
           <div className="flex items-center justify-between px-4 pb-4 pt-safe-offset-4 bg-black/50">
             <span className="text-white text-sm font-semibold">
-              Page {selectedPage.page.pageNumber} of {pages.length}
+              Page {selectedPage.pageNumber} of {pages.length}
             </span>
             <button
-              onClick={() => {
-                setSelectedPage(null);
-                setShowText(false);
-              }}
+              onClick={closePageViewer}
               className="rounded-full bg-white/20 p-2 text-white hover:bg-white/30"
               aria-label="Close"
             >
@@ -385,12 +401,14 @@ export default function DocumentViewer() {
 
           {/* Image */}
           <div className="flex-1 flex items-center justify-center p-4 overflow-hidden">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={selectedPage.url}
-              alt={`Page ${selectedPage.page.pageNumber}`}
-              className="max-h-[80dvh] max-w-full object-contain rounded-md shadow-2xl"
-            />
+            {selectedPageUrl && (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img
+                src={selectedPageUrl}
+                alt={`Page ${selectedPage.pageNumber}`}
+                className="max-h-[80dvh] max-w-full object-contain rounded-md shadow-2xl"
+              />
+            )}
           </div>
 
           {/* Bottom actions for this page */}
@@ -419,6 +437,17 @@ export default function DocumentViewer() {
             </button>
 
             <button
+              onClick={() => setIsAnnotating(true)}
+              className="flex flex-col items-center text-gray-300 hover:text-white"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 20h9" />
+                <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" />
+              </svg>
+              <span className="text-[11px] font-medium mt-1">Annotate</span>
+            </button>
+
+            <button
               onClick={handleShareCurrentPage}
               className="flex flex-col items-center text-gray-300 hover:text-white"
             >
@@ -444,11 +473,20 @@ export default function DocumentViewer() {
             </button>
           </div>
 
-          {showText && liveSelectedPage && (
+          {showText && (
             <PageTextSheet
-              page={liveSelectedPage}
+              page={selectedPage}
               ocrEnabled={settings.ocrEnabled}
               onClose={() => setShowText(false)}
+            />
+          )}
+
+          {isAnnotating && (
+            <AnnotationEditor
+              key={selectedPage.id}
+              page={selectedPage}
+              onSave={handleSaveAnnotations}
+              onCancel={() => setIsAnnotating(false)}
             />
           )}
         </div>

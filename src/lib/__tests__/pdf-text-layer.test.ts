@@ -49,14 +49,21 @@ describe('pagesToPdfInput', () => {
     createdAt: new Date(),
   };
 
-  it('includes words only when OCR is done for the current image', () => {
+  it('includes words only when OCR is done for the current image', async () => {
     const words = [word('Hi', 0, 0, 10, 10)];
     const pages: Page[] = [
       { ...base, id: 'a', ocrStatus: 'done', ocrWords: words },
       { ...base, id: 'b', ocrStatus: 'pending', ocrWords: words },
     ];
-    const input = pagesToPdfInput(pages);
+    const input = await pagesToPdfInput(pages);
     expect(input[0].words).toBe(words);
     expect(input[1].words).toBeUndefined();
+  });
+
+  it('uses the rendered (annotated) image when a renderer is given', async () => {
+    const annotated = new Blob(['annotated']);
+    const pages: Page[] = [{ ...base, id: 'a', processedBlob: new Blob(['plain']) }];
+    const input = await pagesToPdfInput(pages, async () => annotated);
+    expect(input[0].blob).toBe(annotated);
   });
 });

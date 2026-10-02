@@ -6,6 +6,7 @@ import { ScannedDocument } from '@/types';
 import { useBlobUrl } from '@/hooks/useBlobUrl';
 import { db } from '@/lib/db';
 import { generatePdf, pagesToPdfInput, shareOrDownload } from '@/lib/pdf';
+import { getRenderedBlob } from '@/lib/annotations/flatten';
 
 interface DocumentCardProps {
   document: ScannedDocument;
@@ -64,7 +65,7 @@ export function DocumentCard({ document, onDelete }: DocumentCardProps) {
     try {
       const pages = await db.pages.where('documentId').equals(document.id).sortBy('pageNumber');
       if (pages.length > 0) {
-        const pdfBlob = await generatePdf(pagesToPdfInput(pages));
+        const pdfBlob = await generatePdf(await pagesToPdfInput(pages, getRenderedBlob));
         await shareOrDownload(pdfBlob, `${document.name}.pdf`, document.name);
       }
     } catch (err) {

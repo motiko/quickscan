@@ -5,7 +5,8 @@ import { nanoid } from 'nanoid';
 import { db } from '@/lib/db';
 import { createThumbnail } from '@/lib/image-processing';
 import { rebuildSearchText } from '@/lib/ocr-queue';
-import type { ScannedDocument, Page, ImageFilter } from '@/types';
+import { getRenderedBlob } from '@/lib/annotations/flatten';
+import type { ScannedDocument, Page, ImageFilter, Annotation } from '@/types';
 
 export function useDocuments() {
   const documents = useLiveQuery(
@@ -101,7 +102,7 @@ export async function addPageToDocument(
 
 export async function updatePage(
   pageId: string,
-  updates: Partial<Pick<Page, 'processedBlob' | 'filter' | 'corners'>>
+  updates: Partial<Pick<Page, 'processedBlob' | 'filter' | 'corners' | 'annotations'>>
 ): Promise<void> {
   // A new image invalidates any text recognized from the old one
   const ocrReset = updates.processedBlob ? { ocrStatus: 'pending' as const } : {};
@@ -136,9 +137,7 @@ export async function deletePage(pageId: string): Promise<void> {
           updatedAt: new Date(),
         };
         if (page.pageNumber === 1) {
-          updates.thumbnailBlob = await createThumbnail(
-            newFirst.processedBlob || newFirst.originalBlob
-          );
+          updates.thumbnailBlob = await createThumbnail(await getRenderedBlob(newFirst));
         }
         await db.documents.update(page.documentId, updates);
       }
@@ -147,6 +146,16 @@ export async function deletePage(pageId: string): Promise<void> {
 
   if (await db.documents.get(page.documentId)) {
     await rebuildSearchText(page.documentId);
+  }
+}
+
+/** Store a page's annotations and keep the gallery thumbnail in sync when it's the first page. */
+export async function savePageAnnotations(pageId: string, annotations: Annotation[]): Promise<void> {
+  await db.pages.update(pageId, { annotations });
+  const page = await db.pages.get(pageId);
+  if (page?.pageNumber === 1) {
+    const thumbnailBlob = await createThumbnail(await getRenderedBlob(page));
+    await db.documents.update(page.documentId, { thumbnailBlob, updatedAt: new Date() });
   }
 }
 

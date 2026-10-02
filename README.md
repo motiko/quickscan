@@ -14,6 +14,9 @@ A mobile-first Progressive Web App for scanning documents using your phone's cam
 - **Document gallery** — Browse, rename, and delete saved scans
 - **Offline-first** — All data stored locally in IndexedDB, works without internet
 - **Installable PWA** — Add to home screen for native app experience
+- **Text recognition (OCR)** — On-device Tesseract.js; copy text, search the gallery, and export searchable PDFs
+- **Smart naming** — New scans are named from their content (e.g. “Rechnung – Telekom – 2026-09-14”), optionally via any OpenAI-compatible model (OpenRouter, Ollama)
+- **Annotation** — Pen, highlighter, rectangles, arrows, text boxes, and a reusable signature
 
 ## 🛠️ Tech Stack
 
@@ -25,6 +28,7 @@ A mobile-first Progressive Web App for scanning documents using your phone's cam
 | Edge Detection | [jscanify](https://github.com/nickodev/jscanify) (OpenCV.js) |
 | Local Storage | [Dexie.js](https://dexie.org/) (IndexedDB) |
 | PDF Generation | [pdf-lib](https://pdf-lib.js.org/) |
+| OCR | [Tesseract.js](https://tesseract.projectnaptha.com/) |
 | PWA | [@serwist/next](https://serwist.pages.dev/) |
 | Hosting | [Vercel](https://vercel.com/) |
 | CI | GitHub Actions |
@@ -95,7 +99,7 @@ src/
 - [x] **Phase 1:** Camera capture, manual crop, filters, PDF export, gallery
 - [x] **Phase 2:** Auto edge detection, auto-capture, image enhancement, Share API
 - [ ] **Phase 3:** User accounts, cloud sync, folders & tags
-- [ ] **Phase 4:** OCR/text extraction, AI document naming, annotation
+- [x] **Phase 4:** OCR/text extraction, AI document naming, annotation
 
 ## 🤝 Contributing
 

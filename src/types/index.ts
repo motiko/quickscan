@@ -70,6 +70,26 @@ export interface Page {
   ocrText?: string;
   ocrWords?: OcrWord[];
   ocrLang?: string;
+  annotations?: Annotation[];
+}
+
+/*
+ * Annotation coordinates are normalized to the page image: x/y in 0..1 of width/height.
+ * Stroke widths and font sizes are fractions of the image width.
+ */
+export type Annotation =
+  | { id: string; type: 'stroke'; tool: 'pen' | 'highlighter'; points: Point[]; color: string; width: number }
+  | { id: string; type: 'rect'; x: number; y: number; w: number; h: number; color: string; width: number }
+  | { id: string; type: 'arrow'; x1: number; y1: number; x2: number; y2: number; color: string; width: number }
+  | { id: string; type: 'text'; x: number; y: number; text: string; fontSize: number; color: string }
+  | { id: string; type: 'signature'; x: number; y: number; w: number; h: number; signatureId: string };
+
+export interface Signature {
+  id: string;
+  blob: Blob; // trimmed PNG with transparent background
+  width: number;
+  height: number;
+  createdAt: Date;
 }
 
 export interface AppSettings {
