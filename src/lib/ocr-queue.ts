@@ -14,6 +14,17 @@ export function onPageOcrDone(listener: PageOcrListener): () => void {
   return () => listeners.delete(listener);
 }
 
+/** Tell listeners a page has new text; also used when a cloud model re-transcribes a page. */
+export async function notifyPageOcrDone(documentId: string, pageNumber: number): Promise<void> {
+  for (const listener of listeners) {
+    try {
+      await listener(documentId, pageNumber);
+    } catch (err) {
+      console.warn('OCR listener failed:', err);
+    }
+  }
+}
+
 export async function rebuildSearchText(documentId: string): Promise<void> {
   const pages = await db.pages.where('documentId').equals(documentId).sortBy('pageNumber');
   const searchText = pages
@@ -71,14 +82,7 @@ export async function processPendingOcr(): Promise<void> {
             },
           });
           await rebuildSearchText(page.documentId);
-
-          for (const listener of listeners) {
-            try {
-              await listener(page.documentId, after.pageNumber);
-            } catch (err) {
-              console.warn('OCR listener failed:', err);
-            }
-          }
+          await notifyPageOcrDone(page.documentId, after.pageNumber);
         } catch (err) {
           console.warn('OCR failed for page', page.id, err);
           await db.pages.update(page.id, { ocrStatus: 'error' });
