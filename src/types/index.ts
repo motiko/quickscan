@@ -66,13 +66,25 @@ export interface OcrWord {
   confidence: number;
 }
 
-export interface OcrInfo {
-  engine: 'tesseract';
-  languages: string[]; // traineddata used
+interface OcrInfoBase {
   detectedLanguage?: string; // Tesseract language code
-  confidence?: number; // 0-100
   recognizedAt: Date;
 }
+
+export interface TesseractOcrInfo extends OcrInfoBase {
+  engine: 'tesseract';
+  languages: string[]; // traineddata used
+  confidence?: number; // 0-100
+}
+
+/** Text transcribed by a cloud model; the page keeps its Tesseract word boxes. */
+export interface LlmOcrInfo extends OcrInfoBase {
+  engine: 'llm';
+  provider: LlmProvider;
+  model: string;
+}
+
+export type OcrInfo = TesseractOcrInfo | LlmOcrInfo;
 
 export interface Page {
   id: string;
