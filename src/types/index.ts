@@ -56,6 +56,14 @@ export interface OcrWord {
   confidence: number;
 }
 
+export interface OcrInfo {
+  engine: 'tesseract';
+  languages: string[]; // traineddata used
+  detectedLanguage?: string; // Tesseract language code
+  confidence?: number; // 0-100
+  recognizedAt: Date;
+}
+
 export interface Page {
   id: string;
   documentId: string;
@@ -69,7 +77,8 @@ export interface Page {
   ocrStatus?: OcrStatus;
   ocrText?: string;
   ocrWords?: OcrWord[];
-  ocrLang?: string;
+  ocrLang?: string; // languages joined by '+'; kept for pages recognized before ocrInfo
+  ocrInfo?: OcrInfo;
   annotations?: Annotation[];
 }
 

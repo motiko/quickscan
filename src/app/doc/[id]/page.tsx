@@ -398,6 +398,8 @@ export default function DocumentViewer() {
           pages={pages}
           title="Text · All pages"
           ocrEnabled={settings.ocrEnabled}
+          ocrLanguages={settings.ocrLanguages}
+          documentId={id}
           onClose={() => setShowDocumentText(false)}
         />
       )}
@@ -498,6 +500,7 @@ export default function DocumentViewer() {
               pages={[selectedPage]}
               title={`Text · Page ${selectedPage.pageNumber}`}
               ocrEnabled={settings.ocrEnabled}
+              ocrLanguages={settings.ocrLanguages}
               onClose={() => setShowText(false)}
             />
           )}

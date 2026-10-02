@@ -7,7 +7,7 @@ vi.mock('@/lib/ocr', () => ({
 
 import { db } from '@/lib/db';
 import { recognize } from '@/lib/ocr';
-import { processPendingOcr, onPageOcrDone, resetStaleOcr } from '@/lib/ocr-queue';
+import { processPendingOcr, onPageOcrDone, resetStaleOcr, retryDocumentOcr } from '@/lib/ocr-queue';
 import { updateSettings } from '@/lib/settings';
 import type { Page } from '@/types';
 
@@ -68,6 +68,33 @@ describe('processPendingOcr', () => {
     expect((await db.pages.get('p1'))?.ocrLang).toBe('eng+deu');
   });
 
+  it('records how the page was recognized', async () => {
+    mockRecognize.mockResolvedValue({
+      text: 'Sehr geehrte Damen und Herren, anbei erhalten Sie die Rechnung für die gelieferten Waren.',
+      words: [],
+      confidence: 86.6,
+    });
+    await updateSettings({ ocrLanguages: ['eng'] });
+    await db.pages.add(makePage('p1', 1));
+
+    await processPendingOcr();
+
+    const info = (await db.pages.get('p1'))?.ocrInfo;
+    expect(info).toMatchObject({ engine: 'tesseract', languages: ['eng'], detectedLanguage: 'deu', confidence: 87 });
+    expect(info?.recognizedAt).toBeInstanceOf(Date);
+  });
+
+  it('leaves the detected language empty for short text', async () => {
+    mockRecognize.mockResolvedValue({ text: 'Total 42', words: [], confidence: 70 });
+    await db.pages.add(makePage('p1', 1));
+
+    await processPendingOcr();
+
+    const info = (await db.pages.get('p1'))?.ocrInfo;
+    expect(info?.detectedLanguage).toBeUndefined();
+    expect(info?.confidence).toBe(70);
+  });
+
   it('marks a page as error when recognition throws', async () => {
     mockRecognize.mockRejectedValue(new Error('offline'));
     await db.pages.add(makePage('p1', 1));
@@ -112,6 +139,27 @@ describe('processPendingOcr', () => {
     unsubscribe();
 
     expect(listener).toHaveBeenCalledWith('doc1', 1);
+  });
+});
+
+describe('retryDocumentOcr', () => {
+  it('re-recognizes every page of the document and leaves other documents alone', async () => {
+    mockRecognize.mockResolvedValue({ text: 'again', words: [], confidence: 90 });
+    await db.pages.bulkAdd([
+      makePage('p1', 1, { ocrStatus: 'done', ocrText: 'old' }),
+      makePage('p2', 2, { ocrStatus: 'error' }),
+      makePage('other', 1, { documentId: 'doc2', ocrStatus: 'done', ocrText: 'keep' }),
+    ]);
+
+    await retryDocumentOcr('doc1');
+
+    expect(mockRecognize).toHaveBeenCalledTimes(2);
+    const pages = await db.pages.orderBy('id').toArray();
+    expect(pages.map((p) => [p.id, p.ocrStatus, p.ocrText])).toEqual([
+      ['other', 'done', 'keep'],
+      ['p1', 'done', 'again'],
+      ['p2', 'done', 'again'],
+    ]);
   });
 });
 

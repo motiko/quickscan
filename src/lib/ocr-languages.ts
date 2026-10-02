@@ -111,6 +111,11 @@ export function getOcrLanguage(code: string): OcrLanguage | undefined {
   return LANGUAGE_BY_CODE.get(code);
 }
 
+/** English name of a Tesseract language code, falling back to the code itself. */
+export function ocrLanguageName(code: string): string {
+  return LANGUAGE_BY_CODE.get(code)?.label ?? code;
+}
+
 /** Case- and accent-insensitive form, so "espanol" finds "Español". */
 function normalize(text: string): string {
   return text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();

@@ -12,16 +12,27 @@ export async function resetDatabase(page: Page) {
   );
 }
 
+interface SeedOptions {
+  name?: string;
+  text?: string;
+  /** Background OCR is off by default; a seeded 'done' page is left alone either way. */
+  ocrEnabled?: boolean;
+  ocrInfo?: { languages: string[]; detectedLanguage?: string; confidence?: number };
+}
+
 /**
  * Let the app create its schema, then insert a one-page document whose page is already
- * recognized. Background OCR is switched off so it leaves the seeded page alone.
+ * recognized.
  */
-export async function seedDocument(page: Page, { name = 'Scan 2026-10-01 12:00', text = '' } = {}) {
+export async function seedDocument(
+  page: Page,
+  { name = 'Scan 2026-10-01 12:00', text = '', ocrEnabled = false, ocrInfo }: SeedOptions = {}
+) {
   await page.goto('/');
   // The gallery has queried the DB once this shows, so the schema exists
   await expect(page.getByText('No documents yet')).toBeVisible();
   await page.evaluate(
-    async ({ text, name }) => {
+    async ({ text, name, ocrEnabled, ocrInfo }) => {
       const blob: Blob = await new Promise((r) => {
         const c = document.createElement('canvas');
         c.width = 600;
@@ -40,13 +51,14 @@ export async function seedDocument(page: Page, { name = 'Scan 2026-10-01 12:00',
           const db = req.result;
           const tx = db.transaction(['documents', 'pages', 'settings'], 'readwrite');
           const now = new Date();
-          tx.objectStore('settings').put({ key: 'ocrEnabled', value: false });
+          tx.objectStore('settings').put({ key: 'ocrEnabled', value: ocrEnabled });
           tx.objectStore('documents').put({
             id: 'd1', name, createdAt: now, updatedAt: now, pageCount: 1, nameSource: 'default', thumbnailBlob: blob,
           });
           tx.objectStore('pages').put({
             id: 'p1', documentId: 'd1', pageNumber: 1, originalBlob: blob, processedBlob: blob,
             filter: 'original', createdAt: now, ocrStatus: 'done', ocrText: text, ocrWords: [],
+            ...(ocrInfo && { ocrInfo: { engine: 'tesseract', recognizedAt: now, ...ocrInfo } }),
           });
           tx.oncomplete = () => { db.close(); resolve(); };
           tx.onerror = () => reject(tx.error);
@@ -54,7 +66,7 @@ export async function seedDocument(page: Page, { name = 'Scan 2026-10-01 12:00',
         req.onerror = () => reject(req.error);
       });
     },
-    { text, name }
+    { text, name, ocrEnabled, ocrInfo }
   );
 }
 

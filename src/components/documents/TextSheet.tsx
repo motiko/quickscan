@@ -2,15 +2,95 @@
 
 import { useState } from 'react';
 import type { Page } from '@/types';
-import { retryOcr } from '@/lib/ocr-queue';
+import { retryDocumentOcr, retryOcr } from '@/lib/ocr-queue';
 import { collectDocumentText } from '@/lib/ocr-text';
+import { ocrLanguageName } from '@/lib/ocr-languages';
+import { getSettings, updateSettings } from '@/lib/settings';
+import { CheckIcon, CloseIcon, CopyIcon, InfoIcon, RetryIcon } from '@/components/ui/icons';
 
 interface TextSheetProps {
   /** One page for the page viewer, or all pages of the document. */
   pages: Page[];
   title: string;
   ocrEnabled: boolean;
+  /** Languages currently configured for OCR. */
+  ocrLanguages: string[];
+  /** Set when showing the whole document, so retry re-runs every page. */
+  documentId?: string;
   onClose: () => void;
+}
+
+const iconButton =
+  'flex h-9 w-9 items-center justify-center rounded-full text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-neutral-800 disabled:opacity-40 disabled:hover:bg-transparent';
+
+function isBusy(page: Page): boolean {
+  return page.ocrStatus === 'pending' || page.ocrStatus === 'processing';
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <>
+      <dt className="text-gray-500 dark:text-gray-400">{label}</dt>
+      <dd className="text-gray-900 dark:text-gray-100">{value}</dd>
+    </>
+  );
+}
+
+function PageInfo({
+  page,
+  heading,
+  ocrEnabled,
+  ocrLanguages,
+  onAddLanguage,
+}: {
+  page: Page;
+  heading?: string;
+  ocrEnabled: boolean;
+  ocrLanguages: string[];
+  onAddLanguage: (code: string) => void;
+}) {
+  const info = page.ocrInfo;
+  const languages = info?.languages ?? page.ocrLang?.split('+').filter(Boolean) ?? [];
+  const recognized = Boolean(info || page.ocrLang);
+  const detected = info?.detectedLanguage;
+  const missing = ocrEnabled && detected && !ocrLanguages.includes(detected) ? detected : undefined;
+
+  return (
+    <div className="rounded-lg bg-gray-50 dark:bg-neutral-800/60 px-3 py-2 text-xs">
+      {heading && (
+        <h3 className="mb-1 font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">{heading}</h3>
+      )}
+      {recognized ? (
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
+          <InfoRow label="Method" value="Tesseract" />
+          <InfoRow label="OCR languages" value={languages.length ? languages.map(ocrLanguageName).join(', ') : '—'} />
+          <InfoRow
+            label="Detected language"
+            value={info ? (detected ? ocrLanguageName(detected) : 'Undetermined') : '—'}
+          />
+          <InfoRow label="Confidence" value={info?.confidence !== undefined ? `${Math.round(info.confidence)}%` : '—'} />
+          <InfoRow
+            label="Recognized"
+            value={info?.recognizedAt ? new Date(info.recognizedAt).toLocaleString() : '—'}
+          />
+        </dl>
+      ) : (
+        <p className="text-gray-500 dark:text-gray-400">Text hasn&apos;t been recognized yet.</p>
+      )}
+      {missing && (
+        <div className="mt-2 flex items-center justify-between gap-2 text-amber-700 dark:text-amber-400">
+          <span>{ocrLanguageName(missing)} isn&apos;t selected for text recognition.</span>
+          <button
+            onClick={() => onAddLanguage(missing)}
+            disabled={isBusy(page)}
+            className="shrink-0 rounded-full border border-current px-3 py-1 font-semibold disabled:opacity-40"
+          >
+            Add &amp; retry
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function PageText({ page, ocrEnabled }: { page: Page; ocrEnabled: boolean }) {
@@ -53,10 +133,12 @@ function PageText({ page, ocrEnabled }: { page: Page; ocrEnabled: boolean }) {
   );
 }
 
-export function TextSheet({ pages, title, ocrEnabled, onClose }: TextSheetProps) {
+export function TextSheet({ pages, title, ocrEnabled, ocrLanguages, documentId, onClose }: TextSheetProps) {
   const [copied, setCopied] = useState(false);
+  const [showInfo, setShowInfo] = useState(false);
   const text = collectDocumentText(pages);
   const showPageHeadings = pages.length > 1;
+  const busy = pages.some(isBusy);
 
   const handleCopy = async () => {
     try {
@@ -68,6 +150,18 @@ export function TextSheet({ pages, title, ocrEnabled, onClose }: TextSheetProps)
     }
   };
 
+  const retry = async () => {
+    if (documentId) await retryDocumentOcr(documentId);
+    else await Promise.all(pages.map((p) => retryOcr(p.id)));
+  };
+
+  const addLanguageAndRetry = async (code: string) => {
+    // Read fresh settings so a quick double tap can't drop another language
+    const current = (await getSettings()).ocrLanguages;
+    if (!current.includes(code)) await updateSettings({ ocrLanguages: [...current, code] });
+    await retry();
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex flex-col justify-end bg-black/40 select-none" onClick={onClose}>
       <div
@@ -76,27 +170,65 @@ export function TextSheet({ pages, title, ocrEnabled, onClose }: TextSheetProps)
         role="dialog"
         aria-label="Recognized text"
       >
-        <div className="flex items-center justify-between border-b border-gray-200 dark:border-neutral-800 px-4 py-3">
-          <h2 className="text-sm font-bold text-gray-900 dark:text-gray-100">{title}</h2>
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between gap-2 border-b border-gray-200 dark:border-neutral-800 py-2 pl-4 pr-2">
+          <h2 className="truncate text-sm font-bold text-gray-900 dark:text-gray-100">{title}</h2>
+          <div className="flex shrink-0 items-center gap-1">
+            {pages.length > 0 && (
+              <button
+                onClick={() => setShowInfo((v) => !v)}
+                aria-label="Text info"
+                title="Text info"
+                aria-pressed={showInfo}
+                className={`${iconButton} ${showInfo ? 'bg-gray-100 text-blue-600 dark:bg-neutral-800 dark:text-blue-400' : ''}`}
+              >
+                <InfoIcon />
+              </button>
+            )}
+            {ocrEnabled && pages.length > 0 && (
+              <button
+                onClick={() => void retry()}
+                disabled={busy}
+                aria-label="Retry text recognition"
+                title="Retry text recognition"
+                className={iconButton}
+              >
+                <RetryIcon />
+              </button>
+            )}
             {text && (
               <button
                 onClick={handleCopy}
-                className="rounded-full bg-blue-600 px-3 py-1 text-xs font-semibold text-white hover:bg-blue-700"
+                aria-label="Copy text"
+                title={copied ? 'Copied' : 'Copy text'}
+                className={`${iconButton} ${copied ? 'text-green-600 dark:text-green-400' : ''}`}
               >
-                {copied ? 'Copied' : 'Copy'}
+                {copied ? <CheckIcon /> : <CopyIcon />}
               </button>
             )}
-            <button
-              onClick={onClose}
-              className="rounded-full px-3 py-1 text-xs font-semibold text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-neutral-800"
-            >
-              Close
+            <span className="sr-only" aria-live="polite">
+              {copied ? 'Copied' : ''}
+            </span>
+            <button onClick={onClose} aria-label="Close" title="Close" className={iconButton}>
+              <CloseIcon />
             </button>
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 py-3">
+          {showInfo && pages.length > 0 && (
+            <div className="mb-4 space-y-2" aria-label="Text recognition info" role="region">
+              {pages.map((page, index) => (
+                <PageInfo
+                  key={page.id}
+                  page={page}
+                  heading={showPageHeadings ? `Page ${index + 1}` : undefined}
+                  ocrEnabled={ocrEnabled}
+                  ocrLanguages={ocrLanguages}
+                  onAddLanguage={(code) => void addLanguageAndRetry(code)}
+                />
+              ))}
+            </div>
+          )}
           {pages.length === 0 && (
             <p className="text-sm text-gray-500 dark:text-gray-400">This document has no pages.</p>
           )}
