@@ -222,7 +222,7 @@ export function detectDocumentQuad(imageData: ImageData): { corners: Quad; confi
 export async function detectDocumentQuadAsync(
   imageData: ImageData,
   options: DetectionOptions = {}
-): Promise<{ corners: Quad; confidence: number } | null> {
+): Promise<DetectedQuad | null> {
   const { detector = 'classical', minConfidence = 0.3 } = options;
 
   if (detector === 'ml') {
@@ -266,5 +266,6 @@ export async function detectDocumentQuadAsync(
     console.warn('WASM document detection error, trying fallback:', { err });
   }
 
-  return detectDocumentQuad(imageData);
+  const classical = detectDocumentQuad(imageData);
+  return classical ? { ...classical } : null;
 }

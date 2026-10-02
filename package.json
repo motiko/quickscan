@@ -16,6 +16,7 @@
     "sim": "./scripts/ios-simulator.sh"
   },
   "dependencies": {
+    "@tensorflow/tfjs": "^4.22.0",
     "@tensorflow/tfjs-backend-wasm": "^4.22.0",
     "@tensorflow/tfjs-backend-webgpu": "^4.22.0",
     "@tensorflow/tfjs-core": "^4.22.0",

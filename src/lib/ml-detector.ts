@@ -1,6 +1,4 @@
-import * as tf from '@tensorflow/tfjs-core';
-import '@tensorflow/tfjs-backend-webgpu';
-import '@tensorflow/tfjs-backend-wasm';
+import * as tf from '@tensorflow/tfjs';
 
 export interface Corner {
   x: number;

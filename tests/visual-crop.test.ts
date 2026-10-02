@@ -41,6 +41,7 @@ describe('Document Detection Visual Regression', () => {
 
     // 1. Extract frame
     const { imageData, width, height, canvas } = await extractFrame(videoFile);
+    const browserImageData = imageData as any;
 
     // 2. Detect corners using the new Hybrid ML+CV pipeline
     const result = await detectDocumentQuadAsync(imageData, { detector: 'ml' });

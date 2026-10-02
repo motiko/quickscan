@@ -35,7 +35,7 @@ export class DocumentTracker {
         x: last.x + actualAlpha * (p.x - last.x),
         y: last.y + actualAlpha * (p.y - last.y),
       };
-    });
+    }) as Quad;
 
     this.state.lastCorners = smoothed;
     return smoothed;
