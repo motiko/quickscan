@@ -40,7 +40,7 @@ export default function Home() {
 
   return (
     <div
-      className="flex min-h-screen flex-col bg-gray-50 dark:bg-neutral-950 pb-safe-offset-6"
+      className="flex min-h-screen flex-col bg-gray-50 dark:bg-neutral-950 pb-safe-offset-24"
       onDragOver={(e) => {
         if (!e.dataTransfer.types.includes('Files')) return;
         e.preventDefault();
@@ -127,34 +127,32 @@ export default function Home() {
         )}
       </main>
 
-      <button
-        onClick={openFilePicker}
-        className="fixed bottom-safe-offset-24 right-7 z-20 flex h-12 w-12 items-center justify-center rounded-full bg-white dark:bg-neutral-800 text-blue-600 dark:text-blue-400 shadow-lg hover:bg-gray-50 dark:hover:bg-neutral-700"
-        aria-label="Upload files"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-          <polyline points="17 8 12 3 7 8"></polyline>
-          <line x1="12" y1="3" x2="12" y2="15"></line>
-        </svg>
-      </button>
-
-      <button
-        onClick={() => router.push('/scan')}
-        className="fixed bottom-safe-offset-6 right-6 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 shadow-lg hover:bg-blue-700 active:bg-blue-800"
-        aria-label="Scan new document"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          fill="none"
-          viewBox="0 0 24 24"
-          strokeWidth={2.5}
-          stroke="currentColor"
-          className="h-6 w-6 text-white"
+      <div className="fixed bottom-safe-offset-6 right-4 z-20 flex gap-3">
+        <button
+          onClick={openFilePicker}
+          className="flex h-12 items-center gap-2 rounded-full bg-white dark:bg-neutral-800 px-5 text-sm font-semibold text-gray-900 dark:text-gray-100 shadow-lg ring-1 ring-black/5 dark:ring-white/10 hover:bg-gray-50 dark:hover:bg-neutral-700 active:bg-gray-100 dark:active:bg-neutral-600"
+          aria-label="Upload files"
         >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-        </svg>
-      </button>
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="17 8 12 3 7 8"></polyline>
+            <line x1="12" y1="3" x2="12" y2="15"></line>
+          </svg>
+          Upload
+        </button>
+
+        <button
+          onClick={() => router.push('/scan')}
+          className="flex h-12 items-center gap-2 rounded-full bg-blue-600 px-5 text-sm font-semibold text-white shadow-lg hover:bg-blue-700 active:bg-blue-800"
+          aria-label="Scan new document"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+            <circle cx="12" cy="13" r="4"></circle>
+          </svg>
+          Camera
+        </button>
+      </div>
     </div>
   );
 }
