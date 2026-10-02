@@ -102,7 +102,6 @@ export interface Signature {
 }
 
 export interface AppSettings {
-  ocrEnabled: boolean;
   ocrLanguages: string[]; // Tesseract language codes, e.g. ['eng', 'deu']
   llmEnabled: boolean;
   llmProvider: LlmProvider;
