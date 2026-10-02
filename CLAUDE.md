@@ -30,7 +30,8 @@ QuickScan is a mobile-first Progressive Web App (PWA) built with Next.js 16 (App
 ### High-Level Structure
 - `src/app/`: Next.js App Router pages.
     - `/scan`: Camera capture and scanning interface.
-    - `/doc/[id]`: Document viewing and PDF export.
+    - `/doc/[id]`: Document viewing, OCR text, annotation, and PDF export.
+    - `/settings`: OCR languages and document naming / LLM configuration.
     - `/`: Home page showing the document gallery.
 - `src/components/`: UI components categorized by feature (camera, documents, ui).
 - `src/lib/`: Core business logic and utilities.
@@ -39,10 +40,15 @@ QuickScan is a mobile-first Progressive Web App (PWA) built with Next.js 16 (App
     - `pdf.ts`: PDF generation using `pdf-lib`.
     - `image-processing.ts`: Canvas-based image filters and transformations.
     - `scanner.worker.ts`: Web Worker for computationally expensive edge detection (jscanify/OpenCV.js).
+    - `ocr.ts` / `ocr-queue.ts`: Tesseract.js OCR; pages with `ocrStatus: 'pending'` are processed in the background (`OcrRunner` in the root layout).
+    - `naming/`: Document naming from OCR text — on-device heuristics, optional OpenAI-compatible LLM.
+    - `annotations/`: Annotation geometry, canvas rendering and flattening onto page images.
+    - `settings.ts`: App settings stored in the Dexie `settings` table.
 - `src/hooks/`: Shared React hooks for camera, database, and document state.
 
 ### Key Technical Decisions
 - **Client-Side Only**: No backend; all data is stored in IndexedDB via Dexie.js.
 - **Edge Detection**: Uses a Web Worker to prevent UI blocking during OpenCV.js processing.
 - **PWA**: Implemented via `@serwist/next` for offline-first capabilities and "Add to Home Screen" experience.
-- **PDF Export**: Multi-page PDFs are generated on the client using `pdf-lib`.
+- **PDF Export**: Multi-page PDFs are generated on the client using `pdf-lib`, with annotations flattened into the page images and an invisible OCR text layer.
+- **Annotations**: Stored as vector data on each page (coordinates normalized 0..1), separate from the image, so they stay editable.

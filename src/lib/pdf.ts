@@ -5,12 +5,20 @@ export interface PdfPageInput {
   words?: OcrWord[];
 }
 
-/** Use OCR words only when they were recognized from the page's current image. */
-export function pagesToPdfInput(pages: Page[]): PdfPageInput[] {
-  return pages.map((p) => ({
-    blob: p.processedBlob || p.originalBlob,
-    words: p.ocrStatus === 'done' ? p.ocrWords : undefined,
-  }));
+/**
+ * Pages as PDF input: annotations burned into the image, and OCR words only when they
+ * were recognized from the page's current image.
+ */
+export async function pagesToPdfInput(
+  pages: Page[],
+  render: (page: Page) => Promise<Blob> = async (p) => p.processedBlob || p.originalBlob
+): Promise<PdfPageInput[]> {
+  return Promise.all(
+    pages.map(async (p) => ({
+      blob: await render(p),
+      words: p.ocrStatus === 'done' ? p.ocrWords : undefined,
+    }))
+  );
 }
 
 export interface PdfTextPlacement {
