@@ -37,3 +37,29 @@ jobs:
       - name: Test
         run: npm run test -- --passWithNoTests
         continue-on-error: true
+
+  live-llm:
+    name: Live LLM Tests
+    runs-on: ubuntu-latest
+    # Fork PRs get no secrets; the tests would only skip
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Live LLM tests
+        run: npm run test:live
+        env:
+          CUSTOM_LLM_KEY: ${{ secrets.CUSTOM_LLM_KEY }}
+          CUSTOM_LLM_BASE_URL: https://ollama.com/v1
+          CUSTOM_LLM_MODEL: gemma4:31b

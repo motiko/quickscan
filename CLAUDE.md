@@ -15,6 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Testing
 - Unit Tests (Vitest): `npm run test`
 - Run single test: `npx vitest run path/to/test.ts`
+- Live LLM Tests: `npm run test:live` — `*.live.test.ts` files against real providers; keys from gitignored `.env.test.local` (template: `.env.example`) or the `CUSTOM_LLM_KEY` CI secret; never put keys in `NEXT_PUBLIC_*` vars
 - E2E Tests (Playwright): `npm run e2e`
 - E2E Tests UI: `npm run e2e:ui`
 - E2E Tests Headed: `npm run e2e:headed`
