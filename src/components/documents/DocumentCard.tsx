@@ -9,9 +9,9 @@ import { generatePdf, pagesToPdfInput, shareOrDownload } from '@/lib/pdf';
 import { getRenderedBlob } from '@/lib/annotations/flatten';
 import { collectDocumentText } from '@/lib/ocr-text';
 
-const overlayButtonClass =
-  'p-1.5 bg-white/80 dark:bg-neutral-800/80 text-gray-600 dark:text-gray-300 rounded-full backdrop-blur-sm shadow-sm transition-colors';
-const overlayRevealClass = 'opacity-80 md:opacity-0 group-hover:opacity-100 focus-within:opacity-100';
+// 36px square tap targets for touch.
+const actionButtonClass =
+  'flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-gray-500 dark:text-gray-400 active:scale-95 disabled:opacity-50 transition-colors';
 
 interface DocumentCardProps {
   document: ScannedDocument;
@@ -123,70 +123,6 @@ export function DocumentCard({ document, onDelete }: DocumentCardProps) {
               </svg>
             </div>
           )}
-
-          {/* Quick actions overlay: copy text and share */}
-          <div className={`absolute top-2 right-2 flex flex-col gap-1.5 z-10 transition-opacity ${overlayRevealClass}`}>
-            <div className="relative">
-              <button
-                onClick={handleCopyText}
-                className={`${overlayButtonClass} hover:bg-blue-50 dark:hover:bg-blue-950 hover:text-blue-600 dark:hover:text-blue-400`}
-                aria-label="Copy text"
-                title="Copy text"
-              >
-                {copyState === 'copied' ? (
-                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-green-600 dark:text-green-400">
-                    <polyline points="20 6 9 17 4 12"></polyline>
-                  </svg>
-                ) : (
-                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                  </svg>
-                )}
-              </button>
-              {copyState !== 'idle' && (
-                <span
-                  role="status"
-                  className="absolute right-full top-1/2 -translate-y-1/2 mr-1.5 whitespace-nowrap rounded-full bg-gray-900/85 px-2 py-0.5 text-[11px] font-medium text-white shadow-sm"
-                >
-                  {copyState === 'copied' ? 'Copied' : 'No text yet'}
-                </span>
-              )}
-            </div>
-
-            <button
-              onClick={handleShare}
-              disabled={isSharing}
-              className={`${overlayButtonClass} hover:bg-blue-50 dark:hover:bg-blue-950 hover:text-blue-600 dark:hover:text-blue-400`}
-              aria-label="Share document"
-              title="Share as PDF"
-            >
-              {isSharing ? (
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
-              ) : (
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="18" cy="5" r="3"></circle>
-                  <circle cx="6" cy="12" r="3"></circle>
-                  <circle cx="18" cy="19" r="3"></circle>
-                  <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
-                  <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
-                </svg>
-              )}
-            </button>
-          </div>
-
-          {/* Delete button overlay, kept apart from the quick actions to avoid mis-taps */}
-          <button
-            onClick={handleDelete}
-            className={`absolute bottom-2 right-2 z-10 ${overlayButtonClass} ${overlayRevealClass} focus:opacity-100 hover:bg-red-50 dark:hover:bg-red-950 hover:text-red-600 dark:hover:text-red-400`}
-            aria-label="Delete document"
-            title="Delete"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="3 6 5 6 21 6"></polyline>
-              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-            </svg>
-          </button>
         </div>
 
         {/* Document info */}
@@ -198,6 +134,64 @@ export function DocumentCard({ document, onDelete }: DocumentCardProps) {
             <span>{document.pageCount} page{document.pageCount !== 1 ? 's' : ''}</span>
             <span>{relativeTime}</span>
           </div>
+        </div>
+
+        {/* Always-visible action bar (mobile first: no hover-only controls) */}
+        <div className="flex items-center gap-1 border-t border-gray-100 dark:border-neutral-800 px-1.5 py-1">
+          <button
+            onClick={handleCopyText}
+            className={`${actionButtonClass} hover:bg-blue-50 dark:hover:bg-blue-950 hover:text-blue-600 dark:hover:text-blue-400`}
+            aria-label="Copy text"
+            title="Copy text"
+          >
+            {copyState === 'copied' ? (
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-green-600 dark:text-green-400">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+            )}
+          </button>
+
+          <button
+            onClick={handleShare}
+            disabled={isSharing}
+            className={`${actionButtonClass} hover:bg-blue-50 dark:hover:bg-blue-950 hover:text-blue-600 dark:hover:text-blue-400`}
+            aria-label="Share document"
+            title="Share as PDF"
+          >
+            {isSharing ? (
+              <div className="h-[18px] w-[18px] animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="18" cy="5" r="3"></circle>
+                <circle cx="6" cy="12" r="3"></circle>
+                <circle cx="18" cy="19" r="3"></circle>
+                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+              </svg>
+            )}
+          </button>
+
+          <span role="status" className="flex-1 truncate text-center text-[11px] font-medium text-gray-500 dark:text-gray-400">
+            {copyState === 'copied' ? 'Copied' : copyState === 'empty' ? 'No text yet' : ''}
+          </span>
+
+          {/* Delete sits at the far end, apart from the quick actions to avoid mis-taps */}
+          <button
+            onClick={handleDelete}
+            className={`${actionButtonClass} hover:bg-red-50 dark:hover:bg-red-950 hover:text-red-600 dark:hover:text-red-400`}
+            aria-label="Delete document"
+            title="Delete"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+          </button>
         </div>
       </div>
     </Link>
