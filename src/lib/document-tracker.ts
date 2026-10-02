@@ -1,32 +1,35 @@
-import type { Point, Quad } from '@/types';
+import type { Quad } from '@/types';
 
 export interface TrackingState {
-  lastCorners: Quad | null;
+  lastSmoothedCorners: Quad | null; // for EMA output (visual overlay)
+  lastRawCorners: Quad | null; // for stability comparison (unsmoothed input)
   stabilityCount: number;
   isStable: boolean;
 }
 
 export class DocumentTracker {
   private state: TrackingState = {
-    lastCorners: null,
+    lastSmoothedCorners: null,
+    lastRawCorners: null,
     stabilityCount: 0,
     isStable: false,
   };
 
-  private readonly STABILITY_THRESHOLD = 5; // frames (~600ms at 8fps)
-  private readonly MOVEMENT_TOLERANCE = 0.01; // 1% of image size
+  private readonly STABILITY_THRESHOLD = 15; // frames (~1.8s at 8fps)
+  private readonly MOVEMENT_TOLERANCE = 0.008; // 0.8% of image size
 
   /**
    * Applies adaptive Exponential Moving Average (EMA) to smooth coordinates.
+   * Uses `lastSmoothedCorners` for blending. Large jumps (>0.1) snap immediately.
    */
-  smooth(current: Quad, alpha = 0.6): Quad {
-    if (!this.state.lastCorners) {
-      this.state.lastCorners = current;
+  smooth(current: Quad, alpha = 0.45): Quad {
+    if (!this.state.lastSmoothedCorners) {
+      this.state.lastSmoothedCorners = current;
       return current;
     }
 
     const smoothed: Quad = current.map((p, i) => {
-      const last = this.state.lastCorners![i];
+      const last = this.state.lastSmoothedCorners![i];
       // Adaptive: if distance is huge, snap immediately; otherwise smooth.
       const dist = Math.hypot(p.x - last.x, p.y - last.y);
       const actualAlpha = dist > 0.1 ? 1.0 : alpha;
@@ -37,22 +40,28 @@ export class DocumentTracker {
       };
     }) as Quad;
 
-    this.state.lastCorners = smoothed;
+    this.state.lastSmoothedCorners = smoothed;
     return smoothed;
   }
 
   /**
    * Checks if the document has been stable enough to trigger auto-capture.
+   * Compares raw (unsmoothed) corners to avoid the self-comparison bug where
+   * smoothed-vs-smoothed comparison made movement look artificially small.
    */
-  updateStability(current: Quad): { isStable: boolean; stability: number } {
-    if (!this.state.lastCorners) {
+  updateStability(rawCorners: Quad): { isStable: boolean; stability: number } {
+    if (!this.state.lastRawCorners) {
+      this.state.lastRawCorners = rawCorners;
       return { isStable: false, stability: 0 };
     }
 
-    const movement = current.reduce((acc, p, i) => {
-      const last = this.state.lastCorners![i];
-      return acc + Math.hypot(p.x - last.x, p.y - last.y);
-    }, 0) / 4;
+    const movement =
+      rawCorners.reduce((acc, p, i) => {
+        const last = this.state.lastRawCorners![i];
+        return acc + Math.hypot(p.x - last.x, p.y - last.y);
+      }, 0) / 4;
+
+    this.state.lastRawCorners = rawCorners;
 
     if (movement < this.MOVEMENT_TOLERANCE) {
       this.state.stabilityCount++;
@@ -60,19 +69,27 @@ export class DocumentTracker {
       this.state.stabilityCount = 0;
     }
 
-    this.state.isStable = this.state.stabilityCount >= this.STABILITY_THRESHOLD;
+    this.state.isStable =
+      this.state.stabilityCount >= this.STABILITY_THRESHOLD;
 
     return {
       isStable: this.state.isStable,
-      stability: this.state.stabilityCount / this.STABILITY_THRESHOLD,
+      stability: Math.min(1, this.state.stabilityCount / this.STABILITY_THRESHOLD),
     };
   }
 
-  reset() {
+  /** Resets all tracking state to initial values. */
+  reset(): void {
     this.state = {
-      lastCorners: null,
+      lastSmoothedCorners: null,
+      lastRawCorners: null,
       stabilityCount: 0,
       isStable: false,
     };
+  }
+
+  /** Returns the current stability frame count (useful for testing). */
+  getStabilityCount(): number {
+    return this.state.stabilityCount;
   }
 }
