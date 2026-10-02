@@ -1,12 +1,21 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import type { Page } from '@/types';
 import { retryDocumentOcr, retryOcr } from '@/lib/ocr-queue';
+import {
+  dismissCloudOcrError,
+  getCloudOcrStates,
+  retryOcrWithLlm,
+  subscribeCloudOcr,
+  type CloudOcrState,
+} from '@/lib/cloud-ocr';
+import { resolveLlmConfig } from '@/lib/llm/client';
+import { useSettings } from '@/hooks/useSettings';
 import { collectDocumentText } from '@/lib/ocr-text';
 import { ocrLanguageName } from '@/lib/ocr-languages';
 import { getSettings, updateSettings } from '@/lib/settings';
-import { CheckIcon, CloseIcon, CopyIcon, InfoIcon, RetryIcon } from '@/components/ui/icons';
+import { CheckIcon, CloseIcon, CloudIcon, CopyIcon, InfoIcon, RetryIcon } from '@/components/ui/icons';
 
 interface TextSheetProps {
   /** One page for the page viewer, or all pages of the document. */
@@ -22,8 +31,15 @@ interface TextSheetProps {
 const iconButton =
   'flex h-9 w-9 items-center justify-center rounded-full text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-neutral-800 disabled:opacity-40 disabled:hover:bg-transparent';
 
+const CLOUD_RETRY_LABEL = 'Retry text extraction with cloud model';
+const NO_CLOUD_STATES: ReadonlyMap<string, CloudOcrState> = new Map();
+
 function isBusy(page: Page): boolean {
   return page.ocrStatus === 'pending' || page.ocrStatus === 'processing';
+}
+
+function Spinner() {
+  return <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />;
 }
 
 function InfoRow({ label, value }: { label: string; value: string }) {
@@ -47,10 +63,13 @@ function PageInfo({
   onAddLanguage: (code: string) => void;
 }) {
   const info = page.ocrInfo;
-  const languages = info?.languages ?? page.ocrLang?.split('+').filter(Boolean) ?? [];
+  const tesseractInfo = info?.engine === 'llm' ? undefined : info;
+  const languages = tesseractInfo?.languages ?? page.ocrLang?.split('+').filter(Boolean) ?? [];
   const recognized = Boolean(info || page.ocrLang);
   const detected = info?.detectedLanguage;
-  const missing = detected && !ocrLanguages.includes(detected) ? detected : undefined;
+  // Adding a Tesseract language only matters for Tesseract's own text
+  const missing =
+    info?.engine !== 'llm' && detected && !ocrLanguages.includes(detected) ? detected : undefined;
 
   return (
     <div className="rounded-lg bg-gray-50 dark:bg-neutral-800/60 px-3 py-2 text-xs">
@@ -59,13 +78,30 @@ function PageInfo({
       )}
       {recognized ? (
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
-          <InfoRow label="Method" value="Tesseract" />
-          <InfoRow label="OCR languages" value={languages.length ? languages.map(ocrLanguageName).join(', ') : '—'} />
+          {info?.engine === 'llm' ? (
+            <>
+              <InfoRow label="Method" value="Cloud model" />
+              <InfoRow label="Recognized by" value={info.model} />
+            </>
+          ) : (
+            <>
+              <InfoRow label="Method" value="Tesseract" />
+              <InfoRow
+                label="OCR languages"
+                value={languages.length ? languages.map(ocrLanguageName).join(', ') : '—'}
+              />
+            </>
+          )}
           <InfoRow
             label="Detected language"
             value={info ? (detected ? ocrLanguageName(detected) : 'Undetermined') : '—'}
           />
-          <InfoRow label="Confidence" value={info?.confidence !== undefined ? `${Math.round(info.confidence)}%` : '—'} />
+          {info?.engine !== 'llm' && (
+            <InfoRow
+              label="Confidence"
+              value={tesseractInfo?.confidence !== undefined ? `${Math.round(tesseractInfo.confidence)}%` : '—'}
+            />
+          )}
           <InfoRow
             label="Recognized"
             value={info?.recognizedAt ? new Date(info.recognizedAt).toLocaleString() : '—'}
@@ -90,15 +126,32 @@ function PageInfo({
   );
 }
 
-function PageText({ page }: { page: Page }) {
+function PageText({ page, cloud }: { page: Page; cloud?: CloudOcrState }) {
   const status = page.ocrStatus;
   const text = status === 'done' ? page.ocrText?.trim() ?? '' : '';
 
   return (
     <>
+      {cloud?.status === 'running' && (
+        <div className="mb-2 flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+          <Spinner />
+          Extracting text with cloud model…
+        </div>
+      )}
+      {cloud?.status === 'error' && (
+        <div className="mb-2 flex items-center justify-between gap-2 text-sm text-red-600 dark:text-red-400" role="alert">
+          <span>Cloud text extraction failed: {cloud.message}</span>
+          <button
+            onClick={() => dismissCloudOcrError(page.id)}
+            className="shrink-0 rounded-full border border-current px-3 py-1 text-xs font-semibold"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       {(status === 'pending' || status === 'processing') && (
         <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
-          <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+          <Spinner />
           Recognizing text…
         </div>
       )}
@@ -131,6 +184,10 @@ export function TextSheet({ pages, title, ocrLanguages, documentId, onClose }: T
   const text = collectDocumentText(pages);
   const showPageHeadings = pages.length > 1;
   const busy = pages.some(isBusy);
+  const { settings } = useSettings();
+  const cloudAvailable = settings.llmEnabled && resolveLlmConfig(settings) !== null;
+  const cloudStates = useSyncExternalStore(subscribeCloudOcr, getCloudOcrStates, () => NO_CLOUD_STATES);
+  const cloudBusy = pages.some((p) => cloudStates.get(p.id)?.status === 'running');
 
   const handleCopy = async () => {
     try {
@@ -143,6 +200,7 @@ export function TextSheet({ pages, title, ocrLanguages, documentId, onClose }: T
   };
 
   const retry = async () => {
+    for (const page of pages) dismissCloudOcrError(page.id);
     if (documentId) await retryDocumentOcr(documentId);
     else await Promise.all(pages.map((p) => retryOcr(p.id)));
   };
@@ -179,12 +237,24 @@ export function TextSheet({ pages, title, ocrLanguages, documentId, onClose }: T
             {pages.length > 0 && (
               <button
                 onClick={() => void retry()}
-                disabled={busy}
+                disabled={busy || cloudBusy}
                 aria-label="Retry text recognition"
                 title="Retry text recognition"
                 className={iconButton}
               >
                 <RetryIcon />
+              </button>
+            )}
+            {cloudAvailable && pages.length > 0 && (
+              <button
+                onClick={() => void retryOcrWithLlm(pages.map((p) => p.id))}
+                disabled={busy || cloudBusy}
+                aria-label={CLOUD_RETRY_LABEL}
+                title={CLOUD_RETRY_LABEL}
+                aria-busy={cloudBusy}
+                className={iconButton}
+              >
+                {cloudBusy ? <Spinner /> : <CloudIcon />}
               </button>
             )}
             {text && (
@@ -233,7 +303,7 @@ export function TextSheet({ pages, title, ocrLanguages, documentId, onClose }: T
                   Page {index + 1}
                 </h3>
               )}
-              <PageText page={page} />
+              <PageText page={page} cloud={cloudStates.get(page.id)} />
             </section>
           ))}
         </div>

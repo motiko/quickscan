@@ -92,7 +92,7 @@ describe('processPendingOcr', () => {
 
     const info = (await db.pages.get('p1'))?.ocrInfo;
     expect(info?.detectedLanguage).toBeUndefined();
-    expect(info?.confidence).toBe(70);
+    expect(info).toMatchObject({ engine: 'tesseract', confidence: 70 });
   });
 
   it('marks a page as error when recognition throws', async () => {
