@@ -198,10 +198,10 @@ export default function SettingsPage() {
             <label className="flex items-center justify-between gap-4 border-t border-gray-100 dark:border-neutral-800 px-4 py-3">
               <span>
                 <span className="block text-sm font-medium text-gray-900 dark:text-gray-100">
-                  Use an AI model
+                  Use Cloud LLM
                 </span>
                 <span className="block text-xs text-gray-500 dark:text-gray-400">
-                  OpenAI, Anthropic, Google or your own endpoint (OpenRouter, Ollama, …). Falls back to on-device naming if it fails.
+                  OpenAI, Anthropic, Google or a custom endpoint (OpenRouter, Ollama, …). Falls back to on-device naming if it fails.
                 </span>
               </span>
               <input

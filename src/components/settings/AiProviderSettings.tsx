@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
-import { nanoid } from 'nanoid';
-import { CUSTOM_ENDPOINT_PRESETS, getSettings, updateSettings } from '@/lib/settings';
+import { useId, useState } from 'react';
+import { getSettings, updateSettings } from '@/lib/settings';
 import { resolveLlmConfig, suggestNameWithLlm } from '@/lib/naming/llm';
+import { detectEndpoint, guessSchema } from '@/lib/naming/detect-endpoint';
 import type { AppSettings, CustomLlmEndpoint, LlmApiSchema, LlmProvider } from '@/types';
 
 const SAMPLE_TEXT =
@@ -60,14 +60,17 @@ function DraftTextField({
   onSave,
   type = 'text',
   placeholder,
+  suggestions,
 }: {
   label: string;
   value: string;
   onSave: (value: string) => Promise<void>;
   type?: 'text' | 'password' | 'url';
   placeholder?: string;
+  suggestions?: string[];
 }) {
   const [draft, setDraft] = useState<string | null>(null);
+  const listId = useId();
 
   return (
     <label className="block">
@@ -76,6 +79,7 @@ function DraftTextField({
         type={type}
         value={draft ?? saved}
         placeholder={placeholder}
+        list={suggestions ? listId : undefined}
         autoComplete="off"
         autoCapitalize="off"
         spellCheck={false}
@@ -86,15 +90,45 @@ function DraftTextField({
         }}
         className={inputClass}
       />
+      {suggestions && (
+        <datalist id={listId}>
+          {suggestions.map((s) => (
+            <option key={s} value={s} />
+          ))}
+        </datalist>
+      )}
     </label>
   );
 }
 
-async function updateEndpoint(id: string, changes: Partial<CustomLlmEndpoint>) {
-  const { llmCustomEndpoints } = await getSettings();
-  await updateSettings({
-    llmCustomEndpoints: llmCustomEndpoints.map((e) => (e.id === id ? { ...e, ...changes } : e)),
+async function updateEndpoint(changes: Partial<CustomLlmEndpoint>) {
+  const { llmCustomEndpoint } = await getSettings();
+  await updateSettings({ llmCustomEndpoint: { ...llmCustomEndpoint, ...changes } });
+}
+
+type Detection =
+  | { state: 'idle' }
+  | { state: 'detecting' }
+  | { state: 'found'; schema: LlmApiSchema; models: string[] }
+  | { state: 'failed' };
+
+/** Detect the API schema of the saved custom endpoint and pick a model if none is set. */
+async function detectAndSaveEndpoint(): Promise<Detection> {
+  const { llmCustomEndpoint: endpoint } = await getSettings();
+  if (!endpoint.baseUrl.trim()) return { state: 'idle' };
+  const detected = await detectEndpoint(endpoint.baseUrl, endpoint.apiKey);
+  if (!detected) {
+    await updateEndpoint({ schema: guessSchema(endpoint.baseUrl) });
+    return { state: 'failed' };
+  }
+  // Re-read in case a model was typed while detecting
+  const { llmCustomEndpoint: current } = await getSettings();
+  await updateEndpoint({
+    baseUrl: detected.baseUrl,
+    schema: detected.schema,
+    ...(!current.model.trim() && detected.models.length > 0 ? { model: detected.models[0] } : {}),
   });
+  return { state: 'found', schema: detected.schema, models: detected.models };
 }
 
 function HostedProviderFields({ provider, settings }: { provider: (typeof HOSTED_PROVIDERS)[number]; settings: AppSettings }) {
@@ -125,58 +159,53 @@ function HostedProviderFields({ provider, settings }: { provider: (typeof HOSTED
   );
 }
 
-function CustomEndpointFields({ endpoint, settings }: { endpoint: CustomLlmEndpoint; settings: AppSettings }) {
-  const handleDelete = async () => {
-    if (!window.confirm(`Remove the endpoint “${endpoint.name}”?`)) return;
-    const remaining = settings.llmCustomEndpoints.filter((e) => e.id !== endpoint.id);
-    await updateSettings({
-      llmCustomEndpoints: remaining,
-      ...(remaining.length > 0
-        ? { llmCustomEndpointId: remaining[0].id }
-        : { llmProvider: 'openai', llmCustomEndpointId: '' }),
-    });
-  };
-
+function CustomEndpointFields({
+  endpoint,
+  detection,
+  onDetect,
+}: {
+  endpoint: CustomLlmEndpoint;
+  detection: Detection;
+  onDetect: () => Promise<unknown>;
+}) {
   return (
     <>
-      <DraftTextField label="Name" value={endpoint.name} onSave={(v) => updateEndpoint(endpoint.id, { name: v || 'Custom endpoint' })} />
-      <label className="block">
-        <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">API schema</span>
-        <select
-          value={endpoint.schema}
-          onChange={(e) => void updateEndpoint(endpoint.id, { schema: e.target.value as LlmApiSchema })}
-          className={inputClass}
-        >
-          {Object.entries(SCHEMA_LABELS).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
-      </label>
       <DraftTextField
         label="Endpoint URL"
         type="url"
         value={endpoint.baseUrl}
-        placeholder="http://localhost:11434/v1"
-        onSave={(v) => updateEndpoint(endpoint.id, { baseUrl: v })}
+        placeholder="https://ollama.com/api/v1"
+        onSave={async (v) => {
+          // A model from the previous endpoint likely doesn't exist on the new one
+          await updateEndpoint({ baseUrl: v, model: '' });
+          void onDetect();
+        }}
       />
+      {detection.state !== 'idle' && (
+        <p className="-mt-1 text-xs text-gray-500 dark:text-gray-400">
+          {detection.state === 'detecting' && 'Detecting API…'}
+          {detection.state === 'found' &&
+            `${SCHEMA_LABELS[detection.schema]} API · ${detection.models.length} model${detection.models.length === 1 ? '' : 's'}`}
+          {detection.state === 'failed' && 'Could not list models. Check the URL and API key, or enter a model.'}
+        </p>
+      )}
       <DraftTextField
         label="API key"
         type="password"
         value={endpoint.apiKey}
         placeholder="Not needed for local Ollama"
-        onSave={(v) => updateEndpoint(endpoint.id, { apiKey: v })}
+        onSave={async (v) => {
+          await updateEndpoint({ apiKey: v });
+          void onDetect();
+        }}
       />
       <DraftTextField
         label="Model"
         value={endpoint.model}
-        placeholder="Model ID from your provider"
-        onSave={(v) => updateEndpoint(endpoint.id, { model: v })}
+        placeholder="Optional, picked from the endpoint"
+        suggestions={detection.state === 'found' ? detection.models : undefined}
+        onSave={(v) => updateEndpoint({ model: v })}
       />
-      <button onClick={handleDelete} className="text-xs font-semibold text-red-600 dark:text-red-400">
-        Remove endpoint
-      </button>
     </>
   );
 }
@@ -217,28 +246,19 @@ function ProviderOption({
 export function AiProviderSettings({ settings }: { settings: AppSettings }) {
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [isTesting, setIsTesting] = useState(false);
+  const [detection, setDetection] = useState<Detection>({ state: 'idle' });
 
   const select = (changes: Partial<AppSettings>) => {
     setTestResult(null);
     void updateSettings(changes);
   };
 
-  const addEndpoint = async (preset?: (typeof CUSTOM_ENDPOINT_PRESETS)[number]) => {
-    const endpoint: CustomLlmEndpoint = {
-      id: nanoid(),
-      name: preset?.name ?? 'Custom endpoint',
-      schema: preset?.schema ?? 'chat-completions',
-      baseUrl: preset?.baseUrl ?? '',
-      apiKey: '',
-      model: '',
-    };
-    const { llmCustomEndpoints } = await getSettings();
+  const detect = async () => {
     setTestResult(null);
-    await updateSettings({
-      llmCustomEndpoints: [...llmCustomEndpoints, endpoint],
-      llmProvider: 'custom',
-      llmCustomEndpointId: endpoint.id,
-    });
+    setDetection({ state: 'detecting' });
+    const result = await detectAndSaveEndpoint();
+    setDetection(result);
+    return result;
   };
 
   const handleTestConnection = async () => {
@@ -248,8 +268,17 @@ export function AiProviderSettings({ settings }: { settings: AppSettings }) {
     setTestResult(null);
     try {
       await new Promise((r) => setTimeout(r, 50));
-      const config = resolveLlmConfig(await getSettings());
-      if (!config) throw new Error('Fill in the API key and model first.');
+      let current = await getSettings();
+      if (current.llmProvider === 'custom' && current.llmCustomEndpoint.baseUrl.trim() && !current.llmCustomEndpoint.model.trim()) {
+        await detect();
+        current = await getSettings();
+      }
+      const config = resolveLlmConfig(current);
+      if (!config) {
+        throw new Error(
+          current.llmProvider === 'custom' ? 'Enter the endpoint URL and a model first.' : 'Fill in the API key and model first.'
+        );
+      }
       const title = await suggestNameWithLlm(SAMPLE_TEXT, config);
       setTestResult({ ok: true, message: `Works! Sample title: “${title}”` });
     } catch (err) {
@@ -280,32 +309,14 @@ export function AiProviderSettings({ settings }: { settings: AppSettings }) {
             <HostedProviderFields provider={provider} settings={settings} />
           </ProviderOption>
         ))}
-        {settings.llmCustomEndpoints.map((endpoint) => (
-          <ProviderOption
-            key={endpoint.id}
-            label={endpoint.name}
-            detail={endpoint.model || SCHEMA_LABELS[endpoint.schema]}
-            selected={settings.llmProvider === 'custom' && settings.llmCustomEndpointId === endpoint.id}
-            onSelect={() => select({ llmProvider: 'custom', llmCustomEndpointId: endpoint.id })}
-          >
-            <CustomEndpointFields endpoint={endpoint} settings={settings} />
-          </ProviderOption>
-        ))}
-      </div>
-
-      <div>
-        <p className="mb-2 text-xs font-medium text-gray-600 dark:text-gray-400">Add a custom endpoint</p>
-        <div className="flex flex-wrap gap-2" role="group" aria-label="Add a custom endpoint">
-          {[...CUSTOM_ENDPOINT_PRESETS, undefined].map((preset) => (
-            <button
-              key={preset?.name ?? 'other'}
-              onClick={() => void addEndpoint(preset)}
-              className="rounded-full border border-gray-300 dark:border-neutral-700 px-3 py-1.5 text-xs font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-neutral-800"
-            >
-              + {preset?.name ?? 'Other'}
-            </button>
-          ))}
-        </div>
+        <ProviderOption
+          label="Custom endpoint"
+          detail={settings.llmCustomEndpoint.model}
+          selected={settings.llmProvider === 'custom'}
+          onSelect={() => select({ llmProvider: 'custom' })}
+        >
+          <CustomEndpointFields endpoint={settings.llmCustomEndpoint} detection={detection} onDetect={detect} />
+        </ProviderOption>
       </div>
 
       <button
@@ -323,11 +334,6 @@ export function AiProviderSettings({ settings }: { settings: AppSettings }) {
           {testResult.message}
         </p>
       )}
-
-      <p className="text-xs text-gray-500 dark:text-gray-400">
-        The recognized text of each scan is sent to the selected provider to generate a name. API keys are stored
-        only on this device.
-      </p>
     </div>
   );
 }
