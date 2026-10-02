@@ -6,12 +6,13 @@ export const DEFAULT_SETTINGS: AppSettings = {
   ocrLanguages: ['eng'],
   llmEnabled: false,
   llmProvider: 'openai',
+  // Empty models are picked from the provider's model list, so retired IDs never break requests
   openaiApiKey: '',
-  openaiModel: 'gpt-5-mini',
+  openaiModel: '',
   anthropicApiKey: '',
-  anthropicModel: 'claude-opus-5-5',
+  anthropicModel: '',
   googleApiKey: '',
-  googleModel: 'gemini-2.5-flash',
+  googleModel: '',
   llmCustomEndpoint: { baseUrl: '', apiKey: '', model: '', schema: 'chat-completions' },
 };
 

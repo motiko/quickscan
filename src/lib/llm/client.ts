@@ -6,11 +6,13 @@
  */
 
 import type { AppSettings, LlmApiSchema } from '@/types';
+import { resolveModel } from './models';
 
 export interface LlmConfig {
   schema: LlmApiSchema | 'gemini';
   baseUrl: string;
   apiKey: string;
+  /** Empty means pick one from the provider's model list at call time. */
   model: string;
   /** OpenAI's own API: its reasoning models reject `max_tokens` and `temperature`. */
   openaiNative?: boolean;
@@ -58,7 +60,7 @@ export const PROXIED_HOSTS = ['ollama.com'];
 export const PROXY_PATH = '/api/llm';
 export const PROXY_TARGET_HEADER = 'X-LLM-Target';
 
-/** The configuration of the provider selected in settings, or null when it is incomplete. */
+/** The configuration of the provider selected in settings, or null when it is incomplete. The model may be empty. */
 export function resolveLlmConfig(settings: AppSettings): LlmConfig | null {
   let config: LlmConfig | null = null;
   switch (settings.llmProvider) {
@@ -93,7 +95,7 @@ export function resolveLlmConfig(settings: AppSettings): LlmConfig | null {
       break;
     }
   }
-  if (!config || !config.baseUrl.trim() || !config.model.trim()) return null;
+  if (!config || !config.baseUrl.trim()) return null;
   // Hosted providers always need a key; custom endpoints (e.g. local Ollama) may not
   if (settings.llmProvider !== 'custom' && !config.apiKey.trim()) return null;
   return config;
@@ -234,7 +236,8 @@ export async function callLlm(request: LlmRequest, config: LlmConfig, options: L
   else signal?.addEventListener('abort', onAbort, { once: true });
 
   try {
-    const built = buildRequest(request, config);
+    const model = await resolveModel(config, fetchImpl);
+    const built = buildRequest(request, { ...config, model });
     // The proxy only forwards chat completions requests to allowlisted hosts
     const viaProxy = config.schema === 'chat-completions' && isProxiedUrl(built.url);
     if (viaProxy) built.headers[PROXY_TARGET_HEADER] = built.url;
