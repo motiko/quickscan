@@ -56,11 +56,19 @@ export async function processPendingOcr(): Promise<void> {
           const after = await db.pages.get(page.id);
           if (!after || after.ocrStatus !== 'processing') continue;
 
+          const { detectOcrLanguage } = await import('@/lib/language-detect');
           await db.pages.update(page.id, {
             ocrStatus: 'done',
             ocrText: result.text,
             ocrWords: result.words,
             ocrLang: settings.ocrLanguages.join('+'),
+            ocrInfo: {
+              engine: 'tesseract',
+              languages: [...settings.ocrLanguages],
+              detectedLanguage: detectOcrLanguage(result.text),
+              confidence: Math.round(result.confidence),
+              recognizedAt: new Date(),
+            },
           });
           await rebuildSearchText(page.documentId);
 
@@ -90,6 +98,12 @@ export async function resetStaleOcr(): Promise<void> {
 
 export async function retryOcr(pageId: string): Promise<void> {
   await db.pages.update(pageId, { ocrStatus: 'pending' });
+  await processPendingOcr();
+}
+
+/** Re-run OCR on every page of one document. */
+export async function retryDocumentOcr(documentId: string): Promise<void> {
+  await db.pages.where('documentId').equals(documentId).modify({ ocrStatus: 'pending' });
   await processPendingOcr();
 }
 
