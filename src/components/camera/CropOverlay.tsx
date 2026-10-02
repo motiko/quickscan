@@ -6,6 +6,38 @@ import { warpPerspective } from '@/lib/image-processing';
 import { useBlobUrl } from '@/hooks/useBlobUrl';
 import { useScannerWorker } from '@/hooks/useScannerWorker';
 
+/** Inset (px) between the image and the edge of the view area, so handles on
+ * the image border stay fully visible and touchable. */
+const VIEW_PADDING = 28;
+
+type DragState = {
+  kind: 'corner' | 'edge';
+  /** Corner index, or edge index (edge i connects corner i and i+1). */
+  index: number;
+  pointerId: number;
+  /** Pointer position at drag start, normalized and unclamped. */
+  start: Point;
+  startCorners: Quad;
+};
+
+const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+
+/** True if the quad is strictly convex (all turns in the same direction). */
+function isConvex(q: Quad): boolean {
+  let sign = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = q[i];
+    const b = q[(i + 1) % 4];
+    const c = q[(i + 2) % 4];
+    const cross = (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x);
+    if (Math.abs(cross) < 1e-6) return false;
+    const s = Math.sign(cross);
+    if (sign === 0) sign = s;
+    else if (s !== sign) return false;
+  }
+  return true;
+}
+
 interface CropOverlayProps {
   imageBlob: Blob;
   initialCorners?: Quad | null;
@@ -65,8 +97,8 @@ export function CropOverlay({
     ];
   });
 
-  const [activeCorner, setActiveCorner] = useState<number | null>(null);
-  const [touchPos, setTouchPos] = useState<Point | null>(null);
+  const [drag, setDrag] = useState<DragState | null>(null);
+  const activeCorner = drag?.kind === 'corner' ? drag.index : null;
   const [isProcessing, setIsProcessing] = useState(false);
 
   const { detect } = useScannerWorker();
@@ -95,7 +127,7 @@ export function CropOverlay({
         });
         ctx.drawImage(img, 0, 0, dw, dh);
         const imgData = ctx.getImageData(0, 0, dw, dh);
-        const res = await detect(imgData, { detector: 'classical' });
+        const res = await detect(imgData, { detector: 'classical', track: false });
         if (res.normalizedCorners) {
           setCorners(res.normalizedCorners);
         }
@@ -120,8 +152,10 @@ export function CropOverlay({
     if (containerSize.width === 0 || naturalSize.width === 0) {
       return { x: 0, y: 0, width: 0, height: 0 };
     }
+    const availW = Math.max(1, containerSize.width - VIEW_PADDING * 2);
+    const availH = Math.max(1, containerSize.height - VIEW_PADDING * 2);
     const aspect = naturalSize.width / naturalSize.height;
-    const containerAspect = containerSize.width / containerSize.height;
+    const containerAspect = availW / availH;
 
     let width = 0;
     let height = 0;
@@ -129,16 +163,14 @@ export function CropOverlay({
     let y = 0;
 
     if (containerAspect > aspect) {
-      height = containerSize.height;
+      height = availH;
       width = height * aspect;
-      x = (containerSize.width - width) / 2;
-      y = 0;
     } else {
-      width = containerSize.width;
+      width = availW;
       height = width / aspect;
-      x = 0;
-      y = (containerSize.height - height) / 2;
     }
+    x = (containerSize.width - width) / 2;
+    y = (containerSize.height - height) / 2;
 
     return { x, y, width, height };
   }, [containerSize, naturalSize]);
@@ -149,68 +181,74 @@ export function CropOverlay({
     setNaturalSize({ width: img.naturalWidth, height: img.naturalHeight });
   };
 
-  // Convert client coordinates to normalized coordinates [0..1]
+  // Convert client coordinates to normalized image coordinates (unclamped)
   const clientToNormalized = useCallback(
     (clientX: number, clientY: number): Point => {
       if (!containerRef.current || bounds.width === 0 || bounds.height === 0) {
         return { x: 0, y: 0 };
       }
       const containerRect = containerRef.current.getBoundingClientRect();
-
-      const relX = clientX - containerRect.left - bounds.x;
-      const relY = clientY - containerRect.top - bounds.y;
-
-      const normX = Math.max(0, Math.min(1, relX / bounds.width));
-      const normY = Math.max(0, Math.min(1, relY / bounds.height));
-
-      return { x: normX, y: normY };
+      return {
+        x: (clientX - containerRect.left - bounds.x) / bounds.width,
+        y: (clientY - containerRect.top - bounds.y) / bounds.height,
+      };
     },
     [bounds]
   );
 
-  // Pointer drag events
-  const handlePointerDown = (index: number, e: React.PointerEvent) => {
+  // Pointer drag events. Movement is applied as a delta from the grab point,
+  // so the handle never jumps to sit under the fingertip.
+  const handlePointerDown = (kind: DragState['kind'], index: number, e: React.PointerEvent) => {
+    if (drag) return; // ignore a second finger
     e.preventDefault();
     e.stopPropagation();
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    setActiveCorner(index);
-    if (containerRef.current) {
-      const containerRect = containerRef.current.getBoundingClientRect();
-      setTouchPos({
-        x: e.clientX - containerRect.left,
-        y: e.clientY - containerRect.top,
-      });
-    }
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    setDrag({
+      kind,
+      index,
+      pointerId: e.pointerId,
+      start: clientToNormalized(e.clientX, e.clientY),
+      startCorners: corners,
+    });
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
-    if (activeCorner === null || !containerRef.current) return;
+    if (!drag || e.pointerId !== drag.pointerId) return;
     e.preventDefault();
 
-    const containerRect = containerRef.current.getBoundingClientRect();
-    setTouchPos({
-      x: e.clientX - containerRect.left,
-      y: e.clientY - containerRect.top,
-    });
+    const pos = clientToNormalized(e.clientX, e.clientY);
+    let dx = pos.x - drag.start.x;
+    let dy = pos.y - drag.start.y;
+    const next = [...drag.startCorners] as Quad;
 
-    const norm = clientToNormalized(e.clientX, e.clientY);
-    setCorners((prev) => {
-      const next = [...prev] as Quad;
-      next[activeCorner] = norm;
-      return next;
-    });
+    if (drag.kind === 'corner') {
+      const c = drag.startCorners[drag.index];
+      next[drag.index] = { x: clamp01(c.x + dx), y: clamp01(c.y + dy) };
+    } else {
+      // Move both endpoints of the edge; clamp the shared delta so neither
+      // endpoint leaves the image (keeps the edge's angle intact).
+      const i = drag.index;
+      const j = (i + 1) % 4;
+      const a = drag.startCorners[i];
+      const b = drag.startCorners[j];
+      dx = Math.max(-Math.min(a.x, b.x), Math.min(1 - Math.max(a.x, b.x), dx));
+      dy = Math.max(-Math.min(a.y, b.y), Math.min(1 - Math.max(a.y, b.y), dy));
+      next[i] = { x: a.x + dx, y: a.y + dy };
+      next[j] = { x: b.x + dx, y: b.y + dy };
+    }
+    // Refuse moves that would fold the quad into a bow-tie or concave shape;
+    // the handle simply stops at the last valid position.
+    if (isConvex(next)) setCorners(next);
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
-    if (activeCorner !== null) {
-      try {
-        (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-      } catch {
-        // ignore
-      }
-      setActiveCorner(null);
-      setTouchPos(null);
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    try {
+      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {
+      // ignore
     }
+    setDrag(null);
   };
 
   const handleResetFull = () => {
@@ -251,14 +289,23 @@ export function CropOverlay({
 
   const svgPolygonPoints = screenCorners.map((p) => `${p.x},${p.y}`).join(' ');
   const cornerNames = ['Top-Left', 'Top-Right', 'Bottom-Right', 'Bottom-Left'];
+  const edgeNames = ['Top', 'Right', 'Bottom', 'Left'];
+  const edgeHandles = screenCorners.map((p, i) => {
+    const q = screenCorners[(i + 1) % 4];
+    return {
+      x: (p.x + q.x) / 2,
+      y: (p.y + q.y) / 2,
+      angle: (Math.atan2(q.y - p.y, q.x - p.x) * 180) / Math.PI,
+      length: Math.hypot(q.x - p.x, q.y - p.y),
+    };
+  });
+
+  // Loupe sits above the dragged corner, or below it when near the top
+  const activePoint = activeCorner !== null ? screenCorners[activeCorner] : null;
+  const LOUPE = 96;
 
   return (
-    <div
-      ref={containerRef}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      className="fixed inset-0 z-50 flex flex-col bg-black select-none touch-none overflow-hidden"
-    >
+    <div className="fixed inset-0 z-50 flex flex-col bg-black select-none touch-none overflow-hidden">
       {/* Top Header */}
       <div className="relative z-20 flex items-center justify-between px-4 pb-3 pt-safe-offset-3 bg-black/80 backdrop-blur-md border-b border-gray-800">
         <button
@@ -288,14 +335,25 @@ export function CropOverlay({
       </div>
 
       {/* Main View Area */}
-      <div className="relative flex-1 flex items-center justify-center overflow-hidden">
+      <div
+        ref={containerRef}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        className="relative flex-1 overflow-hidden"
+      >
         {imageUrl && (
           /* eslint-disable-next-line @next/next/no-img-element */
           <img
             src={imageUrl}
             alt="Crop candidate"
             onLoad={onImageLoad}
-            className="max-h-full max-w-full object-contain pointer-events-none"
+            style={
+              bounds.width > 0
+                ? { left: bounds.x, top: bounds.y, width: bounds.width, height: bounds.height }
+                : { visibility: 'hidden' }
+            }
+            className="absolute pointer-events-none"
           />
         )}
 
@@ -337,12 +395,36 @@ export function CropOverlay({
           </svg>
         )}
 
-        {/* 4 Interactive Drag Handles */}
+        {/* 4 Edge Drag Handles (hidden when the edge is too short to fit one) */}
+        {bounds.width > 0 &&
+          edgeHandles.map((h, idx) =>
+            h.length < 96 ? null : (
+              <div
+                key={`edge-${idx}`}
+                onPointerDown={(e) => handlePointerDown('edge', idx, e)}
+                style={{
+                  transform: `translate3d(${h.x - 22}px, ${h.y - 22}px, 0) rotate(${h.angle}deg)`,
+                }}
+                className="absolute left-0 top-0 z-20 flex h-11 w-11 items-center justify-center cursor-move"
+                aria-label={`Drag ${edgeNames[idx]} edge`}
+              >
+                <div
+                  className={`h-2 w-8 rounded-full border border-white shadow-lg transition-transform ${
+                    drag?.kind === 'edge' && drag.index === idx
+                      ? 'scale-125 bg-blue-500 ring-4 ring-blue-500/40'
+                      : 'bg-blue-600'
+                  }`}
+                />
+              </div>
+            )
+          )}
+
+        {/* 4 Corner Drag Handles */}
         {bounds.width > 0 &&
           screenCorners.map((p, idx) => (
             <div
               key={idx}
-              onPointerDown={(e) => handlePointerDown(idx, e)}
+              onPointerDown={(e) => handlePointerDown('corner', idx, e)}
               style={{
                 transform: `translate3d(${p.x - 24}px, ${p.y - 24}px, 0)`,
               }}
@@ -364,11 +446,14 @@ export function CropOverlay({
           ))}
 
         {/* Magnifier Loupe Bubble */}
-        {activeCorner !== null && touchPos && imageUrl && (
+        {activeCorner !== null && activePoint && imageUrl && (
           <div
             style={{
-              left: Math.max(12, Math.min(touchPos.x - 48, containerSize.width - 108)),
-              top: Math.max(12, touchPos.y - 120),
+              left: Math.max(12, Math.min(activePoint.x - LOUPE / 2, containerSize.width - LOUPE - 12)),
+              top:
+                activePoint.y - LOUPE - 40 >= 12
+                  ? activePoint.y - LOUPE - 40
+                  : activePoint.y + 40,
             }}
             className="absolute z-30 pointer-events-none h-24 w-24 rounded-full border-2 border-white bg-black shadow-2xl overflow-hidden ring-4 ring-blue-500/50"
           >
@@ -377,8 +462,8 @@ export function CropOverlay({
                 position: 'absolute',
                 width: bounds.width * 2.2,
                 height: bounds.height * 2.2,
-                left: -(bounds.x + corners[activeCorner].x * bounds.width) * 2.2 + 48,
-                top: -(bounds.y + corners[activeCorner].y * bounds.height) * 2.2 + 48,
+                left: -corners[activeCorner].x * bounds.width * 2.2 + LOUPE / 2,
+                top: -corners[activeCorner].y * bounds.height * 2.2 + LOUPE / 2,
               }}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}

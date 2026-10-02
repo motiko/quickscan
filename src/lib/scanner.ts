@@ -16,22 +16,22 @@ export function orderCorners(points: Point[]): Quad {
     throw new Error('Must provide exactly 4 points to order');
   }
 
-  const sum = points.map((p) => p.x + p.y);
-  const diff = points.map((p) => p.y - p.x);
+  // Sort clockwise (screen coords, y down) by angle around the centroid. Unlike
+  // the x+y / y-x extremes heuristic, this always yields 4 distinct points even
+  // for quads rotated ~45°, so the polygon can never collapse or self-intersect.
+  const cx = points.reduce((acc, p) => acc + p.x, 0) / 4;
+  const cy = points.reduce((acc, p) => acc + p.y, 0) / 4;
+  const sorted = points
+    .slice()
+    .sort((a, b) => Math.atan2(a.y - cy, a.x - cx) - Math.atan2(b.y - cy, b.x - cx));
 
+  // Start from the top-left-most point (smallest x + y)
   let tlIdx = 0;
-  let brIdx = 0;
-  let trIdx = 0;
-  let blIdx = 0;
-
   for (let i = 1; i < 4; i++) {
-    if (sum[i] < sum[tlIdx]) tlIdx = i;
-    if (sum[i] > sum[brIdx]) brIdx = i;
-    if (diff[i] < diff[trIdx]) trIdx = i;
-    if (diff[i] > diff[blIdx]) blIdx = i;
+    if (sorted[i].x + sorted[i].y < sorted[tlIdx].x + sorted[tlIdx].y) tlIdx = i;
   }
 
-  return [points[tlIdx], points[trIdx], points[brIdx], points[blIdx]];
+  return [0, 1, 2, 3].map((k) => sorted[(tlIdx + k) % 4]) as Quad;
 }
 
 export function pDistance(p: Point, p1: Point, p2: Point): number {
