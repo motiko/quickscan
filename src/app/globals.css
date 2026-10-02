@@ -1,20 +1,5 @@
 @import "tailwindcss";
 
-/* Fixed cover for iOS PWA status bar area.
-   Prevents page content from showing behind the translucent status bar
-   when using viewport-fit: cover + black-translucent. */
-.safe-area-cover::before {
-  content: '';
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: env(safe-area-inset-top, 0px);
-  background: inherit;
-  z-index: 9999;
-  pointer-events: none;
-}
-
 :root {
   --safe-area-inset-top: env(safe-area-inset-top, 0px);
   --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);
@@ -90,6 +75,12 @@
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+/* html background fills behind the iOS translucent status bar
+   when viewport-fit: cover is used. */
+html {
+  background: #ffffff;
+}
+
 body {
   font-family: system-ui, -apple-system, sans-serif;
   overscroll-behavior: none;
@@ -98,6 +89,9 @@ body {
 }
 
 @media (prefers-color-scheme: dark) {
+  html {
+    background: #0a0a0a;
+  }
   body {
     background: #0a0a0a;
     color: #ededed;

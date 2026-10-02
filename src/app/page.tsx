@@ -18,7 +18,7 @@ export default function Home() {
 
   return (
     <div className="flex min-h-screen flex-col bg-gray-50 pb-safe-offset-6">
-      <header className="sticky top-0 left-0 right-0 z-10 bg-white/95 backdrop-blur-md shadow-xs pt-safe">
+      <header className="sticky top-0 left-0 right-0 z-20 bg-white shadow-xs pt-safe">
         <div className="flex h-14 items-center justify-between px-4">
           <h1 className="text-xl font-bold text-gray-900">
             QuickScan <span role="img" aria-label="camera">📸</span>

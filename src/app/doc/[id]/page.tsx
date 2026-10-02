@@ -169,7 +169,7 @@ export default function DocumentViewer() {
   return (
     <div className="flex min-h-screen flex-col bg-gray-50 pb-safe-offset-6">
       {/* Top Header */}
-      <header className="sticky top-0 z-20 bg-white/90 backdrop-blur-md px-4 shadow-xs pt-safe">
+      <header className="sticky top-0 z-30 bg-white px-4 shadow-xs pt-safe">
         <div className="flex h-16 items-center justify-between gap-3">
           <button
             onClick={() => router.push('/')}
