@@ -226,7 +226,7 @@ export function CameraView({ onCapture, onClose }: CameraViewProps) {
   return (
     <div className="fixed inset-0 bg-black z-50 flex flex-col select-none touch-none overflow-hidden">
       {/* Top bar */}
-      <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-center z-30 bg-gradient-to-b from-black/80 via-black/40 to-transparent pt-safe">
+      <div className="absolute top-0 left-0 right-0 px-4 pb-4 pt-safe-offset-4 flex justify-between items-center z-30 bg-gradient-to-b from-black/90 via-black/50 to-transparent">
         <button
           onClick={onClose}
           className="w-11 h-11 flex items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-md active:bg-black/70 transition-colors"
@@ -321,7 +321,7 @@ export function CameraView({ onCapture, onClose }: CameraViewProps) {
         )}
 
         {/* Scanning Guidance Badge */}
-        <div className="absolute top-20 left-0 right-0 z-20 flex justify-center pointer-events-none">
+        <div className="absolute top-[calc(env(safe-area-inset-top,0px)+5rem)] left-0 right-0 z-20 flex justify-center pointer-events-none">
           {detectedCorners ? (
             <span
               className={`rounded-full px-4 py-1.5 text-xs font-semibold backdrop-blur-md shadow transition-all ${
@@ -351,7 +351,7 @@ export function CameraView({ onCapture, onClose }: CameraViewProps) {
       </div>
 
       {/* Bottom controls */}
-      <div className="absolute bottom-0 left-0 right-0 pb-12 pt-8 flex justify-center items-center z-30 bg-gradient-to-t from-black/90 via-black/50 to-transparent pb-safe">
+      <div className="absolute bottom-0 left-0 right-0 pt-8 pb-safe-offset-6 flex justify-center items-center z-30 bg-gradient-to-t from-black/90 via-black/50 to-transparent">
         {/* Shutter Button with Auto-Capture Radial Progress */}
         <div className="relative flex items-center justify-center">
           {mode === 'auto' && autoProgress > 0 && (

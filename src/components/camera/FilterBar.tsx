@@ -71,7 +71,7 @@ export function FilterBar({ imageBlob, selectedFilter, onFilterChange }: FilterB
   }, [imageBlob]);
 
   return (
-    <div className="flex justify-center gap-4 py-4 bg-gray-900 w-full overflow-x-auto px-4 safe-area-bottom">
+    <div className="flex justify-center gap-4 py-4 bg-gray-900 w-full overflow-x-auto px-4">
       {FILTERS.map((filter) => (
         <button
           key={filter.id}

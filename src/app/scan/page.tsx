@@ -160,7 +160,7 @@ function ScanPageContent() {
     return (
       <div className="flex h-[100dvh] flex-col bg-black select-none">
         {/* Top Header */}
-        <div className="relative z-10 flex items-center justify-between px-4 py-3 bg-black/80 backdrop-blur-md pt-safe">
+        <div className="relative z-10 flex items-center justify-between px-4 pb-3 pt-safe-offset-3 bg-black/80 backdrop-blur-md">
           <button
             onClick={() => setPhase('crop')}
             className="flex items-center gap-1.5 rounded-lg bg-gray-800 px-3 py-1.5 text-xs font-semibold text-gray-200 hover:bg-gray-700"
@@ -200,7 +200,7 @@ function ScanPageContent() {
         </div>
 
         {/* Filter Bar & Controls */}
-        <div className="flex flex-col border-t border-gray-800 bg-black pb-safe">
+        <div className="flex flex-col border-t border-gray-800 bg-black pb-safe-offset-3">
           <FilterBar
             imageBlob={originalBlob!}
             selectedFilter={currentFilter}
@@ -236,7 +236,7 @@ function ScanPageContent() {
     <div className="h-[100dvh] bg-black">
       <CameraView onCapture={handleCapture} onClose={handleClose} />
       {capturedBlobs.length > 0 && (
-        <div className="absolute left-4 top-16 z-30 flex items-center justify-center rounded-full bg-blue-600/90 px-3.5 py-1 shadow-lg backdrop-blur">
+        <div className="absolute left-4 top-[calc(env(safe-area-inset-top,0px)+5rem)] z-30 flex items-center justify-center rounded-full bg-blue-600/90 px-3.5 py-1 shadow-lg backdrop-blur">
           <span className="text-xs font-semibold text-white">{capturedBlobs.length} page(s) ready</span>
         </div>
       )}

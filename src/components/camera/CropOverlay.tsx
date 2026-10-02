@@ -213,7 +213,7 @@ export function CropOverlay({
       className="fixed inset-0 z-50 flex flex-col bg-black select-none touch-none overflow-hidden"
     >
       {/* Top Header */}
-      <div className="relative z-20 flex items-center justify-between px-4 py-3 bg-black/80 backdrop-blur-md border-b border-gray-800 pt-safe">
+      <div className="relative z-20 flex items-center justify-between px-4 pb-3 pt-safe-offset-3 bg-black/80 backdrop-blur-md border-b border-gray-800">
         <button
           onClick={onCancel}
           className="text-gray-300 hover:text-white px-3 py-1.5 rounded-lg text-sm font-medium"
@@ -341,7 +341,7 @@ export function CropOverlay({
       </div>
 
       {/* Bottom Action Bar */}
-      <div className="relative z-20 flex items-center justify-between gap-4 px-6 py-4 bg-black/90 border-t border-gray-800 pb-safe">
+      <div className="relative z-20 flex items-center justify-between gap-4 px-6 pt-4 pb-safe-offset-4 bg-black/90 border-t border-gray-800">
         <button
           onClick={onCancel}
           disabled={isProcessing}
