@@ -42,16 +42,21 @@ test.describe('Settings', () => {
     await page.getByRole('button', { name: 'Settings' }).click();
     await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
 
-    const english = page.getByRole('button', { name: 'English' });
-    const german = page.getByRole('button', { name: 'German' });
+    const english = page.getByRole('button', { name: 'English', exact: true });
     await expect(english).toHaveAttribute('aria-pressed', 'true');
-    await expect(german).toHaveAttribute('aria-pressed', 'false');
 
-    await german.click();
-    await expect(german).toHaveAttribute('aria-pressed', 'true');
+    await page.getByRole('searchbox', { name: 'Search languages' }).fill('русс');
+    await expect(english).toBeHidden();
+    const russian = page.getByRole('button', { name: 'Russian', exact: true });
+    await expect(russian).toHaveAttribute('aria-pressed', 'false');
+
+    await russian.click();
+    await expect(russian).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByRole('button', { name: 'Remove Russian' })).toBeVisible();
 
     await page.reload();
-    await expect(page.getByRole('button', { name: 'German' })).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.getByRole('button', { name: 'English' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByRole('button', { name: 'Remove Russian' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Remove English' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Russian', exact: true })).toHaveAttribute('aria-pressed', 'true');
   });
 });

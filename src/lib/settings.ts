@@ -17,17 +17,6 @@ export const LLM_PRESETS: { label: string; baseUrl: string }[] = [
   { label: 'Ollama (local)', baseUrl: 'http://localhost:11434/v1' },
 ];
 
-export const OCR_LANGUAGES: { code: string; label: string }[] = [
-  { code: 'eng', label: 'English' },
-  { code: 'deu', label: 'German' },
-  { code: 'fra', label: 'French' },
-  { code: 'spa', label: 'Spanish' },
-  { code: 'ita', label: 'Italian' },
-  { code: 'nld', label: 'Dutch' },
-  { code: 'por', label: 'Portuguese' },
-  { code: 'pol', label: 'Polish' },
-];
-
 export async function getSettings(): Promise<AppSettings> {
   const rows = await db.settings.toArray();
   const stored = Object.fromEntries(rows.map((r) => [r.key, r.value]));
