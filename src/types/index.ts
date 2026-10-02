@@ -43,6 +43,9 @@ export interface ScannedDocument {
   pageCount: number;
   thumbnailBlob?: Blob;
   searchText?: string; // lower-cased OCR text of all pages, for gallery search
+  // How the current name was chosen; auto-naming only replaces 'default' names.
+  // Documents created before this field existed are treated like 'user'.
+  nameSource?: 'default' | 'auto' | 'user';
 }
 
 export type OcrStatus = 'pending' | 'processing' | 'done' | 'error';
@@ -72,6 +75,11 @@ export interface Page {
 export interface AppSettings {
   ocrEnabled: boolean;
   ocrLanguages: string[]; // Tesseract language codes, e.g. ['eng', 'deu']
+  autoName: boolean;
+  llmEnabled: boolean;
+  llmBaseUrl: string; // OpenAI-compatible base URL, e.g. https://openrouter.ai/api/v1
+  llmApiKey: string;
+  llmModel: string;
 }
 
 export interface CameraConstraints {

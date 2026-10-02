@@ -1,0 +1,76 @@
+import { db } from '@/lib/db';
+import { getSettings } from '@/lib/settings';
+import type { AppSettings } from '@/types';
+import { suggestName } from './heuristic';
+import { suggestNameWithLlm } from './llm';
+
+export interface NameSuggestion {
+  name: string;
+  source: 'llm' | 'heuristic';
+}
+
+function llmConfigured(settings: AppSettings): boolean {
+  return settings.llmEnabled && !!settings.llmBaseUrl.trim() && !!settings.llmModel.trim();
+}
+
+async function getDocumentText(documentId: string): Promise<string> {
+  const pages = await db.pages.where('documentId').equals(documentId).sortBy('pageNumber');
+  return pages
+    .map((p) => (p.ocrStatus === 'done' ? p.ocrText ?? '' : ''))
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+/** Suggest a name from the document's recognized text; the LLM is used when configured, else heuristics. */
+export async function suggestDocumentName(documentId: string): Promise<NameSuggestion | null> {
+  const doc = await db.documents.get(documentId);
+  if (!doc) return null;
+  const text = await getDocumentText(documentId);
+  if (!text.trim()) return null;
+
+  const settings = await getSettings();
+  if (llmConfigured(settings)) {
+    try {
+      const name = await suggestNameWithLlm(text, {
+        baseUrl: settings.llmBaseUrl,
+        apiKey: settings.llmApiKey,
+        model: settings.llmModel,
+      });
+      return { name, source: 'llm' };
+    } catch (err) {
+      console.warn('LLM naming failed, falling back to heuristics:', err);
+    }
+  }
+
+  const name = suggestName(text, new Date(doc.createdAt));
+  return name ? { name, source: 'heuristic' } : null;
+}
+
+/**
+ * Rename a document that still has its generated "Scan …" name once all of its pages
+ * have been recognized. Never touches names the user chose.
+ */
+export async function autoNameIfDefault(documentId: string): Promise<void> {
+  const settings = await getSettings();
+  if (!settings.autoName) return;
+
+  const doc = await db.documents.get(documentId);
+  if (doc?.nameSource !== 'default') return;
+
+  const unfinished = await db.pages
+    .where('documentId')
+    .equals(documentId)
+    .filter((p) => p.ocrStatus === 'pending' || p.ocrStatus === 'processing')
+    .count();
+  if (unfinished > 0) return;
+
+  const suggestion = await suggestDocumentName(documentId);
+  if (!suggestion) return;
+
+  await db.transaction('rw', db.documents, async () => {
+    // The user may have renamed it while the suggestion was being computed
+    const current = await db.documents.get(documentId);
+    if (current?.nameSource !== 'default') return;
+    await db.documents.update(documentId, { name: suggestion.name, nameSource: 'auto' });
+  });
+}
