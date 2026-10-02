@@ -17,14 +17,16 @@ export default function Home() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-gray-50 pb-20">
-      <header className="fixed top-0 left-0 right-0 z-10 flex h-14 items-center justify-between bg-white px-4 shadow-sm">
-        <h1 className="text-xl font-bold text-gray-900">
-          QuickScan <span role="img" aria-label="camera">📸</span>
-        </h1>
+    <div className="flex min-h-screen flex-col bg-gray-50 pb-safe-offset-6">
+      <header className="sticky top-0 left-0 right-0 z-10 bg-white/95 backdrop-blur-md shadow-xs pt-safe">
+        <div className="flex h-14 items-center justify-between px-4">
+          <h1 className="text-xl font-bold text-gray-900">
+            QuickScan <span role="img" aria-label="camera">📸</span>
+          </h1>
+        </div>
       </header>
       
-      <main className="mt-14 flex-1 overflow-y-auto">
+      <main className="flex-1">
         <DocumentList
           documents={documents}
           onScanClick={() => router.push('/scan')}
@@ -38,7 +40,7 @@ export default function Home() {
 
       <button
         onClick={() => router.push('/scan')}
-        className="fixed bottom-6 right-6 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 shadow-lg hover:bg-blue-700 active:bg-blue-800"
+        className="fixed bottom-safe-offset-6 right-6 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 shadow-lg hover:bg-blue-700 active:bg-blue-800"
         aria-label="Scan new document"
       >
         <svg
