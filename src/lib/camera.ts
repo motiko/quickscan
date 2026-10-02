@@ -35,7 +35,15 @@ export async function startCamera(
   });
 
   videoElement.srcObject = stream;
-  await videoElement.play();
+  try {
+    await videoElement.play();
+  } catch (err) {
+    // Don't leave the camera running if the caller never receives the stream
+    stopCamera(stream);
+    // A newer startCamera call may already own the element
+    if (videoElement.srcObject === stream) videoElement.srcObject = null;
+    throw err;
+  }
   return stream;
 }
 
