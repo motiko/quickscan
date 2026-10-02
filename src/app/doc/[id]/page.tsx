@@ -16,6 +16,7 @@ import { useRenderedPageUrl } from '@/hooks/useRenderedPageUrl';
 import { useSettings } from '@/hooks/useSettings';
 import { PageTextSheet } from '@/components/documents/PageTextSheet';
 import { suggestDocumentName } from '@/lib/naming';
+import { collectDocumentText } from '@/lib/ocr-text';
 import { getImageSize, getRenderedBlob } from '@/lib/annotations/flatten';
 import { rotateAnnotations90 } from '@/lib/annotations/geometry';
 import { AnnotationEditor } from '@/components/annotate/AnnotationEditor';
@@ -162,10 +163,7 @@ export default function DocumentViewer() {
   };
 
   const handleCopyAllText = async () => {
-    const text = pages
-      .map((p) => (p.ocrStatus === 'done' ? p.ocrText ?? '' : ''))
-      .filter(Boolean)
-      .join('\n\n');
+    const text = collectDocumentText(pages);
     if (!text) {
       alert('No recognized text yet.');
       return;
