@@ -98,14 +98,13 @@ export interface AppSettings {
   autoName: boolean;
   llmEnabled: boolean;
   llmProvider: LlmProvider;
-  llmCustomEndpointId: string; // which custom endpoint is used when llmProvider is 'custom'
   openaiApiKey: string;
   openaiModel: string;
   anthropicApiKey: string;
   anthropicModel: string;
   googleApiKey: string;
   googleModel: string;
-  llmCustomEndpoints: CustomLlmEndpoint[];
+  llmCustomEndpoint: CustomLlmEndpoint;
 }
 
 export type LlmProvider = 'openai' | 'anthropic' | 'google' | 'custom';
@@ -114,12 +113,10 @@ export type LlmProvider = 'openai' | 'anthropic' | 'google' | 'custom';
 export type LlmApiSchema = 'chat-completions' | 'anthropic-messages';
 
 export interface CustomLlmEndpoint {
-  id: string;
-  name: string;
-  schema: LlmApiSchema;
-  baseUrl: string; // e.g. http://localhost:11434/v1 — '/chat/completions' or '/messages' is appended
+  baseUrl: string; // e.g. https://ollama.com/v1 — '/chat/completions' or '/messages' is appended
   apiKey: string;
-  model: string;
+  model: string; // optional for the user; filled in from the endpoint's model list
+  schema: LlmApiSchema; // detected from the endpoint
 }
 
 export interface CameraConstraints {

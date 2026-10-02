@@ -169,31 +169,51 @@ describe('resolveLlmConfig', () => {
     });
   });
 
-  it('resolves the selected custom endpoint, which may have no key', () => {
-    const endpoint = { id: 'e1', name: 'Ollama', schema: 'anthropic-messages' as const, baseUrl: 'http://localhost:11434/v1', apiKey: '', model: 'gemma' };
-    const settings = { ...DEFAULT_SETTINGS, llmProvider: 'custom' as const, llmCustomEndpoints: [endpoint] };
-    expect(resolveLlmConfig({ ...settings, llmCustomEndpointId: 'missing' })).toBeNull();
-    expect(resolveLlmConfig({ ...settings, llmCustomEndpointId: 'e1' })).toMatchObject({ schema: 'anthropic-messages', model: 'gemma' });
+  it('resolves the custom endpoint, which may have no key but needs a model', () => {
+    const endpoint = { schema: 'anthropic-messages' as const, baseUrl: 'http://localhost:11434/v1', apiKey: '', model: '' };
+    const settings = { ...DEFAULT_SETTINGS, llmProvider: 'custom' as const };
+    expect(resolveLlmConfig({ ...settings, llmCustomEndpoint: endpoint })).toBeNull();
+    expect(resolveLlmConfig({ ...settings, llmCustomEndpoint: { ...endpoint, model: 'gemma' } })).toMatchObject({
+      schema: 'anthropic-messages',
+      model: 'gemma',
+    });
   });
 });
 
 describe('migrateLegacyLlmSettings', () => {
-  it('turns the old endpoint into a selected custom endpoint', () => {
+  it('turns the old single endpoint into the selected custom endpoint', () => {
     const migrated = migrateLegacyLlmSettings({
       llmEnabled: true,
       llmBaseUrl: 'https://openrouter.ai/api/v1',
       llmApiKey: 'sk-or',
       llmModel: 'x/y',
     })!;
-    expect(migrated.llmProvider).toBe('custom');
-    expect(migrated.llmCustomEndpoints).toEqual([
-      expect.objectContaining({ name: 'openrouter.ai', schema: 'chat-completions', apiKey: 'sk-or', model: 'x/y' }),
-    ]);
-    expect(migrated.llmCustomEndpointId).toBe(migrated.llmCustomEndpoints![0].id);
+    expect(migrated).toEqual({
+      llmProvider: 'custom',
+      llmCustomEndpoint: { schema: 'chat-completions', baseUrl: 'https://openrouter.ai/api/v1', apiKey: 'sk-or', model: 'x/y' },
+    });
+  });
+
+  it('keeps the selected endpoint from the endpoint list', () => {
+    const listed = (id: string, model: string) => ({
+      id,
+      name: id,
+      schema: 'chat-completions',
+      baseUrl: `https://${id}.example/v1`,
+      apiKey: '',
+      model,
+    });
+    expect(
+      migrateLegacyLlmSettings({ llmCustomEndpoints: [listed('a', 'm1'), listed('b', 'm2')], llmCustomEndpointId: 'b' })
+    ).toEqual({ llmCustomEndpoint: { schema: 'chat-completions', baseUrl: 'https://b.example/v1', apiKey: '', model: 'm2' } });
+    expect(migrateLegacyLlmSettings({ llmCustomEndpoints: [listed('a', 'm1')], llmCustomEndpointId: '' })).toMatchObject({
+      llmCustomEndpoint: { model: 'm1' },
+    });
   });
 
   it('does nothing without legacy keys and drops an empty endpoint', () => {
     expect(migrateLegacyLlmSettings({ autoName: true })).toBeNull();
     expect(migrateLegacyLlmSettings({ llmBaseUrl: '', llmModel: '' })).toEqual({});
+    expect(migrateLegacyLlmSettings({ llmCustomEndpoints: [], llmCustomEndpointId: '' })).toEqual({});
   });
 });

@@ -87,10 +87,7 @@ describe('suggestDocumentName', () => {
     await updateSettings({
       llmEnabled: true,
       llmProvider: 'custom',
-      llmCustomEndpointId: 'ollama',
-      llmCustomEndpoints: [
-        { id: 'ollama', name: 'Ollama', schema: 'chat-completions', baseUrl: 'http://localhost:11434/v1', apiKey: '', model: 'llama3.2' },
-      ],
+      llmCustomEndpoint: { schema: 'chat-completions', baseUrl: 'http://localhost:11434/v1', apiKey: '', model: 'llama3.2' },
     });
     await addDoc();
     await db.pages.add(page('p1', 1, { ocrText: INVOICE_TEXT }));
@@ -105,10 +102,7 @@ describe('suggestDocumentName', () => {
     await updateSettings({
       llmEnabled: true,
       llmProvider: 'custom',
-      llmCustomEndpointId: 'ollama',
-      llmCustomEndpoints: [
-        { id: 'ollama', name: 'Ollama', schema: 'chat-completions', baseUrl: 'http://localhost:11434/v1', apiKey: '', model: 'llama3.2' },
-      ],
+      llmCustomEndpoint: { schema: 'chat-completions', baseUrl: 'http://localhost:11434/v1', apiKey: '', model: 'llama3.2' },
     });
     await addDoc();
     await db.pages.add(page('p1', 1, { ocrText: INVOICE_TEXT }));

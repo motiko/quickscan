@@ -68,10 +68,8 @@ export function resolveLlmConfig(settings: AppSettings): LlmConfig | null {
       };
       break;
     case 'custom': {
-      const endpoint = settings.llmCustomEndpoints.find((e) => e.id === settings.llmCustomEndpointId);
-      if (endpoint) {
-        config = { schema: endpoint.schema, baseUrl: endpoint.baseUrl, apiKey: endpoint.apiKey, model: endpoint.model };
-      }
+      const endpoint = settings.llmCustomEndpoint;
+      config = { schema: endpoint.schema, baseUrl: endpoint.baseUrl, apiKey: endpoint.apiKey, model: endpoint.model };
       break;
     }
   }

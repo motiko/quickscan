@@ -20,9 +20,17 @@ test.describe('Document naming', () => {
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Rechnung – ACME Widgets GmbH – 2026-09-14');
   });
 
-  test('uses a custom OpenAI-compatible endpoint', async ({ page }) => {
+  test('detects a custom OpenAI-compatible endpoint and picks its model', async ({ page }) => {
     let requestBody: { model: string; messages: { content: string }[] } | null = null;
     let authHeader: string | undefined;
+    await page.route('https://llm.example.test/v1/models', async (route) => {
+      await route.fulfill({
+        status: 200,
+        headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*' },
+        contentType: 'application/json',
+        body: JSON.stringify({ object: 'list', data: [{ id: 'test/model', object: 'model' }, { id: 'other/model', object: 'model' }] }),
+      });
+    });
     await page.route('https://llm.example.test/v1/chat/completions', async (route) => {
       requestBody = route.request().postDataJSON();
       authHeader = await route.request().headerValue('authorization') ?? undefined;
@@ -36,11 +44,15 @@ test.describe('Document naming', () => {
 
     await seedDocument(page, { text: INVOICE_TEXT });
     await page.goto('/settings');
-    await page.getByText('Use an AI model').click();
-    await page.getByRole('button', { name: '+ Other' }).click();
-    await page.getByLabel('Endpoint URL', { exact: true }).fill('https://llm.example.test/v1');
+    await page.getByText('Use Cloud LLM').click();
+    await page.getByRole('radio', { name: 'Custom endpoint' }).click();
+    // Without the /v1 suffix, which detection adds
+    await page.getByLabel('Endpoint URL', { exact: true }).fill('https://llm.example.test');
     await page.getByLabel('API key', { exact: true }).fill('sk-e2e');
-    await page.getByLabel('Model', { exact: true }).fill('test/model');
+    await page.getByLabel('API key', { exact: true }).blur();
+    await expect(page.getByText('OpenAI Chat Completions API · 2 models')).toBeVisible();
+    await expect(page.getByLabel('Endpoint URL', { exact: true })).toHaveValue('https://llm.example.test/v1');
+    await expect(page.getByLabel('Model', { exact: true })).toHaveValue('test/model');
     await page.getByRole('button', { name: 'Test connection' }).click();
     await expect(page.getByRole('status')).toContainText('Works!');
 
@@ -79,7 +91,7 @@ test.describe('Document naming', () => {
 
     await seedDocument(page, { text: INVOICE_TEXT });
     await page.goto('/settings');
-    await page.getByText('Use an AI model').click();
+    await page.getByText('Use Cloud LLM').click();
     await page.getByRole('radio', { name: 'Anthropic' }).click();
     await expect(page.getByRole('radio', { name: 'Anthropic' })).toBeChecked();
     await page.getByLabel('API key', { exact: true }).fill('sk-ant-e2e');

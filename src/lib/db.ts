@@ -38,8 +38,11 @@ db.version(3).stores({
   signatures: 'id, createdAt',
 });
 
-// The single OpenAI-compatible endpoint became one of several providers
-db.version(4).upgrade(async (tx) => {
+db.version(4).stores({});
+
+// Older custom endpoint settings (a single OpenAI-compatible endpoint, then a list of
+// named endpoints) become the single custom endpoint
+db.version(5).upgrade(async (tx) => {
   const settings = tx.table<SettingRow, string>('settings');
   const rows = await settings.toArray();
   const updates = migrateLegacyLlmSettings(Object.fromEntries(rows.map((r) => [r.key, r.value])));

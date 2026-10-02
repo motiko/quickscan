@@ -1,5 +1,5 @@
 import { db } from '@/lib/db';
-import type { AppSettings, CustomLlmEndpoint } from '@/types';
+import type { AppSettings } from '@/types';
 
 export const DEFAULT_SETTINGS: AppSettings = {
   ocrEnabled: true,
@@ -7,23 +7,14 @@ export const DEFAULT_SETTINGS: AppSettings = {
   autoName: true,
   llmEnabled: false,
   llmProvider: 'openai',
-  llmCustomEndpointId: '',
   openaiApiKey: '',
   openaiModel: 'gpt-5-mini',
   anthropicApiKey: '',
   anthropicModel: 'claude-opus-5-5',
   googleApiKey: '',
   googleModel: 'gemini-2.5-flash',
-  llmCustomEndpoints: [],
+  llmCustomEndpoint: { baseUrl: '', apiKey: '', model: '', schema: 'chat-completions' },
 };
-
-/** Starting points for a new custom endpoint. */
-export const CUSTOM_ENDPOINT_PRESETS: Omit<CustomLlmEndpoint, 'id' | 'apiKey' | 'model'>[] = [
-  { name: 'OpenRouter', schema: 'chat-completions', baseUrl: 'https://openrouter.ai/api/v1' },
-  { name: 'Ollama Cloud', schema: 'chat-completions', baseUrl: 'https://ollama.com/v1' },
-  { name: 'Ollama (local)', schema: 'chat-completions', baseUrl: 'http://localhost:11434/v1' },
-  { name: 'LM Studio', schema: 'chat-completions', baseUrl: 'http://localhost:1234/v1' },
-];
 
 export async function getSettings(): Promise<AppSettings> {
   const rows = await db.settings.toArray();

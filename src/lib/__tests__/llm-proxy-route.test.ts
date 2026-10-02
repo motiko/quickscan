@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { POST } from '@/app/api/llm/route';
+import { GET, POST } from '@/app/api/llm/route';
 
 function proxyRequest(target: string) {
   return new Request('http://localhost/api/llm', {
@@ -37,5 +37,23 @@ describe('/api/llm proxy', () => {
     expect(url).toBe('https://ollama.com/v1/chat/completions');
     expect(init.headers.Authorization).toBe('Bearer key');
     expect(init.body).toBe('{"model":"m"}');
+  });
+
+  it('forwards model listings but no other GET targets', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{"data":[]}'));
+    vi.stubGlobal('fetch', fetchMock);
+    const get = (target: string) =>
+      GET(new Request('http://localhost/api/llm', { headers: { 'X-LLM-Target': target, Authorization: 'Bearer key' } }));
+
+    expect((await get('https://ollama.com/v1/chat/completions')).status).toBe(400);
+    expect((await get('https://evil.example/v1/models')).status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    expect((await get('https://ollama.com/v1/models')).status).toBe(200);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://ollama.com/v1/models');
+    expect(init.method).toBe('GET');
+    expect(init.headers.Authorization).toBe('Bearer key');
+    expect(init.body).toBeUndefined();
   });
 });

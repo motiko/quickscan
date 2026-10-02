@@ -1,27 +1,42 @@
-import { nanoid } from 'nanoid';
-import type { AppSettings, CustomLlmEndpoint } from '@/types';
+import type { AppSettings, CustomLlmEndpoint, LlmApiSchema } from '@/types';
 
-export const LEGACY_LLM_KEYS = ['llmBaseUrl', 'llmApiKey', 'llmModel'];
+/** The single OpenAI-compatible endpoint from before multiple providers. */
+const LEGACY_ENDPOINT_KEYS = ['llmBaseUrl', 'llmApiKey', 'llmModel'];
+/** The list of named custom endpoints, now a single custom endpoint. */
+const ENDPOINT_LIST_KEYS = ['llmCustomEndpoints', 'llmCustomEndpointId'];
+export const LEGACY_LLM_KEYS = [...LEGACY_ENDPOINT_KEYS, ...ENDPOINT_LIST_KEYS];
 
-/** Turn the old single OpenAI-compatible endpoint setting into a custom endpoint. */
+interface ListedEndpoint {
+  id: string;
+  schema: LlmApiSchema;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+}
+
+/** Turn older custom endpoint settings into the single custom endpoint. */
 export function migrateLegacyLlmSettings(stored: Record<string, unknown>): Partial<AppSettings> | null {
   if (!LEGACY_LLM_KEYS.some((k) => k in stored)) return null;
+
+  const list = Array.isArray(stored.llmCustomEndpoints) ? (stored.llmCustomEndpoints as ListedEndpoint[]) : [];
+  if (list.length > 0) {
+    const selected = list.find((e) => e.id === stored.llmCustomEndpointId) ?? list[0];
+    const endpoint: CustomLlmEndpoint = {
+      baseUrl: selected.baseUrl,
+      apiKey: selected.apiKey,
+      model: selected.model,
+      schema: selected.schema,
+    };
+    return { llmCustomEndpoint: endpoint };
+  }
+
   const baseUrl = String(stored.llmBaseUrl ?? '').trim();
   if (!baseUrl) return {};
-
-  let name = 'Custom endpoint';
-  try {
-    name = new URL(baseUrl).host;
-  } catch {
-    // keep the generic name
-  }
   const endpoint: CustomLlmEndpoint = {
-    id: nanoid(),
-    name,
-    schema: 'chat-completions',
     baseUrl,
     apiKey: String(stored.llmApiKey ?? ''),
     model: String(stored.llmModel ?? ''),
+    schema: 'chat-completions',
   };
-  return { llmCustomEndpoints: [endpoint], llmProvider: 'custom', llmCustomEndpointId: endpoint.id };
+  return { llmCustomEndpoint: endpoint, llmProvider: 'custom' };
 }
