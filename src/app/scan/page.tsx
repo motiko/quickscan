@@ -144,7 +144,8 @@ function ScanPageContent() {
     );
   }
 
-  if (phase === 'crop' && rawBlob) {
+  if (phase === 'crop') {
+    if (!rawBlob) return <div className="h-[100dvh] bg-black" />;
     return (
       <CropOverlay
         imageBlob={rawBlob}
@@ -155,7 +156,7 @@ function ScanPageContent() {
     );
   }
 
-  if (phase === 'review' && previewUrl) {
+  if (phase === 'review') {
     const totalPages = capturedBlobs.length + 1;
     return (
       <div className="flex h-[100dvh] flex-col bg-black select-none">
@@ -191,12 +192,16 @@ function ScanPageContent() {
 
         {/* Preview Area */}
         <div className="flex-1 overflow-hidden relative flex items-center justify-center p-3">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={previewUrl}
-            alt="Scanned page"
-            className="max-h-full max-w-full object-contain rounded-md shadow-2xl"
-          />
+          {previewUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={previewUrl}
+              alt="Scanned page"
+              className="max-h-full max-w-full object-contain rounded-md shadow-2xl"
+            />
+          ) : (
+            <div className="h-10 w-10 animate-spin rounded-full border-4 border-blue-500 border-t-transparent"></div>
+          )}
         </div>
 
         {/* Filter Bar & Controls */}
