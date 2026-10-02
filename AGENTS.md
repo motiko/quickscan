@@ -2,6 +2,44 @@
 
 Guidelines for AI agents working on this codebase.
 
+## ⚠️ STRICT RULE: Never Push Directly to `main`
+
+> **CRITICAL:** AI agents must **NEVER** push commits directly to `main` unless directly and explicitly instructed by the user. Branch protection is enforced on `main` in GitHub.
+
+### Required Flow for All Changes
+All changes must go through the Pull Request flow:
+1. **Create a feature branch:**
+   ```bash
+   git checkout -b <type>/<short-description>
+   ```
+2. **Make changes and commit** adhering to [Conventional Commits](https://www.conventionalcommits.org/):
+   ```bash
+   git commit -m "<type>: <description>"
+   ```
+3. **Push to remote:**
+   ```bash
+   git push -u origin <branch-name>
+   ```
+4. **Create a Pull Request using `gh` CLI:**
+   ```bash
+   gh pr create --title "<type>: <description>" --body "<summary of changes>"
+   ```
+5. **Watch and verify build & CI jobs pass:**
+   ```bash
+   gh pr checks --watch
+   ```
+   Do not merge if any CI/build checks fail; resolve errors on the branch, commit, and push until checks pass.
+6. **Merge the Pull Request via `gh` CLI:**
+   ```bash
+   gh pr merge --squash --delete-branch
+   ```
+7. **Switch back and pull latest `main`:**
+   ```bash
+   git checkout main
+   git pull origin main
+   ```
+
+
 ## Project Overview
 
 QuickScan is a **mobile-first PWA** for scanning documents using the phone camera. It is built with **Next.js 16 (App Router)** and runs **entirely client-side** — no backend server, no database, no API keys. All document storage uses **IndexedDB** via Dexie.js.
