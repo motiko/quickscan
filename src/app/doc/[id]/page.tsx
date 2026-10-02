@@ -27,7 +27,7 @@ function PageItem({
 
   return (
     <div
-      className="relative aspect-[3/4] overflow-hidden rounded-xl bg-gray-200 shadow-sm hover:shadow-md cursor-pointer transition-shadow"
+      className="relative aspect-[3/4] overflow-hidden rounded-xl bg-gray-200 dark:bg-neutral-800 shadow-sm hover:shadow-md cursor-pointer transition-shadow"
       onClick={() => url && onClick(page, url)}
     >
       {url ? (
@@ -38,7 +38,7 @@ function PageItem({
           className="h-full w-full object-cover"
         />
       ) : (
-        <div className="h-full w-full animate-pulse bg-gray-300" />
+        <div className="h-full w-full animate-pulse bg-gray-300 dark:bg-neutral-700" />
       )}
       <div className="absolute bottom-2 right-2 rounded-full bg-black/60 px-2.5 py-0.5 text-xs font-semibold text-white backdrop-blur-sm">
         {index + 1}
@@ -62,10 +62,10 @@ export default function DocumentViewer() {
 
   if (isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50">
+      <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-neutral-950">
         <div className="flex flex-col items-center gap-2">
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
-          <p className="text-sm font-medium text-gray-500">Loading document...</p>
+          <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Loading document...</p>
         </div>
       </div>
     );
@@ -73,8 +73,8 @@ export default function DocumentViewer() {
 
   if (!document) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center p-4 bg-gray-50">
-        <p className="mb-4 text-lg font-medium text-gray-700">Document not found</p>
+      <div className="flex min-h-screen flex-col items-center justify-center p-4 bg-gray-50 dark:bg-neutral-950">
+        <p className="mb-4 text-lg font-medium text-gray-700 dark:text-gray-300">Document not found</p>
         <button
           onClick={() => router.push('/')}
           className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow hover:bg-blue-700"
@@ -167,13 +167,13 @@ export default function DocumentViewer() {
   };
 
   return (
-    <div className="flex min-h-screen flex-col bg-gray-50 pb-safe-offset-6">
+    <div className="flex min-h-screen flex-col bg-gray-50 dark:bg-neutral-950 pb-safe-offset-6">
       {/* Top Header */}
-      <header className="sticky top-0 z-30 bg-white px-4 shadow-xs pt-safe">
+      <header className="sticky top-0 z-30 bg-white dark:bg-neutral-900 px-4 shadow-xs pt-safe dark:shadow-none dark:border-b dark:border-neutral-800">
         <div className="flex h-16 items-center justify-between gap-3">
           <button
             onClick={() => router.push('/')}
-            className="-ml-2 flex h-11 w-11 items-center justify-center rounded-full text-gray-900 hover:bg-gray-100 active:bg-gray-200"
+            className="-ml-2 flex h-11 w-11 items-center justify-center rounded-full text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-neutral-800 active:bg-gray-200 dark:active:bg-neutral-700"
             aria-label="Back to gallery"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -190,18 +190,18 @@ export default function DocumentViewer() {
                 onChange={(e) => setEditName(e.target.value)}
                 onBlur={handleNameSubmit}
                 onKeyDown={handleNameKeyDown}
-                className="w-full rounded-lg border border-blue-500 bg-white px-2.5 py-1 text-base font-semibold text-gray-900 outline-none"
+                className="w-full rounded-lg border border-blue-500 bg-white dark:bg-neutral-900 px-2.5 py-1 text-base font-semibold text-gray-900 dark:text-gray-100 outline-none"
               />
             ) : (
               <h1
                 onClick={handleNameClick}
-                className="truncate text-base font-bold text-gray-900 cursor-pointer hover:text-blue-600 transition-colors"
+                className="truncate text-base font-bold text-gray-900 dark:text-gray-100 cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
                 title="Click to rename"
               >
                 {document.name}
               </h1>
             )}
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
               {pages.length} page{pages.length !== 1 ? 's' : ''} • Tap title to rename
             </p>
           </div>
@@ -242,10 +242,10 @@ export default function DocumentViewer() {
       </main>
 
       {/* Bottom Sticky Action Bar */}
-      <div className="fixed bottom-0 left-0 right-0 z-20 flex justify-around border-t border-gray-200 bg-white/95 backdrop-blur-md px-3 pt-3 pb-safe-offset-3 shadow-lg">
+      <div className="fixed bottom-0 left-0 right-0 z-20 flex justify-around border-t border-gray-200 dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-md px-3 pt-3 pb-safe-offset-3 shadow-lg">
         <button
           onClick={() => router.push(`/scan?docId=${id}`)}
-          className="flex flex-col items-center justify-center p-2 text-gray-600 hover:text-blue-600 transition-colors"
+          className="flex flex-col items-center justify-center p-2 text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <line x1="12" y1="5" x2="12" y2="19"></line>
@@ -257,7 +257,7 @@ export default function DocumentViewer() {
         <button
           onClick={handleExport}
           disabled={isExporting || pages.length === 0}
-          className="flex flex-col items-center justify-center p-2 text-gray-600 hover:text-blue-600 disabled:opacity-50 transition-colors"
+          className="flex flex-col items-center justify-center p-2 text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 disabled:opacity-50 transition-colors"
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -269,7 +269,7 @@ export default function DocumentViewer() {
 
         <button
           onClick={handleDelete}
-          className="flex flex-col items-center justify-center p-2 text-gray-600 hover:text-red-600 transition-colors"
+          className="flex flex-col items-center justify-center p-2 text-gray-600 dark:text-gray-300 hover:text-red-600 dark:hover:text-red-400 transition-colors"
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <polyline points="3 6 5 6 21 6"></polyline>

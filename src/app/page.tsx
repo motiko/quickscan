@@ -11,16 +11,16 @@ export default function Home() {
   if (isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <p className="text-gray-500">Loading...</p>
+        <p className="text-gray-500 dark:text-gray-400">Loading...</p>
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-gray-50 pb-safe-offset-6">
-      <header className="sticky top-0 left-0 right-0 z-20 bg-white shadow-xs pt-safe">
+    <div className="flex min-h-screen flex-col bg-gray-50 dark:bg-neutral-950 pb-safe-offset-6">
+      <header className="sticky top-0 left-0 right-0 z-20 bg-white dark:bg-neutral-900 shadow-xs pt-safe dark:shadow-none dark:border-b dark:border-neutral-800">
         <div className="flex h-14 items-center justify-between px-4">
-          <h1 className="text-xl font-bold text-gray-900">
+          <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">
             QuickScan <span role="img" aria-label="camera">📸</span>
           </h1>
         </div>
