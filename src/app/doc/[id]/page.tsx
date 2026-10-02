@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
   useDocument,
@@ -78,8 +78,39 @@ export default function DocumentViewer() {
   const { settings } = useSettings();
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const selectedPage = selectedPageId ? pages.find((p) => p.id === selectedPageId) ?? null : null;
+  const selectedIndex = selectedPageId ? pages.findIndex((p) => p.id === selectedPageId) : -1;
+  const selectedPage = selectedIndex >= 0 ? pages[selectedIndex] : null;
   const selectedPageUrl = useRenderedPageUrl(selectedPage);
+  const hasPrevPage = selectedIndex > 0;
+  const hasNextPage = selectedIndex >= 0 && selectedIndex < pages.length - 1;
+  // Horizontal swipe in the page viewer; dragX makes the image follow the finger
+  const swipeStart = useRef<{ x: number; y: number } | null>(null);
+  const [dragX, setDragX] = useState(0);
+
+  const goToPage = (delta: number) => {
+    const next = pages[selectedIndex + delta];
+    if (selectedIndex < 0 || !next) return;
+    setSelectedPageId(next.id);
+    setShowText(false);
+  };
+
+  const closePageViewer = () => {
+    setSelectedPageId(null);
+    setShowText(false);
+    setIsAnnotating(false);
+  };
+
+  // Arrow keys switch pages and Escape closes the viewer (not while annotating or reading text)
+  useEffect(() => {
+    if (!selectedPageId || isAnnotating || showText) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') goToPage(-1);
+      if (e.key === 'ArrowRight') goToPage(1);
+      if (e.key === 'Escape') closePageViewer();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  });
 
   // Pasted images are appended as new pages; ignored while a page is open in the viewer
   usePasteImages(async (files) => {
@@ -195,10 +226,32 @@ export default function DocumentViewer() {
     }
   };
 
-  const closePageViewer = () => {
-    setSelectedPageId(null);
-    setShowText(false);
-    setIsAnnotating(false);
+  const handleSwipeStart = (e: React.TouchEvent) => {
+    if (e.touches.length !== 1) {
+      swipeStart.current = null;
+      setDragX(0);
+      return;
+    }
+    swipeStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  };
+
+  const handleSwipeMove = (e: React.TouchEvent) => {
+    if (!swipeStart.current) return;
+    const dx = e.touches[0].clientX - swipeStart.current.x;
+    const dy = e.touches[0].clientY - swipeStart.current.y;
+    if (Math.abs(dx) < Math.abs(dy)) return;
+    // Resist dragging past the first or last page
+    setDragX((dx > 0 && !hasPrevPage) || (dx < 0 && !hasNextPage) ? dx / 4 : dx);
+  };
+
+  const handleSwipeEnd = (e: React.TouchEvent) => {
+    const start = swipeStart.current;
+    swipeStart.current = null;
+    setDragX(0);
+    if (!start) return;
+    const dx = e.changedTouches[0].clientX - start.x;
+    const dy = e.changedTouches[0].clientY - start.y;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) goToPage(dx < 0 ? 1 : -1);
   };
 
   const handleRotateCurrentPage = async () => {
@@ -435,7 +488,7 @@ export default function DocumentViewer() {
           {/* Top modal header */}
           <div className="flex items-center justify-between px-4 pb-4 pt-safe-offset-4 bg-black/50">
             <span className="text-white text-sm font-semibold">
-              Page {selectedPage.pageNumber} of {pages.length}
+              Page {selectedIndex + 1} of {pages.length}
             </span>
             <button
               onClick={closePageViewer}
@@ -449,15 +502,52 @@ export default function DocumentViewer() {
             </button>
           </div>
 
-          {/* Image */}
-          <div className="flex-1 flex items-center justify-center p-4 overflow-hidden">
+          {/* Image — swipe left/right or use the arrows to change page */}
+          <div
+            className="relative flex-1 flex items-center justify-center p-4 overflow-hidden touch-pan-y"
+            onTouchStart={handleSwipeStart}
+            onTouchMove={handleSwipeMove}
+            onTouchEnd={handleSwipeEnd}
+            onTouchCancel={() => {
+              swipeStart.current = null;
+              setDragX(0);
+            }}
+          >
             {selectedPageUrl && (
               /* eslint-disable-next-line @next/next/no-img-element */
               <img
                 src={selectedPageUrl}
                 alt={`Page ${selectedPage.pageNumber}`}
-                className="max-h-[80dvh] max-w-full object-contain rounded-md shadow-2xl"
+                draggable={false}
+                style={{ transform: dragX ? `translateX(${dragX}px)` : undefined }}
+                className={`max-h-[80dvh] max-w-full object-contain rounded-md shadow-2xl ${
+                  dragX ? '' : 'transition-transform duration-200'
+                }`}
               />
+            )}
+
+            {hasPrevPage && (
+              <button
+                onClick={() => goToPage(-1)}
+                className="absolute left-2 top-1/2 -translate-y-1/2 flex h-11 w-11 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm hover:bg-black/70 active:scale-95 transition-all"
+                aria-label="Previous page"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="15 18 9 12 15 6"></polyline>
+                </svg>
+              </button>
+            )}
+
+            {hasNextPage && (
+              <button
+                onClick={() => goToPage(1)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 flex h-11 w-11 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm hover:bg-black/70 active:scale-95 transition-all"
+                aria-label="Next page"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="9 18 15 12 9 6"></polyline>
+                </svg>
+              </button>
             )}
           </div>
 
