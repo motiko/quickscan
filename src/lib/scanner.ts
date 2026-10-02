@@ -1,4 +1,4 @@
-import type { Point, Quad } from '@/types';
+import type { Point, Quad, DetectedQuad } from '@/types';
 import { scanDocument } from 'scanic';
 import { MLCornerDetector, Corner } from './ml-detector';
 

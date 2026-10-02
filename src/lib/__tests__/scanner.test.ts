@@ -246,7 +246,7 @@ describe('scanner functions', () => {
       
       const result = detectDocumentQuad(img);
       expect(result).not.toBeNull();
-      if (result) {
+      if (result && result.corners) {
         expect(result.corners.length).toBe(4);
         // Approximately [20,20], [80,20], [80,80], [20,80]
         // But edges might be slightly shifted depending on Sobel kernel size.
@@ -296,7 +296,7 @@ describe('scanner functions', () => {
       drawRectangle(img, 30, 30, 140, 140, 255, 255, 255);
       const result = await detectDocumentQuadAsync(img);
       expect(result).not.toBeNull();
-      if (result) {
+      if (result && result.corners) {
         expect(result.corners).toHaveLength(4);
         expect(result.confidence).toBeGreaterThan(0.5);
       }
@@ -312,7 +312,7 @@ describe('scanner functions', () => {
       }
       const result = await detectDocumentQuadAsync(img);
       expect(result).not.toBeNull();
-      if (result) {
+      if (result && result.corners) {
         expect(result.corners).toHaveLength(4);
         // Top-left corner should be near document edge (~30, 30), not collapsed onto text line
         expect(result.corners[0].x).toBeLessThan(40);

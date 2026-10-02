@@ -1,11 +1,10 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import type { Quad } from '@/types';
+import type { Quad, DetectedQuad } from '@/types';
 
-export interface DetectionResult {
+export interface DetectionResult extends DetectedQuad {
   normalizedCorners: Quad | null;
-  confidence: number;
 }
 
 export function useScannerWorker() {
@@ -21,12 +20,12 @@ export function useScannerWorker() {
       });
 
       worker.onmessage = (e: MessageEvent) => {
-        const { id, type, normalizedCorners, confidence } = e.data;
+        const { id, type, normalizedCorners, confidence, isStable, stability, corners } = e.data;
         if (type === 'DETECTED') {
           const resolve = pendingRequests.current.get(id);
           if (resolve) {
             pendingRequests.current.delete(id);
-            resolve({ normalizedCorners, confidence });
+            resolve({ normalizedCorners, confidence, isStable, stability, corners });
           }
         }
       };
@@ -59,7 +58,7 @@ export function useScannerWorker() {
     ): Promise<DetectionResult> => {
       const worker = workerRef.current;
       if (!worker) {
-        return { normalizedCorners: null, confidence: 0 };
+        return { normalizedCorners: null, confidence: 0, isStable: false, stability: 0, corners: null };
       }
 
       const reqId = nextReqId.current++;
@@ -76,7 +75,7 @@ export function useScannerWorker() {
         setTimeout(() => {
           if (pendingRequests.current.has(reqId)) {
             pendingRequests.current.delete(reqId);
-            resolve({ normalizedCorners: null, confidence: 0 });
+            resolve({ normalizedCorners: null, confidence: 0, isStable: false, stability: 0, corners: null });
           }
         }, 1500);
       });

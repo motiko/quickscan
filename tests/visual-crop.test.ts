@@ -44,7 +44,7 @@ describe('Document Detection Visual Regression', () => {
     const browserImageData = imageData as unknown as ImageData;
 
     // 2. Detect corners using the new Hybrid ML+CV pipeline
-    const result = await detectDocumentQuadAsync(imageData, { detector: 'ml' });
+    const result = await detectDocumentQuadAsync(browserImageData, { detector: 'ml' });
 
     if (!result) {
       throw new Error('Failed to detect document in video frame');

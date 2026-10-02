@@ -32,7 +32,7 @@ export class MLCornerDetector {
       throw new Error('MLCornerDetector not initialized');
     }
 
-    return tf.tidy(() => {
+    const corners = tf.tidy(() => {
       // 1. Convert ImageData to tensor and downsample to 256x256
       const tensor = tf.browser.fromPixels(imageData, 1) // grayscale
         .resizeBilinear([this.inputSize, this.inputSize])
@@ -44,15 +44,17 @@ export class MLCornerDetector {
       const coords = prediction.dataSync(); // [x1, y1, x2, y2, x3, y3, x4, y4]
 
       // 3. Normalize coordinates back to 0..1 range
-      const corners: Corner[] = [];
+      const result: Corner[] = [];
       for (let i = 0; i < 8; i += 2) {
-        corners.push({
+        result.push({
           x: coords[i],
           y: coords[i + 1]
         });
       }
 
-      return corners;
-    });
+      return result as unknown as tf.TensorContainer;
+    }) as unknown as Corner[];
+
+    return corners;
   }
 }

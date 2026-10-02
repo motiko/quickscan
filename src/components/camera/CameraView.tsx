@@ -112,8 +112,8 @@ export function CameraView({ onCapture, onClose }: CameraViewProps) {
           if (result.normalizedCorners && result.confidence > 0.3) {
             // Use the pre-smoothed corners from the worker
             setDetectedCorners(result.normalizedCorners);
-            setIsStable(result.isStable);
-            setAutoProgress(Math.round(result.stability * 100));
+            setIsStable(result.isStable ?? false);
+            setAutoProgress(Math.round((result.stability ?? 0) * 100));
 
             if (result.isStable && mode === 'auto' && !isCapturingRef.current) {
               // Auto capture trigger driven by the worker's stability logic

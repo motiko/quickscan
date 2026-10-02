@@ -19,7 +19,7 @@ self.onmessage = async (e: MessageEvent) => {
       }
 
       const result = await detectDocumentQuadAsync(imageData, { detector });
-      if (result) {
+      if (result && result.corners) {
         const W = imageData.width;
         const H = imageData.height;
 

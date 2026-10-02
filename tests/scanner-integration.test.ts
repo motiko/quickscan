@@ -36,7 +36,7 @@ describe('Hybrid ML+CV Edge Detection', () => {
 
     const result = await detectDocumentQuadAsync(imageData, { detector: 'ml' });
 
-    if (result) {
+    if (result && result.corners) {
       expect(result.corners[0].x).toBeLessThan(320);
       expect(result.corners[0].y).toBeLessThan(240);
       expect(result.corners[2].x).toBeGreaterThan(320);
