@@ -37,7 +37,8 @@ export function guessSchema(baseUrl: string): LlmApiSchema {
   return /anthropic/i.test(baseUrl) ? 'anthropic-messages' : 'chat-completions';
 }
 
-async function listModels(
+/** Model IDs listed at `${baseUrl}/models`, or null when it doesn't answer in the given schema. */
+export async function listModels(
   baseUrl: string,
   apiKey: string,
   schema: LlmApiSchema,
