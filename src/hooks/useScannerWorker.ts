@@ -56,7 +56,7 @@ export function useScannerWorker() {
   const detect = useCallback(
     async (
       imageData: ImageData,
-      options?: { detector?: 'classical' | 'ml' }
+      options?: { detector?: 'classical' | 'ml'; track?: boolean }
     ): Promise<DetectionResult> => {
       const worker = workerRef.current;
       if (!worker) {
@@ -79,6 +79,7 @@ export function useScannerWorker() {
           type: 'DETECT',
           imageData,
           detector: options?.detector || 'classical',
+          track: options?.track ?? true,
         });
 
         // Safety timeout in case worker drops frame

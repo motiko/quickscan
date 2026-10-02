@@ -7,10 +7,11 @@ import { DocumentTracker } from './document-tracker';
 const mlDetector = new MLCornerDetector();
 const tracker = new DocumentTracker();
 let isMLInitialized = false;
+let lastConfidence = 0;
 
 // Web Worker message listener
 self.onmessage = async (e: MessageEvent) => {
-  const { id, type, imageData, detector = 'classical' } = e.data;
+  const { id, type, imageData, detector = 'classical', track = true } = e.data;
 
   if (type === 'DETECT') {
     try {
@@ -34,6 +35,22 @@ self.onmessage = async (e: MessageEvent) => {
           { x: result.corners[3].x / W, y: result.corners[3].y / H },
         ];
 
+        // One-shot detection (e.g. still image in the crop screen): skip tracking
+        if (!track) {
+          self.postMessage({
+            id,
+            type: 'DETECTED',
+            corners: result.corners,
+            normalizedCorners: rawNormalizedCorners,
+            confidence: result.confidence,
+            isStable: false,
+            stability: 0,
+            hint: null,
+            frameAnalysis,
+          });
+          return;
+        }
+
         // Apply temporal smoothing for visual overlay
         const smoothedCorners = tracker.smooth(rawNormalizedCorners);
         // Check stability using RAW corners (not smoothed) to detect real movement
@@ -55,6 +72,7 @@ self.onmessage = async (e: MessageEvent) => {
           }
         }
 
+        lastConfidence = result.confidence;
         self.postMessage({
           id,
           type: 'DETECTED',
@@ -67,7 +85,24 @@ self.onmessage = async (e: MessageEvent) => {
           frameAnalysis,
         });
       } else {
-        tracker.reset();
+        // Hold the last quad through a brief detection dropout so one missed
+        // frame does not wipe out stability progress.
+        const held = track ? tracker.registerMiss() : null;
+        if (held) {
+          const { isStable, stability } = tracker.getStability();
+          self.postMessage({
+            id,
+            type: 'DETECTED',
+            corners: null,
+            normalizedCorners: held,
+            confidence: lastConfidence,
+            isStable,
+            stability,
+            hint: frameAnalysis.hint ?? (isStable ? null : 'hold_steady'),
+            frameAnalysis,
+          });
+          return;
+        }
 
         // Even with no document detected, report environment hints
         const hint: DetectionHint = frameAnalysis.hint ?? 'align_document';

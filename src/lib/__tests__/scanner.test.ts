@@ -26,6 +26,26 @@ function drawRectangle(
 
 describe('scanner functions', () => {
   describe('orderCorners', () => {
+    it('should return 4 distinct points for a quad rotated ~45°', () => {
+      // Diamond: the old x+y / y-x heuristic picked the same point for two roles
+      const corners: Point[] = [
+        { x: 50, y: 0 },
+        { x: 100, y: 50 },
+        { x: 50, y: 100 },
+        { x: 0, y: 50 },
+      ];
+      const ordered = orderCorners(corners);
+      expect(new Set(ordered.map((p) => `${p.x},${p.y}`)).size).toBe(4);
+      // Clockwise winding (positive signed area in y-down coords)
+      let signed = 0;
+      for (let i = 0; i < 4; i++) {
+        const a = ordered[i];
+        const b = ordered[(i + 1) % 4];
+        signed += a.x * b.y - b.x * a.y;
+      }
+      expect(signed).toBeGreaterThan(0);
+    });
+
     it('already-ordered corners should stay the same', () => {
       const corners: Point[] = [
         { x: 0, y: 0 },

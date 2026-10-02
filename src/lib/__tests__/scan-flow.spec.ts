@@ -189,19 +189,19 @@ describe('Scan flow simulation', () => {
       expect(result.captureTriggeredAtFrame).not.toBeNull();
       expect(result.maxConfidence).toBeGreaterThan(0.5);
       // Capture should NOT happen in the first few frames
-      expect(result.captureTriggeredAtFrame!).toBeGreaterThanOrEqual(14);
+      expect(result.captureTriggeredAtFrame!).toBeGreaterThanOrEqual(9);
     });
 
-    it('should NOT trigger capture in fewer than 15 frames even when stable', () => {
-      // Only 14 frames — not enough for stability threshold
-      const frames = Array.from({ length: 14 }, () =>
+    it('should NOT trigger capture in fewer than 10 frames even when stable', () => {
+      // Only 10 frames — not enough for stability threshold
+      const frames = Array.from({ length: 10 }, () =>
         createDocumentFrame(320, 240, 60, 40, 200, 160)
       );
 
       const result = runPipeline(frames);
 
-      // Stability threshold is 15, so 14 frames should not be enough
-      // (first frame initializes, then 13 stable frames < 15 threshold)
+      // Stability threshold is 10, so 10 frames should not be enough
+      // (first frame initializes, then 9 stable frames < 10 threshold)
       expect(result.captureTriggeredAtFrame).toBeNull();
     });
   });
@@ -223,7 +223,7 @@ describe('Scan flow simulation', () => {
       const frames: ImageData[] = [];
 
       // Moving phase — 5px/frame shift is well above stability tolerance
-      // (5/320 = 0.0156 normalized, vs 0.008 tolerance)
+      // (accumulates past the 0.02 anchor tolerance within a few frames)
       for (let i = 0; i < 20; i++) {
         frames.push(createDocumentFrame(320, 240, 60 + i * 5, 40, 180, 140));
       }
@@ -237,7 +237,7 @@ describe('Scan flow simulation', () => {
 
       expect(result.captureTriggeredAtFrame).not.toBeNull();
       // Capture should happen during the stable phase (after frame 20),
-      // plus ~16 frames for stability threshold + tracker init
+      // plus ~11 frames for stability threshold + tracker init
       expect(result.captureTriggeredAtFrame!).toBeGreaterThanOrEqual(20);
     });
   });

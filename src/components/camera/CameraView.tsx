@@ -40,6 +40,7 @@ export function CameraView({ onCapture, onClose }: CameraViewProps) {
   const [autoProgress, setAutoProgress] = useState(0); // 0 to 100%
   const [hint, setHint] = useState<DetectionHint>('align_document');
   const [confidence, setConfidence] = useState(0);
+  const [videoSize, setVideoSize] = useState<{ width: number; height: number } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isDetectingRef = useRef(false);
@@ -326,55 +327,69 @@ export function CameraView({ onCapture, onClose }: CameraViewProps) {
           autoPlay
           playsInline
           muted
+          onLoadedMetadata={(e) =>
+            setVideoSize({
+              width: e.currentTarget.videoWidth,
+              height: e.currentTarget.videoHeight,
+            })
+          }
+          onResize={(e) =>
+            setVideoSize({
+              width: e.currentTarget.videoWidth,
+              height: e.currentTarget.videoHeight,
+            })
+          }
           className={`w-full h-full object-cover ${!isActive ? 'opacity-0' : 'opacity-100'} transition-opacity duration-300`}
         />
 
-        {/* Live SVG Quad Polygon Overlay */}
-        {detectedCorners && isActive && (
-          <svg
-            viewBox="0 0 1000 1000"
-            preserveAspectRatio="none"
-            className="absolute inset-0 h-full w-full pointer-events-none z-20"
-          >
-            {/* Detected polygon shape */}
-            <polygon
-              points={detectedCorners
-                .map((p) => `${Math.round(p.x * 1000)},${Math.round(p.y * 1000)}`)
-                .join(' ')}
-              fill={isStable && confidence >= AUTO_CAPTURE_MIN_CONFIDENCE
-                ? 'rgba(34, 197, 94, 0.25)'
-                : autoProgress > 60
-                  ? 'rgba(59, 130, 246, 0.22)'
-                  : 'rgba(59, 130, 246, 0.12)'}
-              stroke={isStable && confidence >= AUTO_CAPTURE_MIN_CONFIDENCE
-                ? '#22c55e'
-                : autoProgress > 60
-                  ? '#3b82f6'
-                  : '#60a5fa'}
-              strokeWidth={isStable && confidence >= AUTO_CAPTURE_MIN_CONFIDENCE ? '7' : '5'}
-              strokeDasharray={
-                isStable && confidence >= AUTO_CAPTURE_MIN_CONFIDENCE
-                  ? undefined
+        {/* Live SVG Quad Polygon Overlay — viewBox in video pixels with "slice"
+            mirrors the video's object-cover cropping, so corners line up exactly */}
+        {detectedCorners && isActive && videoSize && (() => {
+          const { width: vw, height: vh } = videoSize;
+          const unit = Math.max(vw, vh) / 1000;
+          const ready = isStable && confidence >= AUTO_CAPTURE_MIN_CONFIDENCE;
+          return (
+            <svg
+              viewBox={`0 0 ${vw} ${vh}`}
+              preserveAspectRatio="xMidYMid slice"
+              className="absolute inset-0 h-full w-full pointer-events-none z-20"
+            >
+              {/* Detected polygon shape */}
+              <polygon
+                points={detectedCorners
+                  .map((p) => `${Math.round(p.x * vw)},${Math.round(p.y * vh)}`)
+                  .join(' ')}
+                fill={ready
+                  ? 'rgba(34, 197, 94, 0.25)'
                   : autoProgress > 60
-                    ? '16 4'
-                    : '12 8'
-              }
-              className="transition-colors duration-200"
-            />
-            {/* 4 Corner Pin Markers */}
-            {detectedCorners.map((p, idx) => (
-              <circle
-                key={idx}
-                cx={p.x * 1000}
-                cy={p.y * 1000}
-                r="16"
-                fill={isStable && confidence >= AUTO_CAPTURE_MIN_CONFIDENCE ? '#22c55e' : '#60a5fa'}
-                stroke="#ffffff"
-                strokeWidth="5"
+                    ? 'rgba(59, 130, 246, 0.22)'
+                    : 'rgba(59, 130, 246, 0.12)'}
+                stroke={ready ? '#22c55e' : autoProgress > 60 ? '#3b82f6' : '#60a5fa'}
+                strokeWidth={(ready ? 7 : 5) * unit}
+                strokeDasharray={
+                  ready
+                    ? undefined
+                    : autoProgress > 60
+                      ? `${16 * unit} ${4 * unit}`
+                      : `${12 * unit} ${8 * unit}`
+                }
+                className="transition-colors duration-200"
               />
-            ))}
-          </svg>
-        )}
+              {/* 4 Corner Pin Markers */}
+              {detectedCorners.map((p, idx) => (
+                <circle
+                  key={idx}
+                  cx={p.x * vw}
+                  cy={p.y * vh}
+                  r={16 * unit}
+                  fill={ready ? '#22c55e' : '#60a5fa'}
+                  stroke="#ffffff"
+                  strokeWidth={5 * unit}
+                />
+              ))}
+            </svg>
+          );
+        })()}
 
         {/* Scanning Guidance Badge */}
         <div className="absolute top-[calc(env(safe-area-inset-top,0px)+5rem)] left-0 right-0 z-20 flex justify-center pointer-events-none">
