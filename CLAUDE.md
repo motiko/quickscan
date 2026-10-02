@@ -20,6 +20,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - E2E Tests Headed: `npm run e2e:headed`
 - iOS Simulator Helper: `npm run sim`
 
+### Claude Code Commands
+- `/submit`: Automated process to branch, commit, push, create PR, monitor CI, and merge.
+
 ## Architecture
 
 QuickScan is a mobile-first Progressive Web App (PWA) built with Next.js 16 (App Router) that performs all document scanning and processing entirely client-side.
