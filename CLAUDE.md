@@ -47,7 +47,7 @@ QuickScan is a mobile-first Progressive Web App (PWA) built with Next.js 16 (App
 - `src/hooks/`: Shared React hooks for camera, database, and document state.
 
 ### Key Technical Decisions
-- **Client-Side Only**: No backend; all data is stored in IndexedDB via Dexie.js.
+- **Client-Side Only**: No backend; all data is stored in IndexedDB via Dexie.js. The only server code is `/api/llm`, a stateless pass-through for LLM providers without CORS support (allowlisted in `PROXIED_HOSTS`).
 - **Edge Detection**: Uses a Web Worker to prevent UI blocking during OpenCV.js processing.
 - **PWA**: Implemented via `@serwist/next` for offline-first capabilities and "Add to Home Screen" experience.
 - **PDF Export**: Multi-page PDFs are generated on the client using `pdf-lib`, with annotations flattened into the page images and an invisible OCR text layer.

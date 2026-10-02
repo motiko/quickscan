@@ -49,6 +49,25 @@ describe('suggestNameWithLlm', () => {
     expect(body.messages[1].content).toHaveLength(4000);
   });
 
+  it('routes CORS-less providers like Ollama Cloud through the same-origin proxy', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(reply('Title'));
+    await suggestNameWithLlm('text', { ...config, baseUrl: 'https://ollama.com/v1' }, { fetchImpl });
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(url).toBe('/api/llm');
+    expect(init.headers['X-LLM-Target']).toBe('https://ollama.com/v1/chat/completions');
+    expect(init.headers.Authorization).toBe('Bearer sk-test');
+  });
+
+  it('only proxies chat completions requests', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(reply('Title'));
+    await suggestNameWithLlm(
+      'text',
+      { ...config, schema: 'anthropic-messages', baseUrl: 'https://ollama.com/v1' },
+      { fetchImpl },
+    ).catch(() => {});
+    expect(fetchImpl.mock.calls[0][0]).toBe('https://ollama.com/v1/messages');
+  });
+
   it('omits the Authorization header without an API key', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(reply('Title'));
     await suggestNameWithLlm('text', { ...config, apiKey: '' }, { fetchImpl });

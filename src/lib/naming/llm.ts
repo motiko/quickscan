@@ -2,6 +2,7 @@
  * Document naming through a hosted or custom LLM, called directly from the browser.
  * Supports OpenAI, Anthropic and Google natively, plus custom endpoints speaking either
  * OpenAI Chat Completions (OpenRouter, Ollama, LM Studio, ...) or Anthropic Messages.
+ * Providers that don't send CORS headers go through the same-origin /api/llm proxy.
  */
 
 import type { AppSettings, LlmApiSchema } from '@/types';
@@ -31,6 +32,11 @@ const SYSTEM_PROMPT =
   'You name scanned documents. Reply with only a concise, filename-style title of at most 60 characters, ' +
   'in the same language as the document. Use the pattern "<document type> – <sender or subject> – <YYYY-MM-DD>" ' +
   'and leave out any part you cannot determine. No quotes, no explanation.';
+
+/** Hosts whose API rejects browser preflights; only these may be reached through the proxy. */
+export const PROXIED_HOSTS = ['ollama.com'];
+export const PROXY_PATH = '/api/llm';
+export const PROXY_TARGET_HEADER = 'X-LLM-Target';
 
 /** The configuration of the provider selected in settings, or null when it is incomplete. */
 export function resolveLlmConfig(settings: AppSettings): LlmConfig | null {
@@ -81,6 +87,15 @@ function joinUrl(baseUrl: string, path: string): string {
 
 export function chatCompletionsUrl(baseUrl: string): string {
   return joinUrl(baseUrl, 'chat/completions');
+}
+
+export function isProxiedUrl(url: string): boolean {
+  try {
+    const { protocol, hostname } = new URL(url);
+    return protocol === 'https:' && PROXIED_HOSTS.includes(hostname);
+  } catch {
+    return false;
+  }
 }
 
 /** Reduce a model reply to a single safe title line. */
@@ -198,7 +213,11 @@ export async function suggestNameWithLlm(
 
   try {
     const request = buildRequest(text, config);
-    const response = await fetchImpl(request.url, {
+    // The proxy only forwards chat completions requests to allowlisted hosts
+    const viaProxy = config.schema === 'chat-completions' && isProxiedUrl(request.url);
+    if (viaProxy) request.headers[PROXY_TARGET_HEADER] = request.url;
+
+    const response = await fetchImpl(viaProxy ? PROXY_PATH : request.url, {
       method: 'POST',
       headers: request.headers,
       signal: controller.signal,

@@ -1,10 +1,98 @@
 'use client';
 
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSettings } from '@/hooks/useSettings';
-import { OCR_LANGUAGES, updateSettings } from '@/lib/settings';
+import { updateSettings } from '@/lib/settings';
+import { filterOcrLanguages, getOcrLanguage } from '@/lib/ocr-languages';
 import { requeueAllOcr } from '@/lib/ocr-queue';
 import { AiProviderSettings } from '@/components/settings/AiProviderSettings';
+
+/** Selected languages as removable chips, plus a searchable list of all languages. */
+function OcrLanguagePicker({
+  selected,
+  disabled,
+  onToggle,
+}: {
+  selected: string[];
+  disabled: boolean;
+  onToggle: (code: string) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const results = filterOcrLanguages(query);
+
+  return (
+    <div>
+      <div className="mb-3 flex flex-wrap gap-2" role="group" aria-label="Selected OCR languages">
+        {selected.map((code) => {
+          const label = getOcrLanguage(code)?.label ?? code;
+          return (
+            <button
+              key={code}
+              onClick={() => onToggle(code)}
+              disabled={disabled || selected.length === 1}
+              aria-label={`Remove ${label}`}
+              className={`flex items-center gap-1 rounded-full border border-blue-600 bg-blue-600 py-1.5 pl-3 pr-2 text-xs font-semibold text-white${disabled ? ' opacity-50' : ''}`}
+            >
+              {label}
+              {selected.length > 1 && (
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      <input
+        type="search"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        disabled={disabled}
+        placeholder="Search languages"
+        aria-label="Search languages"
+        className="w-full rounded-lg border border-gray-300 dark:border-neutral-700 bg-white dark:bg-neutral-950 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none focus:border-blue-600 disabled:opacity-50"
+      />
+
+      <ul
+        className="mt-2 max-h-64 overflow-y-auto rounded-lg border border-gray-200 dark:border-neutral-800"
+        aria-label="OCR languages"
+      >
+        {results.map(({ code, label, native }) => {
+          const isSelected = selected.includes(code);
+          return (
+            <li key={code} className="border-b border-gray-100 dark:border-neutral-800 last:border-b-0">
+              <button
+                onClick={() => onToggle(code)}
+                disabled={disabled || (isSelected && selected.length === 1)}
+                aria-pressed={isSelected}
+                aria-label={label}
+                className={`flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-sm hover:bg-gray-50 dark:hover:bg-neutral-800 disabled:cursor-default${disabled ? ' opacity-50' : ''}`}
+              >
+                <span className="min-w-0">
+                  <span className="text-gray-900 dark:text-gray-100">{label}</span>
+                  {native !== label && (
+                    <span className="ml-2 text-gray-500 dark:text-gray-400">{native}</span>
+                  )}
+                </span>
+                {isSelected && (
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-blue-600 dark:text-blue-400" aria-hidden="true">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                  </svg>
+                )}
+              </button>
+            </li>
+          );
+        })}
+        {results.length === 0 && (
+          <li className="px-3 py-2.5 text-sm text-gray-500 dark:text-gray-400">No languages match “{query.trim()}”</li>
+        )}
+      </ul>
+    </div>
+  );
+}
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -65,26 +153,11 @@ export default function SettingsPage() {
               <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
                 Each language is downloaded once (a few MB) and then works offline.
               </p>
-              <div className="flex flex-wrap gap-2" role="group" aria-label="OCR languages">
-                {OCR_LANGUAGES.map(({ code, label }) => {
-                  const selected = settings.ocrLanguages.includes(code);
-                  return (
-                    <button
-                      key={code}
-                      onClick={() => void toggleLanguage(code)}
-                      disabled={!settings.ocrEnabled}
-                      aria-pressed={selected}
-                      className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-50 ${
-                        selected
-                          ? 'border-blue-600 bg-blue-600 text-white'
-                          : 'border-gray-300 dark:border-neutral-700 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-neutral-800'
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  );
-                })}
-              </div>
+              <OcrLanguagePicker
+                selected={settings.ocrLanguages}
+                disabled={!settings.ocrEnabled}
+                onToggle={(code) => void toggleLanguage(code)}
+              />
             </div>
 
             <div className="border-t border-gray-100 dark:border-neutral-800 px-4 py-3">
