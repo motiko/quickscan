@@ -3,7 +3,8 @@ import { fileURLToPath } from 'node:url';
 
 export default defineConfig({
   test: {
-    exclude: ['node_modules', 'e2e', '.next', '.claude'],
+    // Live tests call real providers; run them with `npm run test:live`
+    exclude: ['node_modules', 'e2e', '.next', '.claude', '**/*.live.test.ts'],
     setupFiles: ['./src/lib/__tests__/setup.ts'],
   },
   resolve: {

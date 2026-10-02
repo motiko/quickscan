@@ -68,6 +68,9 @@ Open [http://localhost:3000](http://localhost:3000) in your mobile browser (or u
 | `npm run lint` | Run ESLint |
 | `npm run typecheck` | Run TypeScript type checking |
 | `npm run test` | Run tests |
+| `npm run test:live` | Run tests against real LLM providers (keys from `.env.test.local`, see `.env.example`) |
+
+Live tests skip when their key is missing. Locally, copy `.env.example` to `.env.test.local` (gitignored) and fill in `CUSTOM_LLM_KEY`. In CI, the key comes from the `CUSTOM_LLM_KEY` repository secret (`gh secret set CUSTOM_LLM_KEY`) and is only exposed to the live test step.
 
 ## 📁 Project Structure
 
