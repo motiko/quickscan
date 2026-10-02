@@ -6,6 +6,7 @@ import { retryDocumentOcr, retryOcr } from '@/lib/ocr-queue';
 import { collectDocumentText } from '@/lib/ocr-text';
 import { ocrLanguageName } from '@/lib/ocr-languages';
 import { getSettings, updateSettings } from '@/lib/settings';
+import { useEscape } from '@/hooks/useEscape';
 import { CheckIcon, CloseIcon, CopyIcon, InfoIcon, RetryIcon } from '@/components/ui/icons';
 
 interface TextSheetProps {
@@ -139,6 +140,7 @@ export function TextSheet({ pages, title, ocrEnabled, ocrLanguages, documentId, 
   const text = collectDocumentText(pages);
   const showPageHeadings = pages.length > 1;
   const busy = pages.some(isBusy);
+  useEscape(onClose);
 
   const handleCopy = async () => {
     try {

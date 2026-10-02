@@ -15,6 +15,8 @@ import { rotateImage } from '@/lib/image-processing';
 import { useRenderedPageUrl } from '@/hooks/useRenderedPageUrl';
 import { useSettings } from '@/hooks/useSettings';
 import { usePasteImages } from '@/hooks/usePasteImages';
+import { useEscape } from '@/hooks/useEscape';
+import { alertDialog, confirmDialog } from '@/lib/dialogs';
 import { importPagesToDocument } from '@/lib/import';
 import { TextSheet } from '@/components/documents/TextSheet';
 import { LiveTextIcon } from '@/components/ui/LiveTextIcon';
@@ -98,13 +100,15 @@ export default function DocumentViewer() {
     setIsAnnotating(false);
   };
 
-  // Arrow keys switch pages and Escape closes the viewer (not while annotating or reading text)
+  // Escape closes the viewer once the text sheet or annotation editor on top of it is closed
+  useEscape(closePageViewer, !!selectedPage);
+
+  // Arrow keys switch pages (not while annotating or reading text)
   useEffect(() => {
     if (!selectedPageId || isAnnotating || showText) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'ArrowLeft') goToPage(-1);
       if (e.key === 'ArrowRight') goToPage(1);
-      if (e.key === 'Escape') closePageViewer();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
@@ -116,7 +120,10 @@ export default function DocumentViewer() {
     try {
       const failures = await importPagesToDocument(id, files);
       if (failures.length > 0) {
-        alert(`Couldn’t add ${failures.map((f) => `${f.fileName} (${f.reason})`).join(', ')}`);
+        void alertDialog({
+          title: failures.length === 1 ? 'Couldn’t add an image' : `Couldn’t add ${failures.length} images`,
+          message: failures.map((f) => `${f.fileName} (${f.reason})`).join(', '),
+        });
       }
     } finally {
       setIsAddingPages(false);
@@ -163,11 +170,20 @@ export default function DocumentViewer() {
 
   const handleNameKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') handleNameSubmit();
-    if (e.key === 'Escape') setIsEditingName(false);
+    if (e.key === 'Escape') {
+      e.preventDefault(); // cancel the rename only, not an open layer
+      setIsEditingName(false);
+    }
   };
 
   const handleDelete = async () => {
-    if (window.confirm('Are you sure you want to delete this entire document?')) {
+    const confirmed = await confirmDialog({
+      title: 'Delete this document?',
+      message: `All ${pages.length} page${pages.length !== 1 ? 's' : ''} are deleted. This can’t be undone.`,
+      confirmLabel: 'Delete',
+      destructive: true,
+    });
+    if (confirmed) {
       await deleteDocument(id);
       router.push('/');
     }
@@ -185,7 +201,7 @@ export default function DocumentViewer() {
       }
     } catch (err) {
       console.error('Export failed:', err);
-      alert('Failed to export PDF.');
+      void alertDialog({ title: 'Couldn’t export the PDF', message: 'Please try again.' });
     } finally {
       setIsExporting(false);
     }
@@ -194,7 +210,7 @@ export default function DocumentViewer() {
   const handleCopyAllText = async () => {
     const text = collectDocumentText(pages);
     if (!text) {
-      alert('No recognized text yet.');
+      void alertDialog({ title: 'No recognized text yet', message: 'Text appears here once recognition has finished.' });
       return;
     }
     try {
@@ -269,7 +285,13 @@ export default function DocumentViewer() {
 
   const handleDeleteCurrentPage = async () => {
     if (!selectedPage) return;
-    if (window.confirm(`Delete page ${selectedPage.pageNumber}?`)) {
+    const confirmed = await confirmDialog({
+      title: `Delete page ${selectedPage.pageNumber}?`,
+      message: 'This can’t be undone.',
+      confirmLabel: 'Delete',
+      destructive: true,
+    });
+    if (confirmed) {
       await deletePage(selectedPage.id);
       closePageViewer();
     }
@@ -282,7 +304,7 @@ export default function DocumentViewer() {
       setIsAnnotating(false);
     } catch (err) {
       console.error('Failed to save annotations:', err);
-      alert('Failed to save annotations.');
+      void alertDialog({ title: 'Couldn’t save annotations', message: 'Please try again.' });
     }
   };
 

@@ -8,6 +8,7 @@ import { usePasteImages } from '@/hooks/usePasteImages';
 import { ACCEPT_ATTRIBUTE, importFiles } from '@/lib/import';
 import { DocumentList } from '@/components/documents/DocumentList';
 import { ProcessingBanner } from '@/components/documents/ProcessingBanner';
+import { confirmDialog } from '@/lib/dialogs';
 
 export default function Home() {
   const router = useRouter();
@@ -122,7 +123,13 @@ export default function Home() {
             onUploadClick={openFilePicker}
             processingIds={processingIds}
             onDeleteDocument={async (id: string) => {
-              if (window.confirm('Are you sure you want to delete this document?')) {
+              const confirmed = await confirmDialog({
+                title: 'Delete this document?',
+                message: 'All of its pages are deleted. This can’t be undone.',
+                confirmLabel: 'Delete',
+                destructive: true,
+              });
+              if (confirmed) {
                 await deleteDocument(id);
               }
             }}

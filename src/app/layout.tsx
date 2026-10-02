@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { OcrRunner } from '@/components/OcrRunner';
+import { DialogHost } from '@/components/ui/DialogHost';
 
 export const metadata: Metadata = {
   title: 'QuickScan',
@@ -30,6 +31,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="antialiased">
         <OcrRunner />
         {children}
+        <DialogHost />
       </body>
     </html>
   );

@@ -72,6 +72,11 @@ QuickScan is a **mobile-first PWA** for scanning documents using the phone camer
 - **shadcn/ui** — for accessible UI primitives (Dialog, Sheet, Button, etc.)
 - **No CSS-in-JS** — no styled-components, Emotion, etc.
 
+### Dialogs & Overlays
+- **Never use `window.alert`, `window.confirm` or `window.prompt`.** Use `confirmDialog()` / `alertDialog()` from `src/lib/dialogs.ts` (rendered by `<DialogHost>` in the root layout). Give the dialog a question as `title`, the consequence as `message`, a verb as `confirmLabel` ("Delete", "Re-run", not "OK"), and `destructive: true` for deleting/discarding.
+- **Escape closes every layer.** Any overlay, sheet, modal, full-screen viewer or mode (camera, crop, annotation editor, …) must close on Escape via `useEscape(onClose)` from `src/hooks/useEscape.ts`, calling the same handler as its close/cancel button (including any discard confirmation). Layers stack, so Escape only closes the topmost one; call the hook in the component that renders the layer.
+- **Inputs that handle Escape themselves** (cancelling an inline edit) must call `e.preventDefault()` so the layer underneath stays open.
+
 ### State Management
 - **React hooks + Dexie `useLiveQuery`** for reactive data from IndexedDB
 - **No global state library** (no Redux, Zustand, etc.) — component state + context is sufficient for v1

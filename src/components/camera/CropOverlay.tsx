@@ -5,6 +5,8 @@ import type { Point, Quad } from '@/types';
 import { warpPerspective } from '@/lib/image-processing';
 import { useBlobUrl } from '@/hooks/useBlobUrl';
 import { useScannerWorker } from '@/hooks/useScannerWorker';
+import { useEscape } from '@/hooks/useEscape';
+import { alertDialog } from '@/lib/dialogs';
 
 /** Inset (px) between the image and the edge of the view area, so handles on
  * the image border stay fully visible and touchable. */
@@ -53,6 +55,7 @@ export function CropOverlay({
 }: CropOverlayProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const imageUrl = useBlobUrl(imageBlob);
+  useEscape(onCancel);
 
   const [containerSize, setContainerSize] = useState<{ width: number; height: number }>({
     width: 0,
@@ -276,7 +279,7 @@ export function CropOverlay({
       onApplyCrop(warped, absoluteCorners);
     } catch (err) {
       console.error('Failed to warp perspective:', err);
-      alert('Could not apply crop. Please try adjusting the corners.');
+      void alertDialog({ title: 'Couldn’t apply the crop', message: 'Please try adjusting the corners.' });
       setIsProcessing(false);
     }
   };

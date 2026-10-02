@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Signature } from '@/types';
 import { useBlobUrl } from '@/hooks/useBlobUrl';
+import { useEscape } from '@/hooks/useEscape';
 import { deleteSignature, saveSignature, useSignatures } from '@/hooks/useSignatures';
 
 interface SignaturePadProps {
@@ -72,6 +73,7 @@ export function SignaturePad({ onPick, onClose }: SignaturePadProps) {
   const lastPoint = useRef<{ x: number; y: number } | null>(null);
 
   const showDraw = mode === 'draw' || signatures.length === 0;
+  useEscape(onClose);
 
   useEffect(() => {
     const canvas = canvasRef.current;
