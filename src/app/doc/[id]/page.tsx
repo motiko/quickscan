@@ -14,6 +14,8 @@ import { generatePdf, pagesToPdfInput, shareOrDownload, shareImage, downloadBlob
 import { rotateImage } from '@/lib/image-processing';
 import { useRenderedPageUrl } from '@/hooks/useRenderedPageUrl';
 import { useSettings } from '@/hooks/useSettings';
+import { usePasteImages } from '@/hooks/usePasteImages';
+import { importPagesToDocument } from '@/lib/import';
 import { TextSheet } from '@/components/documents/TextSheet';
 import { LiveTextIcon } from '@/components/ui/LiveTextIcon';
 import { suggestDocumentName } from '@/lib/naming';
@@ -72,11 +74,25 @@ export default function DocumentViewer() {
   const [showDocumentText, setShowDocumentText] = useState(false);
   const [copiedAll, setCopiedAll] = useState(false);
   const [isSuggesting, setIsSuggesting] = useState(false);
+  const [isAddingPages, setIsAddingPages] = useState(false);
   const { settings } = useSettings();
   const inputRef = useRef<HTMLInputElement>(null);
 
   const selectedPage = selectedPageId ? pages.find((p) => p.id === selectedPageId) ?? null : null;
   const selectedPageUrl = useRenderedPageUrl(selectedPage);
+
+  // Pasted images are appended as new pages; ignored while a page is open in the viewer
+  usePasteImages(async (files) => {
+    setIsAddingPages(true);
+    try {
+      const failures = await importPagesToDocument(id, files);
+      if (failures.length > 0) {
+        alert(`Couldn’t add ${failures.map((f) => `${f.fileName} (${f.reason})`).join(', ')}`);
+      }
+    } finally {
+      setIsAddingPages(false);
+    }
+  }, !!document && !selectedPage);
 
   if (isLoading) {
     return (
@@ -333,6 +349,15 @@ export default function DocumentViewer() {
 
       {/* Pages Grid */}
       <main className="flex-1 p-4 max-w-2xl mx-auto w-full">
+        {isAddingPages && (
+          <div
+            className="mb-4 flex items-center gap-3 rounded-xl bg-blue-50 dark:bg-blue-950/60 px-4 py-3 text-sm font-medium text-blue-900 dark:text-blue-100"
+            role="status"
+          >
+            <div className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+            Adding pasted pages…
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-4">
           {pages.map((page, index) => (
             <PageItem

@@ -1,4 +1,4 @@
-import { createDocument } from '@/hooks/useDocuments';
+import { addPageToDocument, createDocument } from '@/hooks/useDocuments';
 
 /** File types the upload picker accepts. HEIC/HEIF only decode where the browser supports them (Safari). */
 export const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
@@ -145,4 +145,36 @@ export async function importFiles(files: File[]): Promise<void> {
 
   queue = [];
   setState(state.failures.length > 0 ? { ...state, active: false } : IDLE);
+}
+
+/**
+ * Image files on the clipboard of a paste event. Screenshots arrive as `image/png` items;
+ * files copied in a file manager show up in `files`.
+ */
+export function imagesFromClipboard(data: Pick<DataTransfer, 'files' | 'items'> | null): File[] {
+  if (!data) return [];
+  const fromFiles = Array.from(data.files ?? []).filter((f) => f.type.startsWith('image/'));
+  if (fromFiles.length > 0) return fromFiles;
+  return Array.from(data.items ?? [])
+    .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+    .map((item) => item.getAsFile())
+    .filter((f): f is File => f !== null);
+}
+
+/** Append each file as a new page of an existing document. Returns the files that failed. */
+export async function importPagesToDocument(documentId: string, files: File[]): Promise<ImportFailure[]> {
+  const failures: ImportFailure[] = [];
+  for (const file of files) {
+    if (!isAcceptedFile(file)) {
+      failures.push({ fileName: file.name, reason: 'Unsupported file type' });
+      continue;
+    }
+    try {
+      await addPageToDocument(documentId, await normalizeImage(file));
+    } catch (err) {
+      console.warn('Import failed for', file.name, err);
+      failures.push({ fileName: file.name, reason: err instanceof Error ? err.message : 'Import failed' });
+    }
+  }
+  return failures;
 }
