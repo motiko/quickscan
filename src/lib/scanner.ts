@@ -140,6 +140,200 @@ function snapToEdge(imageData: ImageData, corner: Corner, searchRadius = 32): Po
   return bestPoint;
 }
 
+/**
+ * Scores how well the detected quad's area covers the image.
+ * Sweet spot is 20–80% coverage; too small or too large penalised.
+ */
+export function scoreAreaRatio(corners: Quad, imageWidth: number, imageHeight: number): number {
+  const area = polygonArea(corners);
+  const totalArea = imageWidth * imageHeight;
+  const ratio = area / totalArea;
+
+  if (ratio < 0.15) return 0;
+  if (ratio <= 0.20) return ((ratio - 0.15) / 0.05) * 0.5;
+  if (ratio <= 0.80) return 1.0;
+  if (ratio <= 0.95) return 1.0 - ((ratio - 0.80) / 0.15) * 0.7;
+  return 0;
+}
+
+/**
+ * Scores how close each interior corner angle is to 90°.
+ * Uses dot-product to compute the angle at each of the 4 vertices.
+ */
+export function scoreCornerAngles(corners: Quad): number {
+  let totalScore = 0;
+
+  for (let i = 0; i < 4; i++) {
+    const prev = corners[(i + 3) % 4];
+    const curr = corners[i];
+    const next = corners[(i + 1) % 4];
+
+    const ax = prev.x - curr.x;
+    const ay = prev.y - curr.y;
+    const bx = next.x - curr.x;
+    const by = next.y - curr.y;
+
+    const dot = ax * bx + ay * by;
+    const magA = Math.sqrt(ax * ax + ay * ay);
+    const magB = Math.sqrt(bx * bx + by * by);
+
+    if (magA === 0 || magB === 0) {
+      totalScore += 0;
+      continue;
+    }
+
+    const cosAngle = Math.max(-1, Math.min(1, dot / (magA * magB)));
+    const angleDeg = Math.acos(cosAngle) * (180 / Math.PI);
+
+    // Perfect = 90°, linearly falls to 0 at ±45° (i.e. at 45° or 135°)
+    const deviation = Math.abs(angleDeg - 90);
+    const cornerScore = Math.max(0, 1 - deviation / 45);
+    totalScore += cornerScore;
+  }
+
+  return totalScore / 4;
+}
+
+/**
+ * Scores how document-like the aspect ratio is (width/height between 0.5–2.5).
+ */
+export function scoreAspectRatio(corners: Quad): number {
+  const [tl, tr, br, bl] = corners;
+
+  const topLen = Math.hypot(tr.x - tl.x, tr.y - tl.y);
+  const bottomLen = Math.hypot(br.x - bl.x, br.y - bl.y);
+  const leftLen = Math.hypot(bl.x - tl.x, bl.y - tl.y);
+  const rightLen = Math.hypot(br.x - tr.x, br.y - tr.y);
+
+  const w = (topLen + bottomLen) / 2;
+  const h = (leftLen + rightLen) / 2;
+
+  if (h === 0 || w === 0) return 0;
+
+  // Normalise so ratio >= 1
+  const ratio = w > h ? w / h : h / w;
+
+  if (ratio <= 2.0) return 1.0;
+  if (ratio <= 2.5) return 1.0 - ((ratio - 2.0) / 0.5) * 0.5;
+  if (ratio <= 3.5) return 0.5 - ((ratio - 2.5) / 1.0) * 0.5;
+  return 0;
+}
+
+/** Cross-product winding test to check if a point lies inside a quad. */
+function isPointInsideQuad(p: Point, quad: Quad): boolean {
+  for (let i = 0; i < 4; i++) {
+    const a = quad[i];
+    const b = quad[(i + 1) % 4];
+    const crossVal = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+    if (crossVal < 0) return false;
+  }
+  return true;
+}
+
+/**
+ * Scores brightness contrast between document interior and image exterior.
+ * High contrast → more likely a real document.
+ */
+export function scoreContrast(corners: Quad, imageData: ImageData): number {
+  const { width: W, height: H, data } = imageData;
+
+  // --- Helper: luminance at pixel ---
+  const lum = (x: number, y: number): number => {
+    const idx = (y * W + x) * 4;
+    return (data[idx] * 77 + data[idx + 1] * 150 + data[idx + 2] * 29) >> 8;
+  };
+
+  // --- Bounding box of quad ---
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const c of corners) {
+    if (c.x < minX) minX = c.x;
+    if (c.x > maxX) maxX = c.x;
+    if (c.y < minY) minY = c.y;
+    if (c.y > maxY) maxY = c.y;
+  }
+  minX = Math.max(0, Math.floor(minX));
+  maxX = Math.min(W - 1, Math.floor(maxX));
+  minY = Math.max(0, Math.floor(minY));
+  maxY = Math.min(H - 1, Math.floor(maxY));
+
+  // --- Sample ~50 interior points ---
+  let insideSum = 0;
+  let insideCount = 0;
+  const insideTarget = 50;
+  const bboxW = maxX - minX;
+  const bboxH = maxY - minY;
+
+  if (bboxW > 0 && bboxH > 0) {
+    // Deterministic grid sampling with enough candidates
+    const gridStep = Math.max(1, Math.floor(Math.sqrt((bboxW * bboxH) / (insideTarget * 3))));
+    for (let y = minY; y <= maxY && insideCount < insideTarget; y += gridStep) {
+      for (let x = minX; x <= maxX && insideCount < insideTarget; x += gridStep) {
+        if (isPointInsideQuad({ x, y }, corners)) {
+          insideSum += lum(x, y);
+          insideCount++;
+        }
+      }
+    }
+  }
+
+  // --- Sample ~50 exterior points from border strips (first/last 10%) ---
+  let outsideSum = 0;
+  let outsideCount = 0;
+  const outsideTarget = 50;
+  const borderX = Math.max(1, Math.floor(W * 0.1));
+  const borderY = Math.max(1, Math.floor(H * 0.1));
+
+  const stepOuter = Math.max(1, Math.floor(Math.sqrt((2 * (borderX * H + borderY * W)) / (outsideTarget * 3))));
+
+  // Left and right border strips
+  for (let y = 0; y < H && outsideCount < outsideTarget; y += stepOuter) {
+    for (let x = 0; x < borderX && outsideCount < outsideTarget; x += stepOuter) {
+      outsideSum += lum(x, y);
+      outsideCount++;
+    }
+  }
+  for (let y = 0; y < H && outsideCount < outsideTarget; y += stepOuter) {
+    for (let x = W - borderX; x < W && outsideCount < outsideTarget; x += stepOuter) {
+      outsideSum += lum(x, y);
+      outsideCount++;
+    }
+  }
+  // Top and bottom border strips
+  for (let x = borderX; x < W - borderX && outsideCount < outsideTarget; x += stepOuter) {
+    for (let y = 0; y < borderY && outsideCount < outsideTarget; y += stepOuter) {
+      outsideSum += lum(x, y);
+      outsideCount++;
+    }
+  }
+  for (let x = borderX; x < W - borderX && outsideCount < outsideTarget; x += stepOuter) {
+    for (let y = H - borderY; y < H && outsideCount < outsideTarget; y += stepOuter) {
+      outsideSum += lum(x, y);
+      outsideCount++;
+    }
+  }
+
+  if (insideCount === 0 || outsideCount === 0) return 0;
+
+  const insideAvg = insideSum / insideCount;
+  const outsideAvg = outsideSum / outsideCount;
+
+  return Math.min(1, Math.abs(insideAvg - outsideAvg) / 80);
+}
+
+/**
+ * Combines area, angle, contrast, and aspect-ratio scores into an overall
+ * document-detection confidence in [0, 1].
+ */
+export function computeDocumentConfidence(corners: Quad, imageData: ImageData): number {
+  const areaScore = scoreAreaRatio(corners, imageData.width, imageData.height);
+  const angleScore = scoreCornerAngles(corners);
+  const contrastScore = scoreContrast(corners, imageData);
+  const aspectScore = scoreAspectRatio(corners);
+
+  const raw = areaScore * 0.25 + angleScore * 0.25 + contrastScore * 0.30 + aspectScore * 0.20;
+  return Math.max(0, Math.min(1, raw));
+}
+
 export function detectDocumentQuad(imageData: ImageData): { corners: Quad; confidence: number } | null {
   const { width: W, height: H, data } = imageData;
   const numPixels = W * H;
@@ -152,9 +346,6 @@ export function detectDocumentQuad(imageData: ImageData): { corners: Quad; confi
   const edgePoints: Point[] = [];
   const stride = W;
   const step = 2;
-
-  let meanGradient = 0;
-  let gradientCount = 0;
 
   for (let y = 2; y < H - 2; y += step) {
     const row = y * stride;
@@ -169,8 +360,6 @@ export function detectDocumentQuad(imageData: ImageData): { corners: Quad; confi
         gray[row + stride + x - 1] + 2 * gray[row + stride + x] + gray[row + stride + x + 1];
 
       const mag = Math.abs(gx) + Math.abs(gy);
-      meanGradient += mag;
-      gradientCount++;
 
       if (mag > 120) {
         edgePoints.push({ x, y });
@@ -178,7 +367,6 @@ export function detectDocumentQuad(imageData: ImageData): { corners: Quad; confi
     }
   }
 
-  const avgGradient = gradientCount > 0 ? meanGradient / gradientCount : 0;
   const totalArea = W * H;
 
   if (edgePoints.length < 20) {
@@ -211,7 +399,7 @@ export function detectDocumentQuad(imageData: ImageData): { corners: Quad; confi
 
     if (areaRatio >= 0.15 && areaRatio <= 0.95) {
       const ordered = orderCorners(simplified);
-      const confidence = Math.min(1, (areaRatio / 0.7) * (avgGradient > 20 ? 1 : 0.8));
+      const confidence = computeDocumentConfidence(ordered, imageData);
       return { corners: ordered, confidence };
     }
   }

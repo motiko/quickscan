@@ -3,7 +3,14 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { useCamera } from '@/hooks/useCamera';
 import { useScannerWorker } from '@/hooks/useScannerWorker';
-import type { Quad } from '@/types';
+import { getHintMessage } from '@/lib/frame-analyzer';
+import type { Quad, DetectionHint } from '@/types';
+
+/** Minimum dwell time (ms) in STABLE_HIGH state before auto-capture fires. */
+const AUTO_CAPTURE_DWELL_MS = 600;
+
+/** Minimum confidence required for auto-capture. */
+const AUTO_CAPTURE_MIN_CONFIDENCE = 0.65;
 
 interface CameraViewProps {
   onCapture: (blob: Blob, detectedCorners?: Quad | null) => void;
@@ -31,13 +38,13 @@ export function CameraView({ onCapture, onClose }: CameraViewProps) {
   const [detectedCorners, setDetectedCorners] = useState<Quad | null>(null);
   const [isStable, setIsStable] = useState(false);
   const [autoProgress, setAutoProgress] = useState(0); // 0 to 100%
+  const [hint, setHint] = useState<DetectionHint>('align_document');
+  const [confidence, setConfidence] = useState(0);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isDetectingRef = useRef(false);
-  const prevCornersRef = useRef<Quad | null>(null);
-  const prevSmoothedRef = useRef<Quad | null>(null);
-  const stableCountRef = useRef(0);
   const isCapturingRef = useRef(false);
+  const stableHighStartRef = useRef<number | null>(null);
 
   useEffect(() => {
     start();
@@ -110,19 +117,40 @@ export function CameraView({ onCapture, onClose }: CameraViewProps) {
           const result = await detect(imageData);
 
           if (result.normalizedCorners && result.confidence > 0.3) {
-            // Use the pre-smoothed corners from the worker
             setDetectedCorners(result.normalizedCorners);
             setIsStable(result.isStable ?? false);
             setAutoProgress(Math.round((result.stability ?? 0) * 100));
+            setConfidence(result.confidence);
+            setHint(result.hint ?? null);
 
-            if (result.isStable && mode === 'auto' && !isCapturingRef.current) {
-              // Auto capture trigger driven by the worker's stability logic
-              handleCapture(result.normalizedCorners);
+            // Auto-capture with dwell timer
+            if (
+              result.isStable &&
+              result.confidence >= AUTO_CAPTURE_MIN_CONFIDENCE &&
+              mode === 'auto' &&
+              !isCapturingRef.current
+            ) {
+              // Track dwell time in STABLE_HIGH state
+              if (stableHighStartRef.current === null) {
+                stableHighStartRef.current = timestamp;
+              }
+
+              const dwellTime = timestamp - stableHighStartRef.current;
+              if (dwellTime >= AUTO_CAPTURE_DWELL_MS) {
+                handleCapture(result.normalizedCorners);
+                stableHighStartRef.current = null;
+              }
+            } else {
+              // Not stable or confidence too low — reset dwell timer
+              stableHighStartRef.current = null;
             }
           } else {
             setDetectedCorners(null);
             setIsStable(false);
             setAutoProgress(0);
+            setConfidence(0);
+            setHint(result.hint ?? 'align_document');
+            stableHighStartRef.current = null;
           }
         } catch (err) {
           console.warn('Frame detection error:', err);
@@ -189,14 +217,55 @@ export function CameraView({ onCapture, onClose }: CameraViewProps) {
     );
   }
 
+  // Determine the guidance badge content and styling
+  const renderGuidanceBadge = () => {
+    if (isStable && confidence >= AUTO_CAPTURE_MIN_CONFIDENCE) {
+      // STABLE_HIGH — about to capture
+      return (
+        <span className="rounded-full px-4 py-1.5 text-xs font-semibold backdrop-blur-md shadow transition-all bg-emerald-600/90 text-white ring-2 ring-emerald-400 animate-pulse">
+          {mode === 'auto' ? 'Hold steady — capturing...' : 'Ready to capture!'}
+        </span>
+      );
+    }
+
+    if (detectedCorners && autoProgress > 60) {
+      // DETECTED_MEDIUM — almost there
+      return (
+        <span className="rounded-full px-4 py-1.5 text-xs font-semibold backdrop-blur-md shadow transition-all bg-blue-600/80 text-white border border-blue-400/50">
+          Almost there... hold still
+        </span>
+      );
+    }
+
+    if (detectedCorners) {
+      // DETECTED_LOW — document visible but not stable
+      const hintText = hint && hint !== 'hold_steady' && hint !== 'align_document'
+        ? getHintMessage(hint)
+        : 'Document detected — hold steady';
+      return (
+        <span className="rounded-full px-4 py-1.5 text-xs font-semibold backdrop-blur-md shadow transition-all bg-black/60 text-blue-300 border border-blue-500/30">
+          {hintText}
+        </span>
+      );
+    }
+
+    // NO_DOCUMENT — show environment hint or default
+    const hintText = hint ? getHintMessage(hint) : 'Align document inside frame';
+    return (
+      <span className="rounded-full bg-black/50 px-4 py-1.5 text-xs font-medium text-gray-300 backdrop-blur-md border border-white/10">
+        {hintText || 'Align document inside frame'}
+      </span>
+    );
+  };
+
 
   return (
     <div className="fixed inset-0 bg-black z-50 flex flex-col select-none touch-none overflow-hidden">
       {/* Top bar */}
-      <div className="absolute top-0 left-0 right-0 px-4 pb-4 pt-safe-offset-4 flex justify-between items-center z-30 bg-gradient-to-b from-black/90 via-black/50 to-transparent">
+      <div className="absolute top-0 left-0 right-0 px-4 pb-4 pt-safe-offset-4 flex justify-between items-center z-30 bg-gradient-to-b from-black/95 via-black/60 to-transparent">
         <button
           onClick={onClose}
-          className="w-11 h-11 flex items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-md active:bg-black/70 transition-colors"
+          className="w-11 h-11 flex items-center justify-center rounded-full bg-black/70 text-white backdrop-blur-md border border-white/30 active:bg-black/80 transition-colors"
           aria-label="Close camera"
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -234,7 +303,7 @@ export function CameraView({ onCapture, onClose }: CameraViewProps) {
           <button
             onClick={toggleTorch}
             className={`w-11 h-11 flex items-center justify-center rounded-full backdrop-blur-md transition-colors ${
-              isTorchOn ? 'bg-yellow-400 text-black' : 'bg-black/50 text-white'
+              isTorchOn ? 'bg-yellow-400 text-black' : 'bg-black/70 text-white border border-white/30'
             }`}
             aria-label="Toggle flashlight"
           >
@@ -272,10 +341,24 @@ export function CameraView({ onCapture, onClose }: CameraViewProps) {
               points={detectedCorners
                 .map((p) => `${Math.round(p.x * 1000)},${Math.round(p.y * 1000)}`)
                 .join(' ')}
-              fill={isStable ? 'rgba(34, 197, 94, 0.25)' : 'rgba(59, 130, 246, 0.18)'}
-              stroke={isStable ? '#22c55e' : '#3b82f6'}
-              strokeWidth="6"
-              strokeDasharray={isStable ? undefined : '12 8'}
+              fill={isStable && confidence >= AUTO_CAPTURE_MIN_CONFIDENCE
+                ? 'rgba(34, 197, 94, 0.25)'
+                : autoProgress > 60
+                  ? 'rgba(59, 130, 246, 0.22)'
+                  : 'rgba(59, 130, 246, 0.12)'}
+              stroke={isStable && confidence >= AUTO_CAPTURE_MIN_CONFIDENCE
+                ? '#22c55e'
+                : autoProgress > 60
+                  ? '#3b82f6'
+                  : '#60a5fa'}
+              strokeWidth={isStable && confidence >= AUTO_CAPTURE_MIN_CONFIDENCE ? '7' : '5'}
+              strokeDasharray={
+                isStable && confidence >= AUTO_CAPTURE_MIN_CONFIDENCE
+                  ? undefined
+                  : autoProgress > 60
+                    ? '16 4'
+                    : '12 8'
+              }
               className="transition-colors duration-200"
             />
             {/* 4 Corner Pin Markers */}
@@ -285,7 +368,7 @@ export function CameraView({ onCapture, onClose }: CameraViewProps) {
                 cx={p.x * 1000}
                 cy={p.y * 1000}
                 r="16"
-                fill={isStable ? '#22c55e' : '#60a5fa'}
+                fill={isStable && confidence >= AUTO_CAPTURE_MIN_CONFIDENCE ? '#22c55e' : '#60a5fa'}
                 stroke="#ffffff"
                 strokeWidth="5"
               />
@@ -295,25 +378,7 @@ export function CameraView({ onCapture, onClose }: CameraViewProps) {
 
         {/* Scanning Guidance Badge */}
         <div className="absolute top-[calc(env(safe-area-inset-top,0px)+5rem)] left-0 right-0 z-20 flex justify-center pointer-events-none">
-          {detectedCorners ? (
-            <span
-              className={`rounded-full px-4 py-1.5 text-xs font-semibold backdrop-blur-md shadow transition-all ${
-                isStable
-                  ? 'bg-emerald-600/90 text-white ring-2 ring-emerald-400'
-                  : 'bg-black/60 text-blue-300 border border-blue-500/30'
-              }`}
-            >
-              {isStable
-                ? mode === 'auto'
-                  ? 'Hold steady... Capturing!'
-                  : 'Ready to capture!'
-                : 'Document detected — hold steady'}
-            </span>
-          ) : (
-            <span className="rounded-full bg-black/50 px-4 py-1.5 text-xs font-medium text-gray-300 backdrop-blur-md border border-white/10">
-              Align document inside frame
-            </span>
-          )}
+          {renderGuidanceBadge()}
         </div>
 
         {!isActive && (
@@ -341,7 +406,7 @@ export function CameraView({ onCapture, onClose }: CameraViewProps) {
                 cx="48"
                 cy="48"
                 r="44"
-                stroke="#22c55e"
+                stroke={isStable && confidence >= AUTO_CAPTURE_MIN_CONFIDENCE ? '#22c55e' : '#3b82f6'}
                 strokeWidth="4"
                 strokeDasharray={276.46}
                 strokeDashoffset={276.46 - (276.46 * autoProgress) / 100}
@@ -356,13 +421,15 @@ export function CameraView({ onCapture, onClose }: CameraViewProps) {
             onClick={() => handleCapture()}
             disabled={!isActive}
             className={`w-20 h-20 rounded-full border-4 flex items-center justify-center active:scale-95 transition-transform disabled:opacity-50 ${
-              isStable ? 'border-emerald-400 ring-4 ring-emerald-400/30' : 'border-white'
+              isStable && confidence >= AUTO_CAPTURE_MIN_CONFIDENCE
+                ? 'border-emerald-400 ring-4 ring-emerald-400/30'
+                : 'border-white'
             }`}
             aria-label="Take photo"
           >
             <div
               className={`w-16 h-16 rounded-full transition-colors ${
-                isStable ? 'bg-emerald-400' : 'bg-white'
+                isStable && confidence >= AUTO_CAPTURE_MIN_CONFIDENCE ? 'bg-emerald-400' : 'bg-white'
               }`}
             ></div>
           </button>

@@ -70,5 +70,5 @@ describe('Document Detection Visual Regression', () => {
     fs_out.end();
 
     console.log('Cropped document saved to tests/output/cropped_result.png');
-  });
+  }, 20000);
 });

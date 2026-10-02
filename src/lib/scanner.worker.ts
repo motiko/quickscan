@@ -1,5 +1,6 @@
-import type { Quad } from '@/types';
+import type { Quad, DetectionHint } from '@/types';
 import { detectDocumentQuadAsync } from './scanner';
+import { analyzeFrame } from './frame-analyzer';
 import { MLCornerDetector } from './ml-detector';
 import { DocumentTracker } from './document-tracker';
 
@@ -18,6 +19,9 @@ self.onmessage = async (e: MessageEvent) => {
         isMLInitialized = true;
       }
 
+      // Analyze frame for environmental quality (brightness, contrast)
+      const frameAnalysis = analyzeFrame(imageData);
+
       const result = await detectDocumentQuadAsync(imageData, { detector });
       if (result && result.corners) {
         const W = imageData.width;
@@ -30,9 +34,26 @@ self.onmessage = async (e: MessageEvent) => {
           { x: result.corners[3].x / W, y: result.corners[3].y / H },
         ];
 
-        // Apply temporal smoothing and check stability
+        // Apply temporal smoothing for visual overlay
         const smoothedCorners = tracker.smooth(rawNormalizedCorners);
-        const { isStable, stability } = tracker.updateStability(smoothedCorners);
+        // Check stability using RAW corners (not smoothed) to detect real movement
+        const { isStable, stability } = tracker.updateStability(rawNormalizedCorners);
+
+        // Determine document-level hint based on detection + stability state
+        let hint: DetectionHint = frameAnalysis.hint;
+        if (!hint) {
+          // No environment issue — show document-level guidance
+          const area = computeNormalizedArea(rawNormalizedCorners);
+          if (area < 0.18) {
+            hint = 'move_closer';
+          } else if (area > 0.88) {
+            hint = 'move_further';
+          } else if (!isStable) {
+            hint = 'hold_steady';
+          } else {
+            hint = null; // Ready — no hint needed
+          }
+        }
 
         self.postMessage({
           id,
@@ -42,17 +63,15 @@ self.onmessage = async (e: MessageEvent) => {
           confidence: result.confidence,
           isStable,
           stability,
+          hint,
+          frameAnalysis,
         });
-
-        if (isStable && result.confidence > 0.8) {
-          self.postMessage({
-            id,
-            type: 'CAPTURE_TRIGGER',
-            corners: result.corners,
-          });
-        }
       } else {
         tracker.reset();
+
+        // Even with no document detected, report environment hints
+        const hint: DetectionHint = frameAnalysis.hint ?? 'align_document';
+
         self.postMessage({
           id,
           type: 'DETECTED',
@@ -61,6 +80,8 @@ self.onmessage = async (e: MessageEvent) => {
           confidence: 0,
           isStable: false,
           stability: 0,
+          hint,
+          frameAnalysis,
         });
       }
     } catch (err) {
@@ -73,9 +94,25 @@ self.onmessage = async (e: MessageEvent) => {
         confidence: 0,
         isStable: false,
         stability: 0,
+        hint: null,
+        frameAnalysis: null,
       });
     }
   }
 };
+
+/**
+ * Compute area of a normalized quad (corners in 0..1 range).
+ * Uses the shoelace formula.
+ */
+function computeNormalizedArea(quad: Quad): number {
+  let area = 0;
+  for (let i = 0; i < 4; i++) {
+    const j = (i + 1) % 4;
+    area += quad[i].x * quad[j].y;
+    area -= quad[j].x * quad[i].y;
+  }
+  return Math.abs(area) / 2;
+}
 
 export {};
