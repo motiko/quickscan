@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { orderCorners, pDistance, rdp, convexHull, polygonArea, detectDocumentQuad } from '../scanner';
+import { orderCorners, pDistance, rdp, convexHull, polygonArea, detectDocumentQuad, detectDocumentQuadAsync } from '../scanner';
 import type { Point } from '@/types';
 
 function createTestImageData(width: number, height: number): ImageData {
@@ -279,6 +279,45 @@ describe('scanner functions', () => {
 
       const result = detectDocumentQuad(img);
       expect(result).not.toBeNull();
+    });
+  });
+
+  describe('detectDocumentQuadAsync (WASM & Neural detection)', () => {
+    it('returns null for uniform blank image', async () => {
+      const img = createTestImageData(100, 100);
+      drawRectangle(img, 0, 0, 100, 100, 128, 128, 128);
+      const result = await detectDocumentQuadAsync(img);
+      expect(result).toBeNull();
+    });
+
+    it('detects a white document on darker background', async () => {
+      const img = createTestImageData(200, 200);
+      drawRectangle(img, 0, 0, 200, 200, 40, 40, 40);
+      drawRectangle(img, 30, 30, 140, 140, 255, 255, 255);
+      const result = await detectDocumentQuadAsync(img);
+      expect(result).not.toBeNull();
+      if (result) {
+        expect(result.corners).toHaveLength(4);
+        expect(result.confidence).toBeGreaterThan(0.5);
+      }
+    });
+
+    it('successfully detects document with printed text lines inside', async () => {
+      const img = createTestImageData(200, 200);
+      drawRectangle(img, 0, 0, 200, 200, 40, 40, 40);
+      drawRectangle(img, 30, 30, 140, 140, 255, 255, 255);
+      // Add text stripes that previously broke convex-hull algorithms
+      for (let y = 50; y < 150; y += 12) {
+        drawRectangle(img, 45, y, 110, 4, 10, 10, 10);
+      }
+      const result = await detectDocumentQuadAsync(img);
+      expect(result).not.toBeNull();
+      if (result) {
+        expect(result.corners).toHaveLength(4);
+        // Top-left corner should be near document edge (~30, 30), not collapsed onto text line
+        expect(result.corners[0].x).toBeLessThan(40);
+        expect(result.corners[0].y).toBeLessThan(40);
+      }
     });
   });
 });

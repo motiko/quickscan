@@ -35,6 +35,7 @@ export function CameraView({ onCapture, onClose }: CameraViewProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isDetectingRef = useRef(false);
   const prevCornersRef = useRef<Quad | null>(null);
+  const prevSmoothedRef = useRef<Quad | null>(null);
   const stableCountRef = useRef(0);
   const isCapturingRef = useRef(false);
 
@@ -110,7 +111,31 @@ export function CameraView({ onCapture, onClose }: CameraViewProps) {
 
           if (result.normalizedCorners && result.confidence > 0.3) {
             const current = result.normalizedCorners;
-            setDetectedCorners(current);
+
+            // Exponential Moving Average smoothing (60% previous, 40% current) to prevent polygon jitter
+            const smoothedCorners: Quad = prevSmoothedRef.current
+              ? [
+                  {
+                    x: prevSmoothedRef.current[0].x * 0.6 + current[0].x * 0.4,
+                    y: prevSmoothedRef.current[0].y * 0.6 + current[0].y * 0.4,
+                  },
+                  {
+                    x: prevSmoothedRef.current[1].x * 0.6 + current[1].x * 0.4,
+                    y: prevSmoothedRef.current[1].y * 0.6 + current[1].y * 0.4,
+                  },
+                  {
+                    x: prevSmoothedRef.current[2].x * 0.6 + current[2].x * 0.4,
+                    y: prevSmoothedRef.current[2].y * 0.6 + current[2].y * 0.4,
+                  },
+                  {
+                    x: prevSmoothedRef.current[3].x * 0.6 + current[3].x * 0.4,
+                    y: prevSmoothedRef.current[3].y * 0.6 + current[3].y * 0.4,
+                  },
+                ]
+              : current;
+
+            prevSmoothedRef.current = smoothedCorners;
+            setDetectedCorners(smoothedCorners);
 
             // Check stability against previous frame
             if (prevCornersRef.current) {
@@ -122,8 +147,8 @@ export function CameraView({ onCapture, onClose }: CameraViewProps) {
                 maxDelta = Math.max(maxDelta, Math.hypot(dx, dy));
               }
 
-              // Corner shift < 2.5% of viewport is considered steady
-              if (maxDelta < 0.025) {
+              // Corner shift < 3% of viewport is considered steady
+              if (maxDelta < 0.03) {
                 stableCountRef.current += 1;
               } else {
                 stableCountRef.current = Math.max(0, stableCountRef.current - 1);
@@ -132,16 +157,16 @@ export function CameraView({ onCapture, onClose }: CameraViewProps) {
 
             prevCornersRef.current = current;
 
-            // Stable for 5 checks (~600ms)
-            const requiredStable = 5;
+            // Stable for 4 checks (~480ms)
+            const requiredStable = 4;
             const progress = Math.min(100, Math.round((stableCountRef.current / requiredStable) * 100));
             setAutoProgress(progress);
 
             if (stableCountRef.current >= requiredStable) {
               setIsStable(true);
               if (mode === 'auto' && !isCapturingRef.current) {
-                // Auto capture trigger!
-                handleCapture(current);
+                // Auto capture trigger with smoothed coordinates!
+                handleCapture(smoothedCorners);
               }
             } else {
               setIsStable(false);
@@ -151,6 +176,7 @@ export function CameraView({ onCapture, onClose }: CameraViewProps) {
             setIsStable(false);
             setAutoProgress(0);
             prevCornersRef.current = null;
+            prevSmoothedRef.current = null;
             setDetectedCorners(null);
           }
         } catch (err) {
@@ -218,10 +244,6 @@ export function CameraView({ onCapture, onClose }: CameraViewProps) {
     );
   }
 
-  // Format SVG polygon points
-  const polygonPoints = detectedCorners
-    ? detectedCorners.map((p) => `${p.x * 100}%,${p.y * 100}%`).join(' ')
-    : '';
 
   return (
     <div className="fixed inset-0 bg-black z-50 flex flex-col select-none touch-none overflow-hidden">
@@ -295,26 +317,32 @@ export function CameraView({ onCapture, onClose }: CameraViewProps) {
 
         {/* Live SVG Quad Polygon Overlay */}
         {detectedCorners && isActive && (
-          <svg className="absolute inset-0 h-full w-full pointer-events-none z-20">
+          <svg
+            viewBox="0 0 1000 1000"
+            preserveAspectRatio="none"
+            className="absolute inset-0 h-full w-full pointer-events-none z-20"
+          >
             {/* Detected polygon shape */}
             <polygon
-              points={polygonPoints}
+              points={detectedCorners
+                .map((p) => `${Math.round(p.x * 1000)},${Math.round(p.y * 1000)}`)
+                .join(' ')}
               fill={isStable ? 'rgba(34, 197, 94, 0.25)' : 'rgba(59, 130, 246, 0.18)'}
               stroke={isStable ? '#22c55e' : '#3b82f6'}
-              strokeWidth="3"
-              strokeDasharray={isStable ? undefined : '6 4'}
+              strokeWidth="6"
+              strokeDasharray={isStable ? undefined : '12 8'}
               className="transition-colors duration-200"
             />
             {/* 4 Corner Pin Markers */}
             {detectedCorners.map((p, idx) => (
               <circle
                 key={idx}
-                cx={`${p.x * 100}%`}
-                cy={`${p.y * 100}%`}
-                r="6"
+                cx={p.x * 1000}
+                cy={p.y * 1000}
+                r="16"
                 fill={isStable ? '#22c55e' : '#60a5fa'}
                 stroke="#ffffff"
-                strokeWidth="2"
+                strokeWidth="5"
               />
             ))}
           </svg>

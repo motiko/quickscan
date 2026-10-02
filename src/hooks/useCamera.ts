@@ -48,6 +48,10 @@ export function useCamera(options: UseCameraOptions = {}): UseCameraReturn {
         }
       }
     } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        // play() was cancelled due to component remount / new stream load - do not set error state
+        return;
+      }
       console.error('Camera start error:', err);
       const message =
         err instanceof DOMException && err.name === 'NotAllowedError'

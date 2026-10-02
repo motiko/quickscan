@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test.describe('PWA Features', () => {
   test('Manifest is served correctly', async ({ request, baseURL }) => {
-    const response = await request.get(`${baseURL}/manifest.json`);
+    const response = await request.get(`${baseURL}/manifest.webmanifest`);
     expect(response.ok()).toBeTruthy();
     const manifest = await response.json();
     expect(manifest.name).toBe('QuickScan');
