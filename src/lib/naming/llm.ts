@@ -1,6 +1,7 @@
 /**
  * Document naming through any OpenAI-compatible chat completions endpoint
- * (OpenRouter, Ollama, LM Studio, ...). Called directly from the browser.
+ * (OpenRouter, Ollama, LM Studio, ...). Called directly from the browser, except for
+ * providers that don't send CORS headers, which go through the same-origin /api/llm proxy.
  */
 
 export interface LlmConfig {
@@ -18,8 +19,22 @@ const SYSTEM_PROMPT =
   'in the same language as the document. Use the pattern "<document type> – <sender or subject> – <YYYY-MM-DD>" ' +
   'and leave out any part you cannot determine. No quotes, no explanation.';
 
+/** Hosts whose API rejects browser preflights; only these may be reached through the proxy. */
+export const PROXIED_HOSTS = ['ollama.com'];
+export const PROXY_PATH = '/api/llm';
+export const PROXY_TARGET_HEADER = 'X-LLM-Target';
+
 export function chatCompletionsUrl(baseUrl: string): string {
   return `${baseUrl.trim().replace(/\/+$/, '')}/chat/completions`;
+}
+
+export function isProxiedUrl(url: string): boolean {
+  try {
+    const { protocol, hostname } = new URL(url);
+    return protocol === 'https:' && PROXIED_HOSTS.includes(hostname);
+  } catch {
+    return false;
+  }
 }
 
 /** Reduce a model reply to a single safe title line. */
@@ -62,7 +77,11 @@ export async function suggestNameWithLlm(
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`;
 
-    const response = await fetchImpl(chatCompletionsUrl(config.baseUrl), {
+    const url = chatCompletionsUrl(config.baseUrl);
+    const viaProxy = isProxiedUrl(url);
+    if (viaProxy) headers[PROXY_TARGET_HEADER] = url;
+
+    const response = await fetchImpl(viaProxy ? PROXY_PATH : url, {
       method: 'POST',
       headers,
       signal: controller.signal,
