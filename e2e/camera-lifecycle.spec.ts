@@ -49,6 +49,36 @@ test.describe('Camera lifecycle', () => {
     await expect.poll(() => liveTrackCount(page)).toBe(0);
   });
 
+  test('does not reopen the camera after capture through review and save', async ({ page }) => {
+    await trackStreams(page);
+    await page.goto('/');
+    await page.getByLabel('Scan new document').click();
+
+    const applyCrop = page.getByRole('button', { name: /Apply Crop/ });
+    const shutter = page.getByLabel('Take photo');
+    await expect(async () => {
+      expect((await applyCrop.isVisible()) || (await shutter.isEnabled())).toBe(true);
+    }).toPass({ timeout: 10000 });
+    if (!(await applyCrop.isVisible())) await shutter.click();
+    await expect(applyCrop).toBeVisible();
+    await expect.poll(() => liveTrackCount(page)).toBe(0);
+
+    const streamsOpened = () =>
+      page.evaluate(() => (window as unknown as { __streams: MediaStream[] }).__streams.length);
+    const openedBeforeReview = await streamsOpened();
+
+    await applyCrop.click();
+    const done = page.getByRole('button', { name: /Done/ });
+    await expect(done).toBeVisible();
+    await done.click();
+    await expect(page).toHaveURL(/\/doc\//);
+    await page.waitForTimeout(1000);
+
+    // The camera must not be requested again once the user has left the camera step
+    expect(await streamsOpened()).toBe(openedBeforeReview);
+    expect(await liveTrackCount(page)).toBe(0);
+  });
+
   test('releases the camera when leaving the scanner right away', async ({ page }) => {
     await trackStreams(page);
     await page.goto('/');
