@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { ScannedDocument } from '@/types';
 import { useBlobUrl } from '@/hooks/useBlobUrl';
 import { db } from '@/lib/db';
-import { generatePdf, shareOrDownload } from '@/lib/pdf';
+import { generatePdf, pagesToPdfInput, shareOrDownload } from '@/lib/pdf';
 
 interface DocumentCardProps {
   document: ScannedDocument;
@@ -63,9 +63,8 @@ export function DocumentCard({ document, onDelete }: DocumentCardProps) {
     setIsSharing(true);
     try {
       const pages = await db.pages.where('documentId').equals(document.id).sortBy('pageNumber');
-      const blobs = pages.map((p) => p.processedBlob || p.originalBlob).filter(Boolean) as Blob[];
-      if (blobs.length > 0) {
-        const pdfBlob = await generatePdf(blobs);
+      if (pages.length > 0) {
+        const pdfBlob = await generatePdf(pagesToPdfInput(pages));
         await shareOrDownload(pdfBlob, `${document.name}.pdf`, document.name);
       }
     } catch (err) {

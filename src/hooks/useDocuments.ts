@@ -4,6 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { nanoid } from 'nanoid';
 import { db } from '@/lib/db';
 import { createThumbnail } from '@/lib/image-processing';
+import { rebuildSearchText } from '@/lib/ocr-queue';
 import type { ScannedDocument, Page, ImageFilter } from '@/types';
 
 export function useDocuments() {
@@ -56,6 +57,7 @@ export async function createDocument(
       processedBlob: firstPageBlob,
       filter: 'original',
       createdAt: now,
+      ocrStatus: 'pending',
     });
   });
 
@@ -84,6 +86,7 @@ export async function addPageToDocument(
       processedBlob: imageBlob,
       filter,
       createdAt: now,
+      ocrStatus: 'pending',
     });
 
     await db.documents.update(documentId, {
@@ -99,7 +102,9 @@ export async function updatePage(
   pageId: string,
   updates: Partial<Pick<Page, 'processedBlob' | 'filter' | 'corners'>>
 ): Promise<void> {
-  await db.pages.update(pageId, updates);
+  // A new image invalidates any text recognized from the old one
+  const ocrReset = updates.processedBlob ? { ocrStatus: 'pending' as const } : {};
+  await db.pages.update(pageId, { ...updates, ...ocrReset });
 }
 
 export async function deletePage(pageId: string): Promise<void> {
@@ -138,6 +143,10 @@ export async function deletePage(pageId: string): Promise<void> {
       }
     }
   });
+
+  if (await db.documents.get(page.documentId)) {
+    await rebuildSearchText(page.documentId);
+  }
 }
 
 export async function deleteDocument(documentId: string): Promise<void> {
