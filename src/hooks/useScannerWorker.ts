@@ -1,0 +1,84 @@
+'use client';
+
+import { useEffect, useRef, useState, useCallback } from 'react';
+import type { Quad } from '@/types';
+
+export interface DetectionResult {
+  normalizedCorners: Quad | null;
+  confidence: number;
+}
+
+export function useScannerWorker() {
+  const workerRef = useRef<Worker | null>(null);
+  const [isReady, setIsReady] = useState(false);
+  const pendingRequests = useRef<Map<number, (res: DetectionResult) => void>>(new Map());
+  const nextReqId = useRef(1);
+
+  useEffect(() => {
+    try {
+      const worker = new Worker(new URL('../lib/scanner.worker.ts', import.meta.url), {
+        type: 'module',
+      });
+
+      worker.onmessage = (e: MessageEvent) => {
+        const { id, type, normalizedCorners, confidence } = e.data;
+        if (type === 'DETECTED') {
+          const resolve = pendingRequests.current.get(id);
+          if (resolve) {
+            pendingRequests.current.delete(id);
+            resolve({ normalizedCorners, confidence });
+          }
+        }
+      };
+
+      worker.onerror = (err) => {
+        console.warn('Scanner worker error:', err);
+      };
+
+      workerRef.current = worker;
+      // Mark ready asynchronously
+      const readyTimer = setTimeout(() => setIsReady(true), 50);
+
+      const requests = pendingRequests.current;
+
+      return () => {
+        clearTimeout(readyTimer);
+        worker.terminate();
+        workerRef.current = null;
+        requests.clear();
+      };
+    } catch (err) {
+      console.warn('Could not initialize scanner worker:', err);
+    }
+  }, []);
+
+  const detect = useCallback(
+    async (imageData: ImageData): Promise<DetectionResult> => {
+      const worker = workerRef.current;
+      if (!worker) {
+        return { normalizedCorners: null, confidence: 0 };
+      }
+
+      const reqId = nextReqId.current++;
+      return new Promise<DetectionResult>((resolve) => {
+        pendingRequests.current.set(reqId, resolve);
+        worker.postMessage({
+          id: reqId,
+          type: 'DETECT',
+          imageData,
+        });
+
+        // Safety timeout in case worker drops frame
+        setTimeout(() => {
+          if (pendingRequests.current.has(reqId)) {
+            pendingRequests.current.delete(reqId);
+            resolve({ normalizedCorners: null, confidence: 0 });
+          }
+        }, 1500);
+      });
+    },
+    []
+  );
+
+  return { isReady, detect };
+}

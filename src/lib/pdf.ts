@@ -43,21 +43,30 @@ export async function shareOrDownload(
   title?: string
 ): Promise<void> {
   // Try native share first (mobile)
-  if (navigator.share && navigator.canShare) {
-    const file = new File([blob], filename, { type: blob.type });
-    const shareData = { title: title || filename, files: [file] };
+  if (typeof navigator !== 'undefined' && navigator.share && navigator.canShare) {
+    try {
+      const file = new File([blob], filename, { type: blob.type });
+      const shareData = { title: title || filename, files: [file] };
 
-    if (navigator.canShare(shareData)) {
-      try {
+      if (navigator.canShare(shareData)) {
         await navigator.share(shareData);
         return;
-      } catch (err) {
-        // User cancelled or share failed, fall through to download
-        if ((err as Error).name === 'AbortError') return;
       }
+    } catch (err) {
+      // User cancelled or share failed, fall through to download
+      if ((err as Error).name === 'AbortError') return;
+      console.warn('Share API error, falling back to download:', err);
     }
   }
 
   // Fall back to download
   downloadBlob(blob, filename);
+}
+
+export async function shareImage(
+  imageBlob: Blob,
+  filename: string,
+  title?: string
+): Promise<void> {
+  return shareOrDownload(imageBlob, filename, title);
 }

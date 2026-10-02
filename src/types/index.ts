@@ -3,7 +3,14 @@ export interface Point {
   y: number;
 }
 
-export type ImageFilter = 'original' | 'grayscale' | 'bw';
+export type Quad = [Point, Point, Point, Point]; // [topLeft, topRight, bottomRight, bottomLeft]
+
+export interface DetectedQuad {
+  corners: Quad;
+  confidence: number;
+}
+
+export type ImageFilter = 'original' | 'magic' | 'grayscale' | 'bw';
 
 export interface ScannedDocument {
   id: string;
@@ -20,8 +27,9 @@ export interface Page {
   pageNumber: number;
   originalBlob: Blob;
   processedBlob?: Blob;
-  corners?: [Point, Point, Point, Point];
+  corners?: Quad;
   filter: ImageFilter;
+  rotation?: number; // 0, 90, 180, 270
   createdAt: Date;
 }
 

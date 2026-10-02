@@ -2,8 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { ImageFilter } from '@/types';
-// We assume applyFilter is exported from this module
-import { applyFilter } from '@/lib/image-processing';
+import { applyFilter, createThumbnail } from '@/lib/image-processing';
 
 interface FilterBarProps {
   imageBlob: Blob;
@@ -13,15 +12,17 @@ interface FilterBarProps {
 
 const FILTERS: { id: ImageFilter; label: string }[] = [
   { id: 'original', label: 'Original' },
-  { id: 'grayscale', label: 'Grayscale' },
+  { id: 'magic', label: 'Magic Color' },
   { id: 'bw', label: 'B&W' },
+  { id: 'grayscale', label: 'Grayscale' },
 ];
 
 export function FilterBar({ imageBlob, selectedFilter, onFilterChange }: FilterBarProps) {
   const [previews, setPreviews] = useState<Record<ImageFilter, string | null>>({
     original: null,
-    grayscale: null,
+    magic: null,
     bw: null,
+    grayscale: null,
   });
 
   useEffect(() => {
@@ -30,9 +31,12 @@ export function FilterBar({ imageBlob, selectedFilter, onFilterChange }: FilterB
 
     const generatePreviews = async () => {
       try {
+        // Generate a small thumbnail first for near-instant filter previews
+        const thumbBlob = await createThumbnail(imageBlob, 100, 0.7);
+
         const previewResults = await Promise.all(
           FILTERS.map(async (filter) => {
-            const resultBlob = await applyFilter(imageBlob, filter.id);
+            const resultBlob = await applyFilter(thumbBlob, filter.id);
             const url = URL.createObjectURL(resultBlob);
             objectUrls.push(url);
             return { id: filter.id, url };
@@ -42,14 +46,15 @@ export function FilterBar({ imageBlob, selectedFilter, onFilterChange }: FilterB
         if (isMounted) {
           const newPreviews = {
             original: null,
-            grayscale: null,
+            magic: null,
             bw: null,
+            grayscale: null,
           } as Record<ImageFilter, string | null>;
-          
+
           previewResults.forEach((result) => {
             newPreviews[result.id] = result.url;
           });
-          
+
           setPreviews(newPreviews);
         }
       } catch (error) {
@@ -66,21 +71,22 @@ export function FilterBar({ imageBlob, selectedFilter, onFilterChange }: FilterB
   }, [imageBlob]);
 
   return (
-    <div className="flex justify-center gap-6 py-4 bg-gray-900 w-full overflow-x-auto px-4 safe-area-bottom">
+    <div className="flex justify-center gap-4 py-4 bg-gray-900 w-full overflow-x-auto px-4 safe-area-bottom">
       {FILTERS.map((filter) => (
         <button
           key={filter.id}
           onClick={() => onFilterChange(filter.id)}
-          className="flex flex-col items-center gap-2 focus:outline-none min-w-[70px]"
+          className="flex flex-col items-center gap-2 focus:outline-none min-w-[68px]"
         >
           <div
-            className={`w-16 h-16 rounded-full overflow-hidden transition-all flex items-center justify-center bg-gray-800 ${
+            className={`w-14 h-14 rounded-full overflow-hidden transition-all flex items-center justify-center bg-gray-800 ${
               selectedFilter === filter.id
-                ? 'ring-2 ring-blue-500 scale-110'
+                ? 'ring-2 ring-blue-500 scale-105'
                 : 'ring-1 ring-gray-700 opacity-70 hover:opacity-100'
             }`}
           >
             {previews[filter.id] ? (
+              /* eslint-disable-next-line @next/next/no-img-element */
               <img
                 src={previews[filter.id]!}
                 alt={`${filter.label} filter`}
@@ -91,7 +97,7 @@ export function FilterBar({ imageBlob, selectedFilter, onFilterChange }: FilterB
             )}
           </div>
           <span
-            className={`text-xs font-medium ${
+            className={`text-xs font-medium whitespace-nowrap ${
               selectedFilter === filter.id ? 'text-blue-500' : 'text-gray-400'
             }`}
           >

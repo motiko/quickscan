@@ -92,8 +92,8 @@ src/
 ## 🗺️ Roadmap
 
 - [x] Project setup & CI
-- [ ] **Phase 1:** Camera capture, manual crop, filters, PDF export, gallery
-- [ ] **Phase 2:** Auto edge detection, auto-capture, image enhancement, Share API
+- [x] **Phase 1:** Camera capture, manual crop, filters, PDF export, gallery
+- [x] **Phase 2:** Auto edge detection, auto-capture, image enhancement, Share API
 - [ ] **Phase 3:** User accounts, cloud sync, folders & tags
 - [ ] **Phase 4:** OCR/text extraction, AI document naming, annotation
 

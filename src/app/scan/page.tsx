@@ -1,55 +1,66 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ImageFilter } from '@/types';
+import { ImageFilter, Quad } from '@/types';
 import { CameraView } from '@/components/camera/CameraView';
+import { CropOverlay } from '@/components/camera/CropOverlay';
 import { FilterBar } from '@/components/camera/FilterBar';
-import { applyFilter } from '@/lib/image-processing';
+import { applyFilter, rotateImage } from '@/lib/image-processing';
 import { createDocument, addPageToDocument } from '@/hooks/useDocuments';
+import { useBlobUrl } from '@/hooks/useBlobUrl';
 
 function ScanPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const docIdParam = searchParams?.get('docId');
 
-  const [phase, setPhase] = useState<'camera' | 'review' | 'saving'>('camera');
+  const [phase, setPhase] = useState<'camera' | 'crop' | 'review' | 'saving'>('camera');
   const [capturedBlobs, setCapturedBlobs] = useState<Blob[]>([]);
-  const [currentBlob, setCurrentBlob] = useState<Blob | null>(null);
+  const [rawBlob, setRawBlob] = useState<Blob | null>(null);
+  const [detectedCorners, setDetectedCorners] = useState<Quad | null>(null);
   const [originalBlob, setOriginalBlob] = useState<Blob | null>(null);
+  const [currentBlob, setCurrentBlob] = useState<Blob | null>(null);
   const [currentFilter, setCurrentFilter] = useState<ImageFilter>('original');
-  const [documentId, setDocumentId] = useState<string | null>(docIdParam);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [documentId] = useState<string | null>(docIdParam);
+  const [isRotating, setIsRotating] = useState(false);
 
-  useEffect(() => {
-    return () => {
-      if (previewUrl) {
-        URL.revokeObjectURL(previewUrl);
-      }
-    };
-  }, [previewUrl]);
+  const previewUrl = useBlobUrl(currentBlob);
 
-  useEffect(() => {
-    if (currentBlob) {
-      const url = URL.createObjectURL(currentBlob);
-      setPreviewUrl(url);
-      return () => URL.revokeObjectURL(url);
-    } else {
-      setPreviewUrl(null);
-    }
-  }, [currentBlob]);
+  const handleCapture = (blob: Blob, corners?: Quad | null) => {
+    setRawBlob(blob);
+    setDetectedCorners(corners ?? null);
+    setPhase('crop');
+  };
 
-  const handleCapture = (blob: Blob) => {
-    setOriginalBlob(blob);
-    setCurrentBlob(blob);
+  const handleApplyCrop = (warpedBlob: Blob) => {
+    setOriginalBlob(warpedBlob);
+    setCurrentBlob(warpedBlob);
     setCurrentFilter('original');
     setPhase('review');
+  };
+
+  const handleRotate = async () => {
+    if (!currentBlob || !originalBlob || isRotating) return;
+    setIsRotating(true);
+    try {
+      const [newCurrent, newOriginal] = await Promise.all([
+        rotateImage(currentBlob, 90),
+        rotateImage(originalBlob, 90),
+      ]);
+      setCurrentBlob(newCurrent);
+      setOriginalBlob(newOriginal);
+    } catch (err) {
+      console.error('Failed to rotate image:', err);
+    } finally {
+      setIsRotating(false);
+    }
   };
 
   const handleFilterChange = async (filter: ImageFilter) => {
     setCurrentFilter(filter);
     if (!originalBlob) return;
-    
+
     if (filter === 'original') {
       setCurrentBlob(originalBlob);
     } else {
@@ -65,6 +76,8 @@ function ScanPageContent() {
   const handleRetake = () => {
     setCurrentBlob(null);
     setOriginalBlob(null);
+    setRawBlob(null);
+    setDetectedCorners(null);
     setPhase('camera');
   };
 
@@ -73,6 +86,8 @@ function ScanPageContent() {
       setCapturedBlobs((prev) => [...prev, currentBlob]);
       setCurrentBlob(null);
       setOriginalBlob(null);
+      setRawBlob(null);
+      setDetectedCorners(null);
       setPhase('camera');
     }
   };
@@ -82,17 +97,17 @@ function ScanPageContent() {
       router.back();
       return;
     }
-    
+
     setPhase('saving');
     try {
       const allBlobs = currentBlob ? [...capturedBlobs, currentBlob] : capturedBlobs;
-      
+
       let finalDocId = documentId;
       if (!finalDocId) {
         const now = new Date();
         const docName = `Scan ${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
         finalDocId = await createDocument(docName, allBlobs[0]);
-        
+
         for (let i = 1; i < allBlobs.length; i++) {
           await addPageToDocument(finalDocId, allBlobs[i]);
         }
@@ -101,7 +116,7 @@ function ScanPageContent() {
           await addPageToDocument(finalDocId, blob);
         }
       }
-      
+
       router.push(`/doc/${finalDocId}`);
     } catch (err) {
       console.error('Failed to save document:', err);
@@ -123,50 +138,91 @@ function ScanPageContent() {
       <div className="flex min-h-screen items-center justify-center bg-black">
         <div className="flex flex-col items-center">
           <div className="mb-4 h-12 w-12 animate-spin rounded-full border-4 border-blue-500 border-t-transparent"></div>
-          <p className="text-white">Saving...</p>
+          <p className="text-white">Saving document...</p>
         </div>
       </div>
+    );
+  }
+
+  if (phase === 'crop' && rawBlob) {
+    return (
+      <CropOverlay
+        imageBlob={rawBlob}
+        initialCorners={detectedCorners}
+        onApplyCrop={handleApplyCrop}
+        onCancel={handleRetake}
+      />
     );
   }
 
   if (phase === 'review' && previewUrl) {
     const totalPages = capturedBlobs.length + 1;
     return (
-      <div className="flex h-[100dvh] flex-col bg-black">
-        <div className="absolute left-0 right-0 top-4 z-10 text-center">
-          <span className="rounded bg-black/50 px-3 py-1 text-sm font-medium text-white backdrop-blur">
+      <div className="flex h-[100dvh] flex-col bg-black select-none">
+        {/* Top Header */}
+        <div className="relative z-10 flex items-center justify-between px-4 py-3 bg-black/80 backdrop-blur-md pt-safe">
+          <button
+            onClick={() => setPhase('crop')}
+            className="flex items-center gap-1.5 rounded-lg bg-gray-800 px-3 py-1.5 text-xs font-semibold text-gray-200 hover:bg-gray-700"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M6 2v14a2 2 0 0 0 2 2h14" />
+              <path d="M18 22V8a2 2 0 0 0-2-2H2" />
+            </svg>
+            Crop
+          </button>
+
+          <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white">
             Page {totalPages} {documentId ? ' (Adding to doc)' : ''}
           </span>
+
+          <button
+            onClick={handleRotate}
+            disabled={isRotating}
+            className="flex items-center gap-1.5 rounded-lg bg-gray-800 px-3 py-1.5 text-xs font-semibold text-gray-200 hover:bg-gray-700"
+            aria-label="Rotate image"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
+            </svg>
+            Rotate
+          </button>
         </div>
-        
-        <div className="flex-1 overflow-hidden relative flex items-center justify-center">
+
+        {/* Preview Area */}
+        <div className="flex-1 overflow-hidden relative flex items-center justify-center p-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img 
-            src={previewUrl} 
-            alt="Scanned page" 
-            className="max-h-full max-w-full object-contain"
+          <img
+            src={previewUrl}
+            alt="Scanned page"
+            className="max-h-full max-w-full object-contain rounded-md shadow-2xl"
           />
         </div>
 
+        {/* Filter Bar & Controls */}
         <div className="flex flex-col border-t border-gray-800 bg-black pb-safe">
-          <FilterBar imageBlob={originalBlob!} selectedFilter={currentFilter} onFilterChange={handleFilterChange} />
-          
-          <div className="flex items-center justify-between gap-2 px-4 py-4">
+          <FilterBar
+            imageBlob={originalBlob!}
+            selectedFilter={currentFilter}
+            onFilterChange={handleFilterChange}
+          />
+
+          <div className="flex items-center justify-between gap-3 px-4 py-3">
             <button
               onClick={handleRetake}
-              className="flex-1 rounded-lg bg-gray-800 py-3 font-medium text-white hover:bg-gray-700"
+              className="flex-1 rounded-xl bg-gray-800 py-3.5 text-sm font-semibold text-white hover:bg-gray-700 active:scale-98 transition-all"
             >
               Retake
             </button>
             <button
               onClick={handleAddPage}
-              className="flex-1 rounded-lg border border-white bg-transparent py-3 font-medium text-white hover:bg-white/10"
+              className="flex-1 rounded-xl border border-gray-600 bg-transparent py-3.5 text-sm font-semibold text-white hover:bg-white/10 active:scale-98 transition-all"
             >
-              Add Page
+              + Add Page
             </button>
             <button
               onClick={handleDone}
-              className="flex-1 rounded-lg bg-blue-600 py-3 font-medium text-white hover:bg-blue-700"
+              className="flex-1 rounded-xl bg-blue-600 py-3.5 text-sm font-semibold text-white shadow-lg hover:bg-blue-500 active:scale-98 transition-all"
             >
               Done ✓
             </button>
@@ -180,8 +236,8 @@ function ScanPageContent() {
     <div className="h-[100dvh] bg-black">
       <CameraView onCapture={handleCapture} onClose={handleClose} />
       {capturedBlobs.length > 0 && (
-        <div className="absolute left-4 top-4 z-10 flex items-center justify-center rounded bg-blue-600 px-3 py-1 shadow-lg">
-          <span className="text-sm font-medium text-white">{capturedBlobs.length} saved</span>
+        <div className="absolute left-4 top-16 z-30 flex items-center justify-center rounded-full bg-blue-600/90 px-3.5 py-1 shadow-lg backdrop-blur">
+          <span className="text-xs font-semibold text-white">{capturedBlobs.length} page(s) ready</span>
         </div>
       )}
     </div>
@@ -190,7 +246,13 @@ function ScanPageContent() {
 
 export default function ScanPage() {
   return (
-    <Suspense fallback={<div className="bg-black flex h-[100dvh] w-full items-center justify-center"><p className="text-white">Loading...</p></div>}>
+    <Suspense
+      fallback={
+        <div className="bg-black flex h-[100dvh] w-full items-center justify-center">
+          <p className="text-white">Loading scanner...</p>
+        </div>
+      }
+    >
       <ScanPageContent />
     </Suspense>
   );

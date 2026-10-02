@@ -2,37 +2,82 @@
 
 import { useState, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useDocument, deleteDocument, renameDocument } from '@/hooks/useDocuments';
-import { generatePdf, shareOrDownload } from '@/lib/pdf';
+import {
+  useDocument,
+  deleteDocument,
+  renameDocument,
+  deletePage,
+  updatePage,
+} from '@/hooks/useDocuments';
+import { generatePdf, shareOrDownload, shareImage } from '@/lib/pdf';
+import { rotateImage } from '@/lib/image-processing';
+import { useBlobUrl } from '@/hooks/useBlobUrl';
 import { Page } from '@/types';
+
+function PageItem({
+  page,
+  index,
+  onClick,
+}: {
+  page: Page;
+  index: number;
+  onClick: (page: Page, url: string) => void;
+}) {
+  const url = useBlobUrl(page.processedBlob || page.originalBlob);
+
+  return (
+    <div
+      className="relative aspect-[3/4] overflow-hidden rounded-xl bg-gray-200 shadow-sm hover:shadow-md cursor-pointer transition-shadow"
+      onClick={() => url && onClick(page, url)}
+    >
+      {url ? (
+        /* eslint-disable-next-line @next/next/no-img-element */
+        <img
+          src={url}
+          alt={`Page ${index + 1}`}
+          className="h-full w-full object-cover"
+        />
+      ) : (
+        <div className="h-full w-full animate-pulse bg-gray-300" />
+      )}
+      <div className="absolute bottom-2 right-2 rounded-full bg-black/60 px-2.5 py-0.5 text-xs font-semibold text-white backdrop-blur-sm">
+        {index + 1}
+      </div>
+    </div>
+  );
+}
 
 export default function DocumentViewer() {
   const params = useParams();
   const router = useRouter();
   const id = params?.id as string;
-  
+
   const { document, pages, isLoading } = useDocument(id);
   const [isEditingName, setIsEditingName] = useState(false);
   const [editName, setEditName] = useState('');
-  const [selectedPageUrl, setSelectedPageUrl] = useState<string | null>(null);
+  const [selectedPage, setSelectedPage] = useState<{ page: Page; url: string } | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+  const [isUpdatingPage, setIsUpdatingPage] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   if (isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <p className="text-gray-500">Loading...</p>
+      <div className="flex min-h-screen items-center justify-center bg-gray-50">
+        <div className="flex flex-col items-center gap-2">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
+          <p className="text-sm font-medium text-gray-500">Loading document...</p>
+        </div>
       </div>
     );
   }
 
   if (!document) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center p-4">
-        <p className="mb-4 text-lg text-gray-700">Document not found</p>
-        <button 
+      <div className="flex min-h-screen flex-col items-center justify-center p-4 bg-gray-50">
+        <p className="mb-4 text-lg font-medium text-gray-700">Document not found</p>
+        <button
           onClick={() => router.push('/')}
-          className="rounded-md bg-blue-600 px-4 py-2 text-white"
+          className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow hover:bg-blue-700"
         >
           Return Home
         </button>
@@ -66,12 +111,12 @@ export default function DocumentViewer() {
   };
 
   const handleExport = async () => {
-    if (pages.length === 0) return;
+    if (pages.length === 0 || isExporting) return;
     setIsExporting(true);
     try {
-      const blobs = pages.map(p => p.processedBlob || p.originalBlob).filter(Boolean) as Blob[];
+      const blobs = pages.map((p) => p.processedBlob || p.originalBlob).filter(Boolean) as Blob[];
       const pdfBlob = await generatePdf(blobs);
-      await shareOrDownload(pdfBlob, `${document.name}.pdf`);
+      await shareOrDownload(pdfBlob, `${document.name}.pdf`, document.name);
     } catch (err) {
       console.error('Export failed:', err);
       alert('Failed to export PDF.');
@@ -80,24 +125,61 @@ export default function DocumentViewer() {
     }
   };
 
-  const getPageUrl = (page: Page) => {
-    const blob = page.processedBlob || page.originalBlob;
-    if (!blob) return '';
-    return URL.createObjectURL(blob);
+  const handleRotateCurrentPage = async () => {
+    if (!selectedPage || isUpdatingPage) return;
+    setIsUpdatingPage(true);
+    try {
+      const currentBlob = selectedPage.page.processedBlob || selectedPage.page.originalBlob;
+      const rotatedBlob = await rotateImage(currentBlob, 90);
+      await updatePage(selectedPage.page.id, { processedBlob: rotatedBlob });
+      const newUrl = URL.createObjectURL(rotatedBlob);
+      setSelectedPage({
+        page: { ...selectedPage.page, processedBlob: rotatedBlob },
+        url: newUrl,
+      });
+    } catch (err) {
+      console.error('Failed to rotate page:', err);
+    } finally {
+      setIsUpdatingPage(false);
+    }
+  };
+
+  const handleShareCurrentPage = async () => {
+    if (!selectedPage) return;
+    try {
+      const currentBlob = selectedPage.page.processedBlob || selectedPage.page.originalBlob;
+      await shareImage(
+        currentBlob,
+        `${document.name}_Page_${selectedPage.page.pageNumber}.jpg`,
+        `${document.name} - Page ${selectedPage.page.pageNumber}`
+      );
+    } catch (err) {
+      console.error('Failed to share page:', err);
+    }
+  };
+
+  const handleDeleteCurrentPage = async () => {
+    if (!selectedPage) return;
+    if (window.confirm(`Delete page ${selectedPage.page.pageNumber}?`)) {
+      await deletePage(selectedPage.page.id);
+      setSelectedPage(null);
+    }
   };
 
   return (
-    <div className="flex min-h-screen flex-col bg-gray-50 pb-20">
-      <header className="sticky top-0 z-10 flex h-14 items-center gap-2 bg-white px-4 shadow-sm">
-        <button 
+    <div className="flex min-h-screen flex-col bg-gray-50 pb-24">
+      {/* Top Header */}
+      <header className="sticky top-0 z-20 flex h-16 items-center justify-between gap-3 bg-white/90 backdrop-blur-md px-4 shadow-xs pt-safe">
+        <button
           onClick={() => router.push('/')}
-          className="flex h-10 w-10 items-center justify-center rounded-full hover:bg-gray-100"
+          className="flex h-10 w-10 items-center justify-center rounded-full hover:bg-gray-100 active:bg-gray-200"
+          aria-label="Back to gallery"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="h-6 w-6">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="15 18 9 12 15 6"></polyline>
           </svg>
         </button>
-        
+
         <div className="flex-1 truncate">
           {isEditingName ? (
             <input
@@ -107,89 +189,162 @@ export default function DocumentViewer() {
               onChange={(e) => setEditName(e.target.value)}
               onBlur={handleNameSubmit}
               onKeyDown={handleNameKeyDown}
-              className="w-full rounded border border-blue-500 px-2 py-1 outline-none"
+              className="w-full rounded-lg border border-blue-500 bg-white px-2.5 py-1 text-base font-semibold text-gray-900 outline-none"
             />
           ) : (
-            <h1 
+            <h1
               onClick={handleNameClick}
-              className="truncate text-lg font-semibold cursor-pointer text-gray-900"
+              className="truncate text-base font-bold text-gray-900 cursor-pointer hover:text-blue-600 transition-colors"
+              title="Click to rename"
             >
               {document.name}
             </h1>
           )}
+          <p className="text-xs text-gray-500">
+            {pages.length} page{pages.length !== 1 ? 's' : ''} • Tap title to rename
+          </p>
         </div>
-      </header>
 
-      <main className="flex-1 p-4">
-        <div className="grid grid-cols-2 gap-4">
-          {pages.map((page, index) => {
-            const url = getPageUrl(page);
-            return (
-              <div 
-                key={page.id} 
-                className="relative aspect-[3/4] overflow-hidden rounded-lg bg-gray-200 shadow"
-                onClick={() => setSelectedPageUrl(url)}
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                {url && <img src={url} alt={`Page ${index + 1}`} className="h-full w-full object-cover" />}
-                <div className="absolute bottom-2 right-2 rounded bg-black/60 px-2 py-1 text-xs font-medium text-white backdrop-blur-sm">
-                  {index + 1}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </main>
-
-      <div className="fixed bottom-0 left-0 right-0 z-10 flex justify-around border-t bg-white p-3 pb-safe shadow-lg">
-        <button
-          onClick={() => router.push(`/scan?docId=${id}`)}
-          className="flex flex-col items-center justify-center p-2 text-gray-600 hover:text-blue-600"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="mb-1 h-6 w-6">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-          </svg>
-          <span className="text-xs font-medium">Add Page</span>
-        </button>
-        
         <button
           onClick={handleExport}
           disabled={isExporting || pages.length === 0}
-          className="flex flex-col items-center justify-center p-2 text-gray-600 hover:text-blue-600 disabled:opacity-50"
+          className="flex items-center gap-1.5 rounded-full bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow hover:bg-blue-700 active:scale-95 disabled:opacity-50 transition-all"
         >
           {isExporting ? (
-            <div className="mb-1 h-6 w-6 animate-spin rounded-full border-2 border-gray-400 border-t-gray-600"></div>
+            <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
           ) : (
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="mb-1 h-6 w-6">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <circle cx="18" cy="5" r="3"></circle>
+              <circle cx="6" cy="12" r="3"></circle>
+              <circle cx="18" cy="19" r="3"></circle>
+              <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+              <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
             </svg>
           )}
-          <span className="text-xs font-medium">Export PDF</span>
+          Share PDF
+        </button>
+      </header>
+
+      {/* Pages Grid */}
+      <main className="flex-1 p-4 max-w-2xl mx-auto w-full">
+        <div className="grid grid-cols-2 gap-4">
+          {pages.map((page, index) => (
+            <PageItem
+              key={page.id}
+              page={page}
+              index={index}
+              onClick={(p, url) => setSelectedPage({ page: p, url })}
+            />
+          ))}
+        </div>
+      </main>
+
+      {/* Bottom Sticky Action Bar */}
+      <div className="fixed bottom-0 left-0 right-0 z-20 flex justify-around border-t border-gray-200 bg-white/95 backdrop-blur-md p-3 pb-safe shadow-lg">
+        <button
+          onClick={() => router.push(`/scan?docId=${id}`)}
+          className="flex flex-col items-center justify-center p-2 text-gray-600 hover:text-blue-600 transition-colors"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          <span className="text-[11px] font-semibold mt-1">Add Page</span>
+        </button>
+
+        <button
+          onClick={handleExport}
+          disabled={isExporting || pages.length === 0}
+          className="flex flex-col items-center justify-center p-2 text-gray-600 hover:text-blue-600 disabled:opacity-50 transition-colors"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+          <span className="text-[11px] font-semibold mt-1">Download PDF</span>
         </button>
 
         <button
           onClick={handleDelete}
-          className="flex flex-col items-center justify-center p-2 text-gray-600 hover:text-red-600"
+          className="flex flex-col items-center justify-center p-2 text-gray-600 hover:text-red-600 transition-colors"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="mb-1 h-6 w-6">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
           </svg>
-          <span className="text-xs font-medium">Delete</span>
+          <span className="text-[11px] font-semibold mt-1">Delete</span>
         </button>
       </div>
 
-      {selectedPageUrl && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4 backdrop-blur-sm">
-          <button
-            onClick={() => setSelectedPageUrl(null)}
-            className="absolute right-4 top-4 z-10 rounded-full bg-white/20 p-2 text-white hover:bg-white/30"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="h-6 w-6">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={selectedPageUrl} alt="Page full view" className="max-h-[90dvh] max-w-full object-contain" />
+      {/* Full Screen Page Viewer Modal */}
+      {selectedPage && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-black/95 backdrop-blur-md select-none">
+          {/* Top modal header */}
+          <div className="flex items-center justify-between p-4 bg-black/50 pt-safe">
+            <span className="text-white text-sm font-semibold">
+              Page {selectedPage.page.pageNumber} of {pages.length}
+            </span>
+            <button
+              onClick={() => setSelectedPage(null)}
+              className="rounded-full bg-white/20 p-2 text-white hover:bg-white/30"
+              aria-label="Close"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+
+          {/* Image */}
+          <div className="flex-1 flex items-center justify-center p-4 overflow-hidden">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={selectedPage.url}
+              alt={`Page ${selectedPage.page.pageNumber}`}
+              className="max-h-[80dvh] max-w-full object-contain rounded-md shadow-2xl"
+            />
+          </div>
+
+          {/* Bottom actions for this page */}
+          <div className="flex items-center justify-around p-4 bg-black/60 border-t border-gray-800 pb-safe">
+            <button
+              onClick={handleRotateCurrentPage}
+              disabled={isUpdatingPage}
+              className="flex flex-col items-center text-gray-300 hover:text-white"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
+              </svg>
+              <span className="text-[11px] font-medium mt-1">Rotate</span>
+            </button>
+
+            <button
+              onClick={handleShareCurrentPage}
+              className="flex flex-col items-center text-gray-300 hover:text-white"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="18" cy="5" r="3"></circle>
+                <circle cx="6" cy="12" r="3"></circle>
+                <circle cx="18" cy="19" r="3"></circle>
+                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+              </svg>
+              <span className="text-[11px] font-medium mt-1">Share</span>
+            </button>
+
+            <button
+              onClick={handleDeleteCurrentPage}
+              className="flex flex-col items-center text-gray-300 hover:text-red-400"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
+              <span className="text-[11px] font-medium mt-1">Delete Page</span>
+            </button>
+          </div>
         </div>
       )}
     </div>
