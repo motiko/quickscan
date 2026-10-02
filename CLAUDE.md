@@ -41,6 +41,7 @@ QuickScan is a mobile-first Progressive Web App (PWA) built with Next.js 16 (App
     - `image-processing.ts`: Canvas-based image filters and transformations.
     - `scanner.worker.ts`: Web Worker for computationally expensive edge detection (jscanify/OpenCV.js).
     - `ocr.ts` / `ocr-queue.ts`: Tesseract.js OCR; pages with `ocrStatus: 'pending'` are processed in the background (`OcrRunner` in the root layout).
+    - `import.ts`: Image upload from the gallery (JPEG/PNG/WebP/HEIC) — one document per file, queued for OCR; progress is a module-level store read via `useImportState`.
     - `naming/`: Document naming from OCR text — on-device heuristics, optional OpenAI-compatible LLM.
     - `annotations/`: Annotation geometry, canvas rendering and flattening onto page images.
     - `settings.ts`: App settings stored in the Dexie `settings` table.

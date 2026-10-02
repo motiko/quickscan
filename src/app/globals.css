@@ -73,6 +73,10 @@
   bottom: calc(env(safe-area-inset-bottom, 0px) + 1.5rem);
 }
 
+@utility bottom-safe-offset-24 {
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 6rem);
+}
+
 @utility safe-area-bottom {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }

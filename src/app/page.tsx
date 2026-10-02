@@ -1,14 +1,26 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useDocuments, deleteDocument } from '@/hooks/useDocuments';
+import { useOcrProgress } from '@/hooks/useProcessing';
+import { ACCEPT_ATTRIBUTE, importFiles } from '@/lib/import';
 import { DocumentList } from '@/components/documents/DocumentList';
+import { ProcessingBanner } from '@/components/documents/ProcessingBanner';
 
 export default function Home() {
   const router = useRouter();
   const { documents, isLoading } = useDocuments();
   const [query, setQuery] = useState('');
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { documentIds: processingIds } = useOcrProgress();
+
+  const openFilePicker = () => fileInputRef.current?.click();
+
+  const handleFiles = (files: FileList | null) => {
+    if (files && files.length > 0) void importFiles(Array.from(files));
+  };
 
   const filteredDocuments = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -27,7 +39,43 @@ export default function Home() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-gray-50 dark:bg-neutral-950 pb-safe-offset-6">
+    <div
+      className="flex min-h-screen flex-col bg-gray-50 dark:bg-neutral-950 pb-safe-offset-6"
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes('Files')) return;
+        e.preventDefault();
+        setIsDragging(true);
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setIsDragging(false);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        setIsDragging(false);
+        handleFiles(e.dataTransfer.files);
+      }}
+    >
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept={ACCEPT_ATTRIBUTE}
+        multiple
+        className="hidden"
+        data-testid="upload-input"
+        onChange={(e) => {
+          handleFiles(e.target.files);
+          // Allow picking the same files again
+          e.target.value = '';
+        }}
+      />
+      {isDragging && (
+        <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-blue-600/10 border-4 border-dashed border-blue-500">
+          <p className="rounded-full bg-white dark:bg-neutral-900 px-6 py-3 font-semibold text-blue-600 dark:text-blue-400 shadow-lg">
+            Drop images to import
+          </p>
+        </div>
+      )}
+
       <header className="sticky top-0 left-0 right-0 z-20 bg-white dark:bg-neutral-900 shadow-xs pt-safe dark:shadow-none dark:border-b dark:border-neutral-800">
         <div className="flex h-14 items-center justify-between px-4">
           <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">
@@ -59,6 +107,7 @@ export default function Home() {
       </header>
 
       <main className="flex-1">
+        <ProcessingBanner />
         {query && filteredDocuments.length === 0 ? (
           <p className="p-8 text-center text-sm text-gray-500 dark:text-gray-400">
             No documents match “{query}”.
@@ -67,6 +116,8 @@ export default function Home() {
           <DocumentList
             documents={filteredDocuments}
             onScanClick={() => router.push('/scan')}
+            onUploadClick={openFilePicker}
+            processingIds={processingIds}
             onDeleteDocument={async (id: string) => {
               if (window.confirm('Are you sure you want to delete this document?')) {
                 await deleteDocument(id);
@@ -75,6 +126,18 @@ export default function Home() {
           />
         )}
       </main>
+
+      <button
+        onClick={openFilePicker}
+        className="fixed bottom-safe-offset-24 right-7 z-20 flex h-12 w-12 items-center justify-center rounded-full bg-white dark:bg-neutral-800 text-blue-600 dark:text-blue-400 shadow-lg hover:bg-gray-50 dark:hover:bg-neutral-700"
+        aria-label="Upload files"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="17 8 12 3 7 8"></polyline>
+          <line x1="12" y1="3" x2="12" y2="15"></line>
+        </svg>
+      </button>
 
       <button
         onClick={() => router.push('/scan')}
