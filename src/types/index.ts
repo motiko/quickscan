@@ -6,8 +6,10 @@ export interface Point {
 export type Quad = [Point, Point, Point, Point]; // [topLeft, topRight, bottomRight, bottomLeft]
 
 export interface DetectedQuad {
-  corners: Quad;
+  corners: Quad | null;
   confidence: number;
+  isStable?: boolean;
+  stability?: number;
 }
 
 export type ImageFilter = 'original' | 'magic' | 'grayscale' | 'bw';

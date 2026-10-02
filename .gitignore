@@ -28,6 +28,7 @@
 
 # debug
 .claude/
+tests/fixtures/camera/private/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

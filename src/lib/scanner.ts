@@ -1,10 +1,14 @@
-import type { Point, Quad } from '@/types';
+import type { Point, Quad, DetectedQuad } from '@/types';
 import { scanDocument } from 'scanic';
+import { MLCornerDetector, Corner } from './ml-detector';
 
 export interface DetectionOptions {
   detector?: 'classical' | 'ml';
   minConfidence?: number;
 }
+
+// Instantiate the detector (will be used in the worker)
+export const mlDetector = new MLCornerDetector();
 
 // Orders 4 points into [topLeft, topRight, bottomRight, bottomLeft]
 export function orderCorners(points: Point[]): Quad {
@@ -12,7 +16,6 @@ export function orderCorners(points: Point[]): Quad {
     throw new Error('Must provide exactly 4 points to order');
   }
 
-  // Sort by (x + y) and (y - x)
   const sum = points.map((p) => p.x + p.y);
   const diff = points.map((p) => p.y - p.x);
 
@@ -31,7 +34,6 @@ export function orderCorners(points: Point[]): Quad {
   return [points[tlIdx], points[trIdx], points[brIdx], points[blIdx]];
 }
 
-// Perpendicular distance from point p to line (p1, p2)
 export function pDistance(p: Point, p1: Point, p2: Point): number {
   const dx = p2.x - p1.x;
   const dy = p2.y - p1.y;
@@ -42,7 +44,6 @@ export function pDistance(p: Point, p1: Point, p2: Point): number {
   return num / Math.sqrt(lengthSq);
 }
 
-// Ramer-Douglas-Peucker polygon simplification
 export function rdp(points: Point[], epsilon: number): Point[] {
   if (points.length < 3) return points;
 
@@ -67,12 +68,10 @@ export function rdp(points: Point[], epsilon: number): Point[] {
   }
 }
 
-// 2D Cross product of OA and OB vectors
 export function cross(o: Point, a: Point, b: Point): number {
   return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
 }
 
-// Monotone chain 2D convex hull algorithm
 export function convexHull(points: Point[]): Point[] {
   if (points.length <= 3) return points;
 
@@ -98,7 +97,6 @@ export function convexHull(points: Point[]): Point[] {
   return lower.concat(upper);
 }
 
-// Polygon area (shoelace formula)
 export function polygonArea(points: Point[]): number {
   let area = 0;
   for (let i = 0; i < points.length; i++) {
@@ -109,21 +107,51 @@ export function polygonArea(points: Point[]): number {
   return Math.abs(area) / 2;
 }
 
-// Document edge detector from raw ImageData
+/**
+ * Refines a rough corner coordinate by searching for the nearest high-gradient edge.
+ */
+function snapToEdge(imageData: ImageData, corner: Corner, searchRadius = 32): Point {
+  const { width: W, height: H, data } = imageData;
+  let maxGrad = -1;
+  let bestPoint = { x: corner.x * W, y: corner.y * H };
+
+  const startX = Math.max(0, Math.floor(corner.x * W) - searchRadius);
+  const endX = Math.min(W - 1, Math.floor(corner.x * W) + searchRadius);
+  const startY = Math.max(0, Math.floor(corner.y * H) - searchRadius);
+  const endY = Math.min(H - 1, Math.floor(corner.y * H) + searchRadius);
+
+  for (let y = startY; y <= endY; y++) {
+    for (let x = startX; x <= endX; x++) {
+      const idx = (y * W + x) * 4;
+      if (idx < 0 || idx >= data.length) continue;
+
+      // Simple gradient check: diff with neighbor
+      const current = (data[idx] + data[idx + 1] + data[idx + 2]) / 3;
+      const right = (idx + 4 < data.length) ? (data[idx + 4] + data[idx + 5] + data[idx + 6]) / 3 : current;
+      const bottom = (idx + W * 4 < data.length) ? (data[idx + W * 4] + data[idx + W * 4 + 1] + data[idx + W * 4 + 2]) / 3 : current;
+
+      const grad = Math.abs(current - right) + Math.abs(current - bottom);
+      if (grad > maxGrad) {
+        maxGrad = grad;
+        bestPoint = { x, y };
+      }
+    }
+  }
+  return bestPoint;
+}
+
 export function detectDocumentQuad(imageData: ImageData): { corners: Quad; confidence: number } | null {
   const { width: W, height: H, data } = imageData;
   const numPixels = W * H;
 
-  // 1. Grayscale luminance
   const gray = new Uint8Array(numPixels);
   for (let i = 0, j = 0; i < data.length; i += 4, j++) {
     gray[j] = (data[i] * 77 + data[i + 1] * 150 + data[i + 2] * 29) >> 8;
   }
 
-  // 2. Sobel gradient magnitude
   const edgePoints: Point[] = [];
   const stride = W;
-  const step = 2; // Sample every 2 pixels for performance
+  const step = 2;
 
   let meanGradient = 0;
   let gradientCount = 0;
@@ -131,7 +159,6 @@ export function detectDocumentQuad(imageData: ImageData): { corners: Quad; confi
   for (let y = 2; y < H - 2; y += step) {
     const row = y * stride;
     for (let x = 2; x < W - 2; x += step) {
-      // 3x3 Sobel
       const gx =
         -gray[row - stride + x - 1] + gray[row - stride + x + 1] +
         -2 * gray[row + x - 1] + 2 * gray[row + x + 1] +
@@ -158,11 +185,9 @@ export function detectDocumentQuad(imageData: ImageData): { corners: Quad; confi
     return null;
   }
 
-  // 3. Convex hull
   const hull = convexHull(edgePoints);
   if (hull.length < 4) return null;
 
-  // 4. Polygon approximation
   const perimeter = hull.reduce((acc, p, idx) => {
     const next = hull[(idx + 1) % hull.length];
     return acc + Math.hypot(next.x - p.x, next.y - p.y);
@@ -170,7 +195,6 @@ export function detectDocumentQuad(imageData: ImageData): { corners: Quad; confi
 
   let simplified = rdp(hull, perimeter * 0.035);
 
-  // If simplified doesn't have 4 points, search epsilon to get 4 points
   if (simplified.length !== 4) {
     for (let factor = 0.02; factor <= 0.08; factor += 0.01) {
       const candidate = rdp(hull, perimeter * factor);
@@ -185,7 +209,6 @@ export function detectDocumentQuad(imageData: ImageData): { corners: Quad; confi
     const area = polygonArea(simplified);
     const areaRatio = area / totalArea;
 
-    // A valid document occupies 15% to 92% of the viewfinder
     if (areaRatio >= 0.15 && areaRatio <= 0.95) {
       const ordered = orderCorners(simplified);
       const confidence = Math.min(1, (areaRatio / 0.7) * (avgGradient > 20 ? 1 : 0.8));
@@ -196,16 +219,28 @@ export function detectDocumentQuad(imageData: ImageData): { corners: Quad; confi
   return null;
 }
 
-/**
- * Asynchronously detects document corners in an ImageData frame.
- * Uses high-performance WebAssembly edge detection with multi-pass contour cascades,
- * or optional neural coordinate classification (DocCornerNet) for challenging scenes.
- */
 export async function detectDocumentQuadAsync(
   imageData: ImageData,
   options: DetectionOptions = {}
-): Promise<{ corners: Quad; confidence: number } | null> {
+): Promise<DetectedQuad | null> {
   const { detector = 'classical', minConfidence = 0.3 } = options;
+
+  if (detector === 'ml') {
+    try {
+      const roughCorners = await mlDetector.predict(imageData);
+      const refinedCorners = roughCorners.map(c => snapToEdge(imageData, c));
+      const ordered = orderCorners(refinedCorners);
+
+      const area = polygonArea(ordered);
+      const areaRatio = area / (imageData.width * imageData.height);
+
+      if (areaRatio < 0.15 || areaRatio > 0.95) return null;
+
+      return { corners: ordered, confidence: 0.85 };
+    } catch (err) {
+      console.warn('ML detection failed, falling back to classical:', err);
+    }
+  }
 
   try {
     const result = await scanDocument(imageData, {
@@ -228,8 +263,9 @@ export async function detectDocumentQuadAsync(
       };
     }
   } catch (err) {
-    console.warn('WASM document detection error, trying fallback:', err);
+    console.warn('WASM document detection error, trying fallback:', { err });
   }
 
-  return detectDocumentQuad(imageData);
+  const classical = detectDocumentQuad(imageData);
+  return classical ? { ...classical } : null;
 }
