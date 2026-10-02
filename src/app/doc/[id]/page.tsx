@@ -14,7 +14,8 @@ import { generatePdf, pagesToPdfInput, shareOrDownload, shareImage, downloadBlob
 import { rotateImage } from '@/lib/image-processing';
 import { useRenderedPageUrl } from '@/hooks/useRenderedPageUrl';
 import { useSettings } from '@/hooks/useSettings';
-import { PageTextSheet } from '@/components/documents/PageTextSheet';
+import { TextSheet } from '@/components/documents/TextSheet';
+import { LiveTextIcon } from '@/components/ui/LiveTextIcon';
 import { suggestDocumentName } from '@/lib/naming';
 import { collectDocumentText } from '@/lib/ocr-text';
 import { getImageSize, getRenderedBlob } from '@/lib/annotations/flatten';
@@ -68,6 +69,7 @@ export default function DocumentViewer() {
   const [isExporting, setIsExporting] = useState(false);
   const [isUpdatingPage, setIsUpdatingPage] = useState(false);
   const [showText, setShowText] = useState(false);
+  const [showDocumentText, setShowDocumentText] = useState(false);
   const [copiedAll, setCopiedAll] = useState(false);
   const [isSuggesting, setIsSuggesting] = useState(false);
   const { settings } = useSettings();
@@ -357,6 +359,16 @@ export default function DocumentViewer() {
         </button>
 
         <button
+          onClick={() => setShowDocumentText(true)}
+          disabled={pages.length === 0}
+          aria-label="Show text of all pages"
+          className="flex flex-col items-center justify-center p-2 text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 disabled:opacity-50 transition-colors"
+        >
+          <LiveTextIcon size={22} />
+          <span className="text-[11px] font-semibold mt-1">Text</span>
+        </button>
+
+        <button
           onClick={() => handleExport('download')}
           disabled={isExporting || pages.length === 0}
           className="flex flex-col items-center justify-center p-2 text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 disabled:opacity-50 transition-colors"
@@ -380,6 +392,15 @@ export default function DocumentViewer() {
           <span className="text-[11px] font-semibold mt-1">Delete</span>
         </button>
       </div>
+
+      {showDocumentText && (
+        <TextSheet
+          pages={pages}
+          title="Text · All pages"
+          ocrEnabled={settings.ocrEnabled}
+          onClose={() => setShowDocumentText(false)}
+        />
+      )}
 
       {/* Full Screen Page Viewer Modal */}
       {selectedPage && (
@@ -428,13 +449,10 @@ export default function DocumentViewer() {
 
             <button
               onClick={() => setShowText(true)}
+              aria-label="Show page text"
               className="flex flex-col items-center text-gray-300 hover:text-white"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="4 7 4 4 20 4 20 7"></polyline>
-                <line x1="9" y1="20" x2="15" y2="20"></line>
-                <line x1="12" y1="4" x2="12" y2="20"></line>
-              </svg>
+              <LiveTextIcon />
               <span className="text-[11px] font-medium mt-1">Text</span>
             </button>
 
@@ -476,8 +494,9 @@ export default function DocumentViewer() {
           </div>
 
           {showText && (
-            <PageTextSheet
-              page={selectedPage}
+            <TextSheet
+              pages={[selectedPage]}
+              title={`Text · Page ${selectedPage.pageNumber}`}
               ocrEnabled={settings.ocrEnabled}
               onClose={() => setShowText(false)}
             />
