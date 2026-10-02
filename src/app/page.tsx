@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useDocuments, deleteDocument } from '@/hooks/useDocuments';
 import { useOcrProgress } from '@/hooks/useProcessing';
+import { usePasteImages } from '@/hooks/usePasteImages';
 import { ACCEPT_ATTRIBUTE, importFiles } from '@/lib/import';
 import { DocumentList } from '@/components/documents/DocumentList';
 import { ProcessingBanner } from '@/components/documents/ProcessingBanner';
@@ -15,6 +16,8 @@ export default function Home() {
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { documentIds: processingIds } = useOcrProgress();
+  // Each pasted image becomes a new document, like an upload
+  usePasteImages((files) => void importFiles(files));
 
   const openFilePicker = () => fileInputRef.current?.click();
 

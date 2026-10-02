@@ -2,9 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('@/hooks/useDocuments', () => ({
   createDocument: vi.fn(async () => 'doc-id'),
+  addPageToDocument: vi.fn(async () => 'page-id'),
 }));
 
-import { createDocument } from '@/hooks/useDocuments';
+import { addPageToDocument, createDocument } from '@/hooks/useDocuments';
 import {
   isAcceptedFile,
   nameForFile,
@@ -12,9 +13,12 @@ import {
   getImportState,
   subscribeImport,
   dismissImportFailures,
+  imagesFromClipboard,
+  importPagesToDocument,
 } from '@/lib/import';
 
 const mockCreateDocument = vi.mocked(createDocument);
+const mockAddPage = vi.mocked(addPageToDocument);
 
 function file(name: string, type: string): File {
   return new File(['data'], name, { type });
@@ -65,22 +69,25 @@ describe('nameForFile', () => {
   });
 });
 
+function stubImageDecoding() {
+  vi.stubGlobal('createImageBitmap', async (blob: Blob) => {
+    if ((blob as File).name.startsWith('broken')) throw new Error('decode failed');
+    return { width: 8000, height: 4000, close: () => {} };
+  });
+  const canvas = {
+    width: 0,
+    height: 0,
+    getContext: () => ({ fillRect: () => {}, drawImage: () => {}, fillStyle: '' }),
+    toBlob: (cb: (b: Blob) => void, type: string) => cb(new Blob([`${canvas.width}x${canvas.height}`], { type })),
+  };
+  vi.stubGlobal('document', { createElement: () => canvas });
+}
+
 describe('importFiles', () => {
   beforeEach(() => {
     mockCreateDocument.mockClear();
     dismissImportFailures();
-
-    vi.stubGlobal('createImageBitmap', async (blob: Blob) => {
-      if ((blob as File).name.startsWith('broken')) throw new Error('decode failed');
-      return { width: 8000, height: 4000, close: () => {} };
-    });
-    const canvas = {
-      width: 0,
-      height: 0,
-      getContext: () => ({ fillRect: () => {}, drawImage: () => {}, fillStyle: '' }),
-      toBlob: (cb: (b: Blob) => void, type: string) => cb(new Blob([`${canvas.width}x${canvas.height}`], { type })),
-    };
-    vi.stubGlobal('document', { createElement: () => canvas });
+    stubImageDecoding();
   });
 
   afterEach(() => {
@@ -135,5 +142,54 @@ describe('importFiles', () => {
     await Promise.all([first, second]);
     expect(mockCreateDocument).toHaveBeenCalledTimes(3);
     expect(getImportState().active).toBe(false);
+  });
+});
+
+describe('imagesFromClipboard', () => {
+  const item = (kind: string, f: File | null) => ({ kind, type: f?.type ?? 'text/plain', getAsFile: () => f });
+
+  it('returns pasted image files', () => {
+    const png = file('image.png', 'image/png');
+    const data = { files: [png, file('notes.txt', 'text/plain')], items: [] };
+    expect(imagesFromClipboard(data as unknown as DataTransfer)).toEqual([png]);
+  });
+
+  it('falls back to clipboard items when files is empty', () => {
+    const png = file('image.png', 'image/png');
+    const data = { files: [], items: [item('string', null), item('file', png)] };
+    expect(imagesFromClipboard(data as unknown as DataTransfer)).toEqual([png]);
+  });
+
+  it('returns nothing for text pastes', () => {
+    expect(imagesFromClipboard({ files: [], items: [item('string', null)] } as unknown as DataTransfer)).toEqual([]);
+    expect(imagesFromClipboard(null)).toEqual([]);
+  });
+});
+
+describe('importPagesToDocument', () => {
+  beforeEach(() => {
+    mockAddPage.mockClear();
+    stubImageDecoding();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('appends each image as a normalized page and reports failures', async () => {
+    const failures = await importPagesToDocument('doc-1', [
+      file('image.png', 'image/png'),
+      file('anim.gif', 'image/gif'),
+      file('broken.png', 'image/png'),
+    ]);
+
+    expect(mockAddPage).toHaveBeenCalledTimes(1);
+    const [docId, blob] = mockAddPage.mock.calls[0];
+    expect(docId).toBe('doc-1');
+    expect(blob.type).toBe('image/jpeg');
+    expect(failures).toEqual([
+      { fileName: 'anim.gif', reason: 'Unsupported file type' },
+      { fileName: 'broken.png', reason: 'This browser cannot read this image format' },
+    ]);
   });
 });
