@@ -150,7 +150,7 @@ export default function DocumentViewer() {
       const currentBlob = selectedPage.page.processedBlob || selectedPage.page.originalBlob;
       await shareImage(
         currentBlob,
-        `${document.name}_Page_${selectedPage.page.pageNumber}.jpg`,
+        `${document.name}_Page_${selectedPage.page.pageNumber}.${currentBlob.type === 'image/png' ? 'png' : 'jpg'}`,
         `${document.name} - Page ${selectedPage.page.pageNumber}`
       );
     } catch (err) {

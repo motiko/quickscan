@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState, useCallback, useEffect } from 'react';
-import { startCamera, stopCamera, captureFrame, isCameraSupported } from '@/lib/camera';
+import { startCamera, stopCamera, captureStill, isCameraSupported } from '@/lib/camera';
 
 interface UseCameraOptions {
   facingMode?: 'user' | 'environment';
@@ -87,11 +87,11 @@ export function useCamera(options: UseCameraOptions = {}): UseCameraReturn {
   }, [isTorchOn]);
 
   const capture = useCallback(
-    async (quality = 0.92): Promise<Blob> => {
+    async (quality = 0.95): Promise<Blob> => {
       if (!videoRef.current || !isActive) {
         throw new Error('Camera is not active');
       }
-      return captureFrame(videoRef.current, quality);
+      return captureStill(videoRef.current, streamRef.current, quality);
     },
     [isActive]
   );
