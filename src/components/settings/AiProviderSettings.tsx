@@ -62,17 +62,14 @@ function DraftTextField({
   onSave,
   type = 'text',
   placeholder,
-  suggestions,
 }: {
   label: string;
   value: string;
   onSave: (value: string) => Promise<void>;
   type?: 'text' | 'password' | 'url';
   placeholder?: string;
-  suggestions?: string[];
 }) {
   const [draft, setDraft] = useState<string | null>(null);
-  const listId = useId();
 
   return (
     <label className="block">
@@ -81,7 +78,6 @@ function DraftTextField({
         type={type}
         value={draft ?? saved}
         placeholder={placeholder}
-        list={suggestions ? listId : undefined}
         autoComplete="off"
         autoCapitalize="off"
         spellCheck={false}
@@ -92,14 +88,86 @@ function DraftTextField({
         }}
         className={inputClass}
       />
-      {suggestions && (
-        <datalist id={listId}>
-          {suggestions.map((s) => (
-            <option key={s} value={s} />
-          ))}
-        </datalist>
-      )}
     </label>
+  );
+}
+
+const OTHER_MODEL = '__other__';
+
+/**
+ * Picker for the models an endpoint lists, with "Other…" for typing a model by hand.
+ * A native select rather than a datalist: datalists filter by the current value, so
+ * once a model is set they only ever suggest that one.
+ */
+function ModelSelect({
+  value,
+  models,
+  onSave,
+}: {
+  value: string;
+  models: string[];
+  onSave: (value: string) => Promise<void>;
+}) {
+  const [typing, setTyping] = useState(false);
+  const selectId = useId();
+  const listed = models.includes(value);
+  // A saved model the endpoint doesn't list shows as "Other…" with its name in the text field
+  const other = typing || (value !== '' && !listed);
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <label htmlFor={selectId} className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+          Model
+        </label>
+        <div className="relative">
+          <select
+            id={selectId}
+            value={other ? OTHER_MODEL : value}
+            onChange={async (e) => {
+              if (e.target.value === OTHER_MODEL) {
+                setTyping(true);
+                return;
+              }
+              setTyping(false);
+              await onSave(e.target.value);
+            }}
+            className={`${inputClass} appearance-none pr-9`}
+          >
+            {!value && !typing && <option value="">Pick a model</option>}
+            {models.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+            <option value={OTHER_MODEL}>Other…</option>
+          </select>
+          <svg
+            aria-hidden
+            viewBox="0 0 20 20"
+            fill="currentColor"
+            className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500 dark:text-gray-400"
+          >
+            <path
+              fillRule="evenodd"
+              d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.06l3.71-3.83a.75.75 0 1 1 1.08 1.04l-4.25 4.39a.75.75 0 0 1-1.08 0L5.21 8.27a.75.75 0 0 1 .02-1.06Z"
+              clipRule="evenodd"
+            />
+          </svg>
+        </div>
+      </div>
+      {other && (
+        <DraftTextField
+          label="Model name"
+          value={listed ? '' : value}
+          placeholder="e.g. llama3.2"
+          onSave={async (v) => {
+            await onSave(v);
+            if (models.includes(v)) setTyping(false);
+          }}
+        />
+      )}
+    </div>
   );
 }
 
@@ -201,13 +269,16 @@ function CustomEndpointFields({
           void onDetect();
         }}
       />
-      <DraftTextField
-        label="Model"
-        value={endpoint.model}
-        placeholder="Optional, picked from the endpoint"
-        suggestions={detection.state === 'found' ? detection.models : undefined}
-        onSave={(v) => updateEndpoint({ model: v })}
-      />
+      {detection.state === 'found' && detection.models.length > 0 ? (
+        <ModelSelect value={endpoint.model} models={detection.models} onSave={(v) => updateEndpoint({ model: v })} />
+      ) : (
+        <DraftTextField
+          label="Model"
+          value={endpoint.model}
+          placeholder="Optional, picked from the endpoint"
+          onSave={(v) => updateEndpoint({ model: v })}
+        />
+      )}
     </>
   );
 }
