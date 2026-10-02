@@ -16,6 +16,7 @@ const actionButtonClass =
 interface DocumentCardProps {
   document: ScannedDocument;
   onDelete: (id: string) => void;
+  isProcessing?: boolean; // OCR still running on some page
 }
 
 function getRelativeTime(date: Date | number): string {
@@ -51,7 +52,7 @@ function getRelativeTime(date: Date | number): string {
   return `${diffInYears} year${diffInYears > 1 ? 's' : ''} ago`;
 }
 
-export function DocumentCard({ document, onDelete }: DocumentCardProps) {
+export function DocumentCard({ document, onDelete, isProcessing = false }: DocumentCardProps) {
   const thumbnailUrl = useBlobUrl(document.thumbnailBlob);
   const [isSharing, setIsSharing] = useState(false);
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'empty'>('idle');
@@ -121,6 +122,13 @@ export function DocumentCard({ document, onDelete }: DocumentCardProps) {
                 <line x1="16" y1="17" x2="8" y2="17"></line>
                 <polyline points="10 9 9 9 8 9"></polyline>
               </svg>
+            </div>
+          )}
+
+          {isProcessing && (
+            <div className="absolute bottom-2 left-2 flex items-center gap-1.5 rounded-full bg-black/60 px-2 py-1 text-[11px] font-medium text-white backdrop-blur-sm">
+              <div className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              Processing
             </div>
           )}
         </div>

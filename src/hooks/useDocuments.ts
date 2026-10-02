@@ -33,7 +33,8 @@ export function useDocument(id: string) {
 
 export async function createDocument(
   name: string,
-  firstPageBlob: Blob
+  firstPageBlob: Blob,
+  nameSource: ScannedDocument['nameSource'] = 'default'
 ): Promise<string> {
   const docId = nanoid();
   const pageId = nanoid();
@@ -48,7 +49,7 @@ export async function createDocument(
       updatedAt: now,
       pageCount: 1,
       thumbnailBlob,
-      nameSource: 'default',
+      nameSource,
     });
 
     await db.pages.add({

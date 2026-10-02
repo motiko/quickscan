@@ -7,10 +7,18 @@ import { DocumentCard } from './DocumentCard';
 interface DocumentListProps {
   documents: ScannedDocument[];
   onScanClick: () => void;
+  onUploadClick: () => void;
   onDeleteDocument: (id: string) => void;
+  processingIds?: Set<string>;
 }
 
-export function DocumentList({ documents, onScanClick, onDeleteDocument }: DocumentListProps) {
+export function DocumentList({
+  documents,
+  onScanClick,
+  onUploadClick,
+  onDeleteDocument,
+  processingIds,
+}: DocumentListProps) {
   if (!documents || documents.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center flex-1 p-8 text-center min-h-[50vh]">
@@ -22,14 +30,22 @@ export function DocumentList({ documents, onScanClick, onDeleteDocument }: Docum
         </div>
         <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">No documents yet</h2>
         <p className="text-gray-500 dark:text-gray-400 mb-8 max-w-sm">
-          Scan your first document to get started. Use your camera to quickly capture receipts, notes, and more.
+          Scan your first document to get started, or upload photos you already have.
         </p>
-        <button
-          onClick={onScanClick}
-          className="bg-blue-600 text-white px-8 py-3 rounded-full font-semibold hover:bg-blue-700 active:bg-blue-800 transition-colors shadow-sm"
-        >
-          Start Scanning
-        </button>
+        <div className="flex flex-col items-center gap-3">
+          <button
+            onClick={onScanClick}
+            className="bg-blue-600 text-white px-8 py-3 rounded-full font-semibold hover:bg-blue-700 active:bg-blue-800 transition-colors shadow-sm"
+          >
+            Start Scanning
+          </button>
+          <button
+            onClick={onUploadClick}
+            className="px-8 py-3 rounded-full font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/60 transition-colors"
+          >
+            Upload Files
+          </button>
+        </div>
       </div>
     );
   }
@@ -40,7 +56,8 @@ export function DocumentList({ documents, onScanClick, onDeleteDocument }: Docum
         <DocumentCard 
           key={doc.id} 
           document={doc} 
-          onDelete={onDeleteDocument} 
+          onDelete={onDeleteDocument}
+          isProcessing={processingIds?.has(doc.id)}
         />
       ))}
     </div>
