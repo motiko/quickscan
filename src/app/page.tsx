@@ -29,7 +29,10 @@ export default function Home() {
     const q = query.trim().toLowerCase();
     if (!q) return documents;
     return documents.filter(
-      (d) => d.name.toLowerCase().includes(q) || d.searchText?.includes(q)
+      (d) =>
+        d.name.toLowerCase().includes(q) ||
+        d.searchText?.includes(q) ||
+        d.summary?.text.toLowerCase().includes(q)
     );
   }, [documents, query]);
 
