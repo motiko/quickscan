@@ -1,16 +1,11 @@
 import { db } from '@/lib/db';
 import { getSettings } from '@/lib/settings';
-import type { AppSettings } from '@/types';
 import { suggestName } from './heuristic';
-import { suggestNameWithLlm } from './llm';
+import { resolveLlmConfig, suggestNameWithLlm } from './llm';
 
 export interface NameSuggestion {
   name: string;
   source: 'llm' | 'heuristic';
-}
-
-function llmConfigured(settings: AppSettings): boolean {
-  return settings.llmEnabled && !!settings.llmBaseUrl.trim() && !!settings.llmModel.trim();
 }
 
 async function getDocumentText(documentId: string): Promise<string> {
@@ -29,13 +24,10 @@ export async function suggestDocumentName(documentId: string): Promise<NameSugge
   if (!text.trim()) return null;
 
   const settings = await getSettings();
-  if (llmConfigured(settings)) {
+  const llmConfig = settings.llmEnabled ? resolveLlmConfig(settings) : null;
+  if (llmConfig) {
     try {
-      const name = await suggestNameWithLlm(text, {
-        baseUrl: settings.llmBaseUrl,
-        apiKey: settings.llmApiKey,
-        model: settings.llmModel,
-      });
+      const name = await suggestNameWithLlm(text, llmConfig);
       return { name, source: 'llm' };
     } catch (err) {
       console.warn('LLM naming failed, falling back to heuristics:', err);

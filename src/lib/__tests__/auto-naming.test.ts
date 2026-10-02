@@ -84,7 +84,11 @@ describe('suggestDocumentName', () => {
       new Response(JSON.stringify({ choices: [{ message: { content: 'Rechnung ACME September' } }] }))
     );
     vi.stubGlobal('fetch', fetchMock);
-    await updateSettings({ llmEnabled: true, llmBaseUrl: 'http://localhost:11434/v1', llmModel: 'llama3.2' });
+    await updateSettings({
+      llmEnabled: true,
+      llmProvider: 'custom',
+      llmCustomEndpoint: { schema: 'chat-completions', baseUrl: 'http://localhost:11434/v1', apiKey: '', model: 'llama3.2' },
+    });
     await addDoc();
     await db.pages.add(page('p1', 1, { ocrText: INVOICE_TEXT }));
 
@@ -95,7 +99,11 @@ describe('suggestDocumentName', () => {
   it('falls back to heuristics when the LLM fails', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
     vi.spyOn(console, 'warn').mockImplementation(() => {});
-    await updateSettings({ llmEnabled: true, llmBaseUrl: 'http://localhost:11434/v1', llmModel: 'llama3.2' });
+    await updateSettings({
+      llmEnabled: true,
+      llmProvider: 'custom',
+      llmCustomEndpoint: { schema: 'chat-completions', baseUrl: 'http://localhost:11434/v1', apiKey: '', model: 'llama3.2' },
+    });
     await addDoc();
     await db.pages.add(page('p1', 1, { ocrText: INVOICE_TEXT }));
 

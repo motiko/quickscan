@@ -10,12 +10,13 @@ import {
   updatePage,
   savePageAnnotations,
 } from '@/hooks/useDocuments';
-import { generatePdf, pagesToPdfInput, shareOrDownload, shareImage } from '@/lib/pdf';
+import { generatePdf, pagesToPdfInput, shareOrDownload, shareImage, downloadBlob } from '@/lib/pdf';
 import { rotateImage } from '@/lib/image-processing';
 import { useRenderedPageUrl } from '@/hooks/useRenderedPageUrl';
 import { useSettings } from '@/hooks/useSettings';
 import { PageTextSheet } from '@/components/documents/PageTextSheet';
 import { suggestDocumentName } from '@/lib/naming';
+import { collectDocumentText } from '@/lib/ocr-text';
 import { getImageSize, getRenderedBlob } from '@/lib/annotations/flatten';
 import { rotateAnnotations90 } from '@/lib/annotations/geometry';
 import { AnnotationEditor } from '@/components/annotate/AnnotationEditor';
@@ -143,12 +144,16 @@ export default function DocumentViewer() {
     }
   };
 
-  const handleExport = async () => {
+  const handleExport = async (mode: 'share' | 'download') => {
     if (pages.length === 0 || isExporting) return;
     setIsExporting(true);
     try {
       const pdfBlob = await generatePdf(await pagesToPdfInput(pages, getRenderedBlob));
-      await shareOrDownload(pdfBlob, `${document.name}.pdf`, document.name);
+      if (mode === 'download') {
+        downloadBlob(pdfBlob, `${document.name}.pdf`);
+      } else {
+        await shareOrDownload(pdfBlob, `${document.name}.pdf`, document.name);
+      }
     } catch (err) {
       console.error('Export failed:', err);
       alert('Failed to export PDF.');
@@ -158,10 +163,7 @@ export default function DocumentViewer() {
   };
 
   const handleCopyAllText = async () => {
-    const text = pages
-      .map((p) => (p.ocrStatus === 'done' ? p.ocrText ?? '' : ''))
-      .filter(Boolean)
-      .join('\n\n');
+    const text = collectDocumentText(pages);
     if (!text) {
       alert('No recognized text yet.');
       return;
@@ -307,7 +309,7 @@ export default function DocumentViewer() {
           </button>
 
           <button
-            onClick={handleExport}
+            onClick={() => handleExport('share')}
             disabled={isExporting || pages.length === 0}
             className="flex items-center gap-1.5 rounded-full bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow hover:bg-blue-700 active:scale-95 disabled:opacity-50 transition-all"
           >
@@ -355,7 +357,7 @@ export default function DocumentViewer() {
         </button>
 
         <button
-          onClick={handleExport}
+          onClick={() => handleExport('download')}
           disabled={isExporting || pages.length === 0}
           className="flex flex-col items-center justify-center p-2 text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 disabled:opacity-50 transition-colors"
         >

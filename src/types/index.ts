@@ -97,9 +97,26 @@ export interface AppSettings {
   ocrLanguages: string[]; // Tesseract language codes, e.g. ['eng', 'deu']
   autoName: boolean;
   llmEnabled: boolean;
-  llmBaseUrl: string; // OpenAI-compatible base URL, e.g. https://openrouter.ai/api/v1
-  llmApiKey: string;
-  llmModel: string;
+  llmProvider: LlmProvider;
+  openaiApiKey: string;
+  openaiModel: string;
+  anthropicApiKey: string;
+  anthropicModel: string;
+  googleApiKey: string;
+  googleModel: string;
+  llmCustomEndpoint: CustomLlmEndpoint;
+}
+
+export type LlmProvider = 'openai' | 'anthropic' | 'google' | 'custom';
+
+/** Wire format a custom endpoint speaks. */
+export type LlmApiSchema = 'chat-completions' | 'anthropic-messages';
+
+export interface CustomLlmEndpoint {
+  baseUrl: string; // e.g. https://ollama.com/v1 — '/chat/completions' or '/messages' is appended
+  apiKey: string;
+  model: string; // optional for the user; filled in from the endpoint's model list
+  schema: LlmApiSchema; // detected from the endpoint
 }
 
 export interface CameraConstraints {

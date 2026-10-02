@@ -1,7 +1,15 @@
 import { describe, it, expect, vi } from 'vitest';
-import { cleanLlmTitle, chatCompletionsUrl, suggestNameWithLlm } from '@/lib/naming/llm';
+import {
+  cleanLlmTitle,
+  chatCompletionsUrl,
+  resolveLlmConfig,
+  suggestNameWithLlm,
+  type LlmConfig,
+} from '@/lib/naming/llm';
+import { migrateLegacyLlmSettings } from '@/lib/llm-settings-migration';
+import { DEFAULT_SETTINGS } from '@/lib/settings';
 
-const config = { baseUrl: 'https://openrouter.ai/api/v1/', apiKey: 'sk-test', model: 'some/model' };
+const config: LlmConfig = { schema: 'chat-completions', baseUrl: 'https://openrouter.ai/api/v1/', apiKey: 'sk-test', model: 'some/model' };
 
 function reply(content: string, status = 200) {
   return new Response(JSON.stringify({ choices: [{ message: { content } }] }), { status });
@@ -41,6 +49,25 @@ describe('suggestNameWithLlm', () => {
     expect(body.messages[1].content).toHaveLength(4000);
   });
 
+  it('routes CORS-less providers like Ollama Cloud through the same-origin proxy', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(reply('Title'));
+    await suggestNameWithLlm('text', { ...config, baseUrl: 'https://ollama.com/v1' }, { fetchImpl });
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(url).toBe('/api/llm');
+    expect(init.headers['X-LLM-Target']).toBe('https://ollama.com/v1/chat/completions');
+    expect(init.headers.Authorization).toBe('Bearer sk-test');
+  });
+
+  it('only proxies chat completions requests', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(reply('Title'));
+    await suggestNameWithLlm(
+      'text',
+      { ...config, schema: 'anthropic-messages', baseUrl: 'https://ollama.com/v1' },
+      { fetchImpl },
+    ).catch(() => {});
+    expect(fetchImpl.mock.calls[0][0]).toBe('https://ollama.com/v1/messages');
+  });
+
   it('omits the Authorization header without an API key', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(reply('Title'));
     await suggestNameWithLlm('text', { ...config, apiKey: '' }, { fetchImpl });
@@ -66,5 +93,127 @@ describe('suggestNameWithLlm', () => {
     await expect(
       suggestNameWithLlm('t', config, { fetchImpl: fetchImpl as unknown as typeof fetch, timeoutMs: 10 })
     ).rejects.toThrow('Aborted');
+  });
+});
+
+describe('provider schemas', () => {
+  it('uses max_completion_tokens and no temperature for OpenAI itself', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(reply('Invoice'));
+    await suggestNameWithLlm('text', { ...config, baseUrl: 'https://api.openai.com/v1', openaiNative: true }, { fetchImpl });
+    const body = JSON.parse(fetchImpl.mock.calls[0][1].body);
+    expect(body.max_completion_tokens).toBeGreaterThan(100);
+    expect(body.max_tokens).toBeUndefined();
+    expect(body.temperature).toBeUndefined();
+  });
+
+  it('sends an Anthropic Messages request with browser-access headers', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ stop_reason: 'end_turn', content: [{ type: 'text', text: 'Rechnung – Telekom' }] }))
+    );
+    const title = await suggestNameWithLlm(
+      'text',
+      { schema: 'anthropic-messages', baseUrl: 'https://api.anthropic.com/v1', apiKey: 'sk-ant', model: 'claude-opus-5-5' },
+      { fetchImpl }
+    );
+
+    expect(title).toBe('Rechnung – Telekom');
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(url).toBe('https://api.anthropic.com/v1/messages');
+    expect(init.headers['x-api-key']).toBe('sk-ant');
+    expect(init.headers['anthropic-version']).toBe('2023-06-01');
+    expect(init.headers['anthropic-dangerous-direct-browser-access']).toBe('true');
+    expect(init.headers.Authorization).toBeUndefined();
+    const body = JSON.parse(init.body);
+    expect(body.system).toContain('You name scanned documents');
+    expect(body.messages).toEqual([{ role: 'user', content: 'text' }]);
+  });
+
+  it('treats an Anthropic refusal as a failure', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ stop_reason: 'refusal', content: [] }))
+    );
+    await expect(
+      suggestNameWithLlm('t', { schema: 'anthropic-messages', baseUrl: 'https://api.anthropic.com/v1', apiKey: 'k', model: 'm' }, { fetchImpl })
+    ).rejects.toThrow('declined');
+  });
+
+  it('sends a Gemini generateContent request and skips thought parts', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          candidates: [{ content: { parts: [{ text: 'thinking…', thought: true }, { text: 'Invoice – ACME' }] } }],
+        })
+      )
+    );
+    const title = await suggestNameWithLlm(
+      'text',
+      { schema: 'gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta', apiKey: 'AIza', model: 'models/gemini-2.5-flash' },
+      { fetchImpl }
+    );
+
+    expect(title).toBe('Invoice – ACME');
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(url).toBe('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent');
+    expect(init.headers['x-goog-api-key']).toBe('AIza');
+    expect(JSON.parse(init.body).contents[0].parts[0].text).toBe('text');
+  });
+});
+
+describe('resolveLlmConfig', () => {
+  it('requires an API key for hosted providers', () => {
+    expect(resolveLlmConfig({ ...DEFAULT_SETTINGS, llmProvider: 'anthropic' })).toBeNull();
+    expect(resolveLlmConfig({ ...DEFAULT_SETTINGS, llmProvider: 'anthropic', anthropicApiKey: 'sk-ant' })).toMatchObject({
+      schema: 'anthropic-messages',
+      baseUrl: 'https://api.anthropic.com/v1',
+      model: 'claude-opus-5-5',
+    });
+  });
+
+  it('resolves the custom endpoint, which may have no key but needs a model', () => {
+    const endpoint = { schema: 'anthropic-messages' as const, baseUrl: 'http://localhost:11434/v1', apiKey: '', model: '' };
+    const settings = { ...DEFAULT_SETTINGS, llmProvider: 'custom' as const };
+    expect(resolveLlmConfig({ ...settings, llmCustomEndpoint: endpoint })).toBeNull();
+    expect(resolveLlmConfig({ ...settings, llmCustomEndpoint: { ...endpoint, model: 'gemma' } })).toMatchObject({
+      schema: 'anthropic-messages',
+      model: 'gemma',
+    });
+  });
+});
+
+describe('migrateLegacyLlmSettings', () => {
+  it('turns the old single endpoint into the selected custom endpoint', () => {
+    const migrated = migrateLegacyLlmSettings({
+      llmEnabled: true,
+      llmBaseUrl: 'https://openrouter.ai/api/v1',
+      llmApiKey: 'sk-or',
+      llmModel: 'x/y',
+    })!;
+    expect(migrated).toEqual({
+      llmProvider: 'custom',
+      llmCustomEndpoint: { schema: 'chat-completions', baseUrl: 'https://openrouter.ai/api/v1', apiKey: 'sk-or', model: 'x/y' },
+    });
+  });
+
+  it('keeps the selected endpoint from the endpoint list', () => {
+    const listed = (id: string, model: string) => ({
+      id,
+      name: id,
+      schema: 'chat-completions',
+      baseUrl: `https://${id}.example/v1`,
+      apiKey: '',
+      model,
+    });
+    expect(
+      migrateLegacyLlmSettings({ llmCustomEndpoints: [listed('a', 'm1'), listed('b', 'm2')], llmCustomEndpointId: 'b' })
+    ).toEqual({ llmCustomEndpoint: { schema: 'chat-completions', baseUrl: 'https://b.example/v1', apiKey: '', model: 'm2' } });
+    expect(migrateLegacyLlmSettings({ llmCustomEndpoints: [listed('a', 'm1')], llmCustomEndpointId: '' })).toMatchObject({
+      llmCustomEndpoint: { model: 'm1' },
+    });
+  });
+
+  it('does nothing without legacy keys and drops an empty endpoint', () => {
+    expect(migrateLegacyLlmSettings({ autoName: true })).toBeNull();
+    expect(migrateLegacyLlmSettings({ llmBaseUrl: '', llmModel: '' })).toEqual({});
+    expect(migrateLegacyLlmSettings({ llmCustomEndpoints: [], llmCustomEndpointId: '' })).toEqual({});
   });
 });

@@ -6,27 +6,15 @@ export const DEFAULT_SETTINGS: AppSettings = {
   ocrLanguages: ['eng'],
   autoName: true,
   llmEnabled: false,
-  llmBaseUrl: '',
-  llmApiKey: '',
-  llmModel: '',
+  llmProvider: 'openai',
+  openaiApiKey: '',
+  openaiModel: 'gpt-5-mini',
+  anthropicApiKey: '',
+  anthropicModel: 'claude-opus-5-5',
+  googleApiKey: '',
+  googleModel: 'gemini-2.5-flash',
+  llmCustomEndpoint: { baseUrl: '', apiKey: '', model: '', schema: 'chat-completions' },
 };
-
-export const LLM_PRESETS: { label: string; baseUrl: string }[] = [
-  { label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1' },
-  { label: 'Ollama Cloud', baseUrl: 'https://ollama.com/v1' },
-  { label: 'Ollama (local)', baseUrl: 'http://localhost:11434/v1' },
-];
-
-export const OCR_LANGUAGES: { code: string; label: string }[] = [
-  { code: 'eng', label: 'English' },
-  { code: 'deu', label: 'German' },
-  { code: 'fra', label: 'French' },
-  { code: 'spa', label: 'Spanish' },
-  { code: 'ita', label: 'Italian' },
-  { code: 'nld', label: 'Dutch' },
-  { code: 'por', label: 'Portuguese' },
-  { code: 'pol', label: 'Polish' },
-];
 
 export async function getSettings(): Promise<AppSettings> {
   const rows = await db.settings.toArray();
