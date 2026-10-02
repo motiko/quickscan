@@ -1,23 +1,10 @@
 import { test, expect } from '@playwright/test';
-import { resetDatabase, seedDocument } from './helpers';
-
-const INVOICE_TEXT = 'ACME Widgets GmbH\nRechnung\nRechnungsdatum: 14.09.2026\nBetrag: 42,50 EUR';
+import { resetDatabase } from './helpers';
 
 test.describe('Document naming', () => {
   test.beforeEach(async ({ page, browserName }) => {
     test.skip(browserName === 'webkit', "Playwright's WebKit can't store Blobs in IndexedDB");
     await resetDatabase(page);
-  });
-
-  test('suggests a name from recognized text on-device', async ({ page }) => {
-    await seedDocument(page, { text: INVOICE_TEXT });
-    await page.goto('/doc/d1');
-    await page.getByRole('button', { name: 'Suggest name' }).click();
-
-    const input = page.locator('header input');
-    await expect(input).toHaveValue('Rechnung – ACME Widgets GmbH – 2026-09-14');
-    await input.press('Enter');
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Rechnung – ACME Widgets GmbH – 2026-09-14');
   });
 
   test('detects a custom OpenAI-compatible endpoint and picks its model', async ({ page }) => {
@@ -42,7 +29,6 @@ test.describe('Document naming', () => {
       });
     });
 
-    await seedDocument(page, { text: INVOICE_TEXT });
     await page.goto('/settings');
     await page.getByText('Use Cloud LLM').click();
     await page.getByRole('radio', { name: 'Custom endpoint' }).click();
@@ -54,13 +40,8 @@ test.describe('Document naming', () => {
     await expect(page.getByLabel('Endpoint URL', { exact: true })).toHaveValue('https://llm.example.test/v1');
     await expect(page.getByLabel('Model', { exact: true })).toHaveValue('test/model');
     await page.getByRole('button', { name: 'Test connection' }).click();
-    await expect(page.getByRole('status')).toContainText('Works!');
-
-    await page.goto('/doc/d1');
-    await page.getByRole('button', { name: 'Suggest name' }).click();
-    await expect(page.locator('header input')).toHaveValue('Rechnung ACME September 2026');
+    await expect(page.getByRole('status')).toContainText('Works! Sample title: “Rechnung ACME September 2026”');
     expect(requestBody!.model).toBe('test/model');
-    expect(requestBody!.messages[1].content).toContain('ACME Widgets GmbH');
     expect(authHeader).toBe('Bearer sk-e2e');
   });
 
@@ -89,20 +70,14 @@ test.describe('Document naming', () => {
       });
     });
 
-    await seedDocument(page, { text: INVOICE_TEXT });
     await page.goto('/settings');
     await page.getByText('Use Cloud LLM').click();
     await page.getByRole('radio', { name: 'Anthropic' }).click();
     await expect(page.getByRole('radio', { name: 'Anthropic' })).toBeChecked();
     await page.getByLabel('API key', { exact: true }).fill('sk-ant-e2e');
     await page.getByRole('button', { name: 'Test connection' }).click();
-    await expect(page.getByRole('status')).toContainText('Works!');
-
-    await page.goto('/doc/d1');
-    await page.getByRole('button', { name: 'Suggest name' }).click();
-    await expect(page.locator('header input')).toHaveValue('Rechnung – ACME – 2026-09-14');
+    await expect(page.getByRole('status')).toContainText('Works! Sample title: “Rechnung – ACME – 2026-09-14”');
     expect(apiKey).toBe('sk-ant-e2e');
     expect(requestBody!.model).toBe('claude-opus-5-5');
-    expect(requestBody!.messages[0].content).toContain('ACME Widgets GmbH');
   });
 });

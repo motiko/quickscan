@@ -68,14 +68,6 @@ describe('autoNameIfDefault', () => {
     await autoNameIfDefault('doc1');
     expect((await db.documents.get('doc1'))?.name).toBe('My taxes');
   });
-
-  it('respects the autoName setting', async () => {
-    await updateSettings({ autoName: false });
-    await addDoc();
-    await db.pages.add(page('p1', 1, { ocrText: INVOICE_TEXT }));
-    await autoNameIfDefault('doc1');
-    expect((await db.documents.get('doc1'))?.nameSource).toBe('default');
-  });
 });
 
 describe('suggestDocumentName', () => {

@@ -16,7 +16,6 @@ import { useRenderedPageUrl } from '@/hooks/useRenderedPageUrl';
 import { useSettings } from '@/hooks/useSettings';
 import { TextSheet } from '@/components/documents/TextSheet';
 import { LiveTextIcon } from '@/components/ui/LiveTextIcon';
-import { suggestDocumentName } from '@/lib/naming';
 import { collectDocumentText } from '@/lib/ocr-text';
 import { getImageSize, getRenderedBlob } from '@/lib/annotations/flatten';
 import { rotateAnnotations90 } from '@/lib/annotations/geometry';
@@ -71,7 +70,6 @@ export default function DocumentViewer() {
   const [showText, setShowText] = useState(false);
   const [showDocumentText, setShowDocumentText] = useState(false);
   const [copiedAll, setCopiedAll] = useState(false);
-  const [isSuggesting, setIsSuggesting] = useState(false);
   const { settings } = useSettings();
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -114,24 +112,6 @@ export default function DocumentViewer() {
       await renameDocument(id, editName.trim());
     }
     setIsEditingName(false);
-  };
-
-  const handleSuggestName = async () => {
-    if (isSuggesting) return;
-    setIsSuggesting(true);
-    try {
-      const suggestion = await suggestDocumentName(id);
-      if (!suggestion) {
-        alert('No recognized text yet, so a name can’t be suggested.');
-        return;
-      }
-      // Pre-fill the rename field; the user confirms with Enter like a normal rename
-      setEditName(suggestion.name);
-      setIsEditingName(true);
-      setTimeout(() => inputRef.current?.select(), 50);
-    } finally {
-      setIsSuggesting(false);
-    }
   };
 
   const handleNameKeyDown = (e: React.KeyboardEvent) => {
@@ -264,30 +244,13 @@ export default function DocumentViewer() {
                 className="w-full rounded-lg border border-blue-500 bg-white dark:bg-neutral-900 px-2.5 py-1 text-base font-semibold text-gray-900 dark:text-gray-100 outline-none"
               />
             ) : (
-              <div className="flex min-w-0 items-center gap-1">
-                <h1
-                  onClick={handleNameClick}
-                  className="truncate text-base font-bold text-gray-900 dark:text-gray-100 cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
-                  title="Click to rename"
-                >
-                  {document.name}
-                </h1>
-                <button
-                  onClick={handleSuggestName}
-                  disabled={isSuggesting}
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950 disabled:opacity-50"
-                  aria-label="Suggest name"
-                  title="Suggest a name from the document text"
-                >
-                  {isSuggesting ? (
-                    <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                  ) : (
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M12 2l1.8 5.2L19 9l-5.2 1.8L12 16l-1.8-5.2L5 9l5.2-1.8L12 2zm7 11l.9 2.1L22 16l-2.1.9L19 19l-.9-2.1L16 16l2.1-.9L19 13zM6 15l.7 1.6L8.3 17.3l-1.6.7L6 19.6l-.7-1.6L3.7 17.3l1.6-.7L6 15z" />
-                    </svg>
-                  )}
-                </button>
-              </div>
+              <h1
+                onClick={handleNameClick}
+                className="truncate text-base font-bold text-gray-900 dark:text-gray-100 cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                title="Click to rename"
+              >
+                {document.name}
+              </h1>
             )}
             <p className="text-xs text-gray-500 dark:text-gray-400">
               {pages.length} page{pages.length !== 1 ? 's' : ''} • Tap title to rename

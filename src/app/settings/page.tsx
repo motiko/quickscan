@@ -178,22 +178,9 @@ export default function SettingsPage() {
               Document naming
             </h2>
 
-            <label className="flex items-center justify-between gap-4 px-4 py-3">
-              <span>
-                <span className="block text-sm font-medium text-gray-900 dark:text-gray-100">
-                  Name new scans automatically
-                </span>
-                <span className="block text-xs text-gray-500 dark:text-gray-400">
-                  Uses the recognized text, e.g. “Rechnung – Telekom – 2026-09-14”. Names you set are never changed.
-                </span>
-              </span>
-              <input
-                type="checkbox"
-                checked={settings.autoName}
-                onChange={(e) => void updateSettings({ autoName: e.target.checked })}
-                className="h-5 w-5 shrink-0 accent-blue-600"
-              />
-            </label>
+            <p className="px-4 pt-1 pb-3 text-xs text-gray-500 dark:text-gray-400">
+              New scans are named from the recognized text, e.g. “Rechnung – Telekom – 2026-09-14”. Names you set are never changed.
+            </p>
 
             <label className="flex items-center justify-between gap-4 border-t border-gray-100 dark:border-neutral-800 px-4 py-3">
               <span>
