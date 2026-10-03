@@ -38,10 +38,12 @@ import {
   RetryTracker,
   cursorKey,
   fileKey,
+  unverifiedKey,
   type AccountSwitchDecision,
   type BadRow,
   type FileRef,
   type RecordMark,
+  type UnverifiedDeletion,
 } from './state';
 
 /*
@@ -73,6 +75,13 @@ import {
  *   row older than that, or a v1 payload after a v2 one, is rejected and reported as unreadable.
  *   v2 payloads authenticate the clock the writer sent; the row clock may be lower (the server
  *   clamps clocks to now + 5 minutes) but never higher.
+ * - Tombstones are authenticated: a delete is pushed with a v2 payload sealed with deleted =
+ *   '1', and a pulled one must open the same way. One without a payload (an older device, or
+ *   forged by someone who can write the database but has no vault key) is unverified: it
+ *   deletes nothing this device has. It's held for the user (`UnverifiedDeletion`, Settings →
+ *   Sync problems), who applies it (`applyUnverifiedDeletion`) or ignores it
+ *   (`ignoreUnverifiedDeletion`, which restores the record on the server). Where this device
+ *   has nothing to delete, it's applied as usual.
  * - Only ciphertext leaves the device: payloads via encryptRecord, files via encryptFile.
  */
 
@@ -120,6 +129,8 @@ export interface SyncReport {
   conflicts: SyncConflict[];
   /** Pulled rows rejected as replays of older versions. */
   replayed: number;
+  /** Pulled deletions without an authenticated payload, held for the user instead of applied. */
+  unverified: number;
   /**
    * Set when nothing was synced because another account's documents are on this device and
    * the user hasn't said whether to upload them (see account-switch.ts).
@@ -190,6 +201,7 @@ export async function runSync(ctx: SyncContext): Promise<SyncReport> {
     pendingDownloads: 0,
     conflicts: [],
     replayed: 0,
+    unverified: 0,
     issues: [],
   };
 
@@ -492,14 +504,27 @@ async function buildRow(ctx: SyncContext, entry: OutboxEntry, report: SyncReport
     deviceId: ctx.deviceId,
     keyVersion: ctx.vault.keyVersion,
   };
-  const tombstone: PushRow = { ...base, deleted: true, payload: null, files: [] };
+  // A deletion carries a minimal payload sealed with deleted = '1', so other devices can tell
+  // it came from a device holding the vault key. (A server without the authenticated-tombstones
+  // migration drops it; other devices then hold the deletion as unverified.)
+  const tombstone = async (): Promise<PushRow> => ({
+    ...base,
+    deleted: true,
+    payload: await encryptRecord(
+      ctx.vault.key,
+      { userId: ctx.userId, kind: entry.kind, id: entry.id },
+      {},
+      { updatedAt: entry.updatedAt, deviceId: ctx.deviceId, deleted: true }
+    ),
+    files: [],
+  });
   if (entry.op === 'delete') {
     if (FILE_KINDS.has(entry.kind)) await deleteFileRef(entry.kind as FileRef['kind'], entry.id);
-    return { row: tombstone };
+    return { row: await tombstone() };
   }
   const built = await localPayload(ctx, entry, report);
   // Gone since it was queued (removed by a pulled tombstone): push the deletion
-  if (!built) return { row: tombstone };
+  if (!built) return { row: await tombstone() };
   const payload = await encryptRecord(
     ctx.vault.key,
     { userId: ctx.userId, kind: entry.kind, id: entry.id },
@@ -620,9 +645,22 @@ async function pull(ctx: SyncContext, report: SyncReport, merge: boolean): Promi
     for (const row of rows) {
       try {
         if (row.deleted) {
-          // The schema stores tombstones without a payload; one with a payload is forged
-          if (row.payload) throw new Error('Deleted item with content');
-          decoded.push({ row });
+          // Without a payload: unverified, held instead of applied where it would delete
+          // something (applyRow)
+          if (!row.payload) {
+            decoded.push({ row });
+            continue;
+          }
+          const opened = await openRecord(ctx.vault.key, { userId: ctx.userId, kind: row.kind, id: row.id }, row.payload, {
+            deviceId: row.deviceId,
+            deleted: true,
+          }).catch((cause) => {
+            throw new Error('Deletion couldn’t be verified', { cause });
+          });
+          // v1 doesn't authenticate the deletion flag: a live v1 payload moved into a tombstone
+          if (opened.format !== 2) throw new Error('Deletion couldn’t be verified');
+          if (row.updatedAt > opened.updatedAt!) throw new Error('Clock doesn’t match the item');
+          decoded.push({ row, format: 2 });
           continue;
         }
         if (!row.payload) throw new Error('Missing payload');
@@ -651,6 +689,8 @@ async function pull(ctx: SyncContext, report: SyncReport, merge: boolean): Promi
 }
 
 const MAX_BAD_ROWS = 200;
+
+const pair = <T,>(ids: string[], values: (T | undefined)[]) => ids.map((id, i) => [id, values[i]] as [string, T | undefined]);
 
 /** Pending changes to one table during a batch: id -> new value, or null for a delete. */
 class Working<T> {
@@ -701,6 +741,8 @@ interface BatchState {
   outbox: OutboxEntry[];
   /** Pending local changes that lost to a pulled version: dropped. */
   dropped: [SyncKind, string][];
+  /** Unverified deletions of records this device has: held for the user, not applied. */
+  held: UnverifiedDeletion[];
 }
 
 /**
@@ -724,7 +766,6 @@ async function applyBatch(
   const signatureIds = idsOf('signature');
   const settingKeys = idsOf('settings');
   const deletedDocIds = decoded.filter((d) => d.row.kind === 'document' && d.row.deleted).map((d) => d.row.id);
-  const pair = <T,>(ids: string[], values: (T | undefined)[]) => ids.map((id, i) => [id, values[i]] as [string, T | undefined]);
   const refValue = (row: { value: unknown } | undefined) => row?.value as FileRef | undefined;
 
   await applyUntracked(async () => {
@@ -739,6 +780,7 @@ async function applyBatch(
       marks: new Working(),
       outbox: [],
       dropped: [],
+      held: [],
     };
     state.documents.load(pair(docIds, await db.documents.bulkGet(docIds)));
     state.pages.load(pair(pageIds, await db.pages.bulkGet(pageIds)));
@@ -765,23 +807,7 @@ async function applyBatch(
       replays.push({ kind, id, seq, message: refused });
     });
 
-    // Lost pending changes go before the entries this batch queues (which may be for the
-    // same record: a merge reviving a deleted one)
-    await db.outbox.bulkDelete(state.dropped);
-    await db.documents.bulkPut(state.documents.puts());
-    await db.documents.bulkDelete(state.documents.deletes());
-    await db.pages.bulkPut(state.pages.puts());
-    await db.pages.bulkDelete(state.pages.deletes());
-    await db.folders.bulkPut(state.folders.puts());
-    await db.folders.bulkDelete(state.folders.deletes());
-    await db.signatures.bulkPut(state.signatures.puts());
-    await db.signatures.bulkDelete(state.signatures.deletes());
-    await db.settings.bulkPut(state.settings.puts());
-    await db.settings.bulkDelete(state.settings.deletes());
-    await db.syncMeta.bulkPut(state.refs.puts().map((ref) => ({ key: fileKey(ref.kind, ref.id), value: ref })));
-    await db.syncMeta.bulkDelete(state.refs.deletes());
-    await db.syncMeta.bulkPut(state.marks.putEntries().map(([key, value]) => ({ key, value })));
-    await db.outbox.bulkPut(state.outbox);
+    await writeRecords(state);
     // Unreadable rows (and replays): newly failing ones are added, ones that now read fine (or
     // were replaced by a readable version) drop out
     const badKey = badRowsKey(ctx.userId);
@@ -794,11 +820,41 @@ async function applyBatch(
     const nextBad = [...kept, ...failingRows].slice(-MAX_BAD_ROWS);
     if (nextBad.length > 0) await db.syncMeta.put({ key: badKey, value: nextBad });
     else if (previous.length > 0) await db.syncMeta.delete(badKey);
+    // Unverified deletions: a newer version of the record (applied, or beaten by a pending
+    // local change) settles a held one; newly held ones replace older ones of the record
+    const heldKey = unverifiedKey(ctx.userId);
+    const heldBefore = ((await db.syncMeta.get(heldKey))?.value as UnverifiedDeletion[] | undefined) ?? [];
+    const settled = new Set([...readable, ...state.held.map((h) => `${h.kind}:${h.id}`)]);
+    const heldNext = [...heldBefore.filter((h) => !settled.has(`${h.kind}:${h.id}`)), ...state.held].slice(-MAX_BAD_ROWS);
+    if (heldNext.length > 0) await db.syncMeta.put({ key: heldKey, value: heldNext });
+    else if (heldBefore.length > 0) await db.syncMeta.delete(heldKey);
     await db.syncMeta.put({ key: cursorKey(ctx.userId), value: lastSeq });
   });
 }
 
+/** Write a batch's results. Inside applyUntracked; direct Dexie calls only. */
+async function writeRecords(state: BatchState): Promise<void> {
+  // Lost pending changes go before the entries this batch queues (which may be for the
+  // same record: a merge reviving a deleted one)
+  await db.outbox.bulkDelete(state.dropped);
+  await db.documents.bulkPut(state.documents.puts());
+  await db.documents.bulkDelete(state.documents.deletes());
+  await db.pages.bulkPut(state.pages.puts());
+  await db.pages.bulkDelete(state.pages.deletes());
+  await db.folders.bulkPut(state.folders.puts());
+  await db.folders.bulkDelete(state.folders.deletes());
+  await db.signatures.bulkPut(state.signatures.puts());
+  await db.signatures.bulkDelete(state.signatures.deletes());
+  await db.settings.bulkPut(state.settings.puts());
+  await db.settings.bulkDelete(state.settings.deletes());
+  await db.syncMeta.bulkPut(state.refs.puts().map((ref) => ({ key: fileKey(ref.kind, ref.id), value: ref })));
+  await db.syncMeta.bulkDelete(state.refs.deletes());
+  await db.syncMeta.bulkPut(state.marks.putEntries().map(([key, value]) => ({ key, value })));
+  await db.outbox.bulkPut(state.outbox);
+}
+
 const REPLAYED = 'The server sent an older version of this item again; it was ignored.';
+const UNVERIFIED = 'An unverified deletion of this item was received; it was kept.';
 const DOWNGRADED = 'The server sent an older, unprotected version of this item; it was ignored.';
 
 /**
@@ -835,6 +891,15 @@ function applyRow(
     }
     state.marks.set(key, next);
     report.skipped++;
+    return null;
+  }
+
+  // An unverified deletion of something this device has: keep it, and ask the user. The
+  // marker stays as it was (this version isn't trusted), and so does any pending change.
+  if (row.deleted && format === undefined && !merge && hasLocal(state, row.kind, row.id)) {
+    state.held.push({ kind: row.kind, id: row.id, seq: row.seq, updatedAt: row.updatedAt, deviceId: row.deviceId });
+    report.unverified++;
+    report.issues.push({ stage: 'pull', kind: row.kind, id: row.id, message: UNVERIFIED });
     return null;
   }
 
@@ -1110,6 +1175,13 @@ function localRecord(state: BatchState, kind: SyncKind, id: string): unknown {
   }
 }
 
+/** Whether a deletion of this record would remove anything on this device. */
+function hasLocal(state: BatchState, kind: SyncKind, id: string): boolean {
+  if (localRecord(state, kind, id) !== undefined) return true;
+  // A document's pages go with it (applyBatch loads them for every pulled document tombstone)
+  return kind === 'document' && state.pages.all().some((p) => p.documentId === id);
+}
+
 function dropRef(state: BatchState, kind: FileRef['kind'], id: string) {
   const key = fileKey(kind, id);
   if (state.refs.get(key)) state.refs.delete(key);
@@ -1170,6 +1242,152 @@ function applyTombstone(
   }
 }
 
+// --- Unverified deletions (the user's answer) -----------------------------------------------
+
+function sameDeletion(a: UnverifiedDeletion, b: UnverifiedDeletion): boolean {
+  return a.kind === b.kind && a.id === b.id && a.seq === b.seq;
+}
+
+/** Inside applyUntracked: the held deletion, if it's still waiting, and the list without it. */
+async function takeHeld(
+  userId: string,
+  deletion: UnverifiedDeletion
+): Promise<{ item?: UnverifiedDeletion; rest: UnverifiedDeletion[] }> {
+  const list = ((await db.syncMeta.get(unverifiedKey(userId)))?.value as UnverifiedDeletion[] | undefined) ?? [];
+  return { item: list.find((h) => sameDeletion(h, deletion)), rest: list.filter((h) => !sameDeletion(h, deletion)) };
+}
+
+async function putHeld(userId: string, rest: UnverifiedDeletion[]): Promise<void> {
+  if (rest.length > 0) await db.syncMeta.put({ key: unverifiedKey(userId), value: rest });
+  else await db.syncMeta.delete(unverifiedKey(userId));
+}
+
+/**
+ * "Apply deletion": delete the record locally, as a pulled tombstone would have, without
+ * pushing anything (the server already has the tombstone). Run under the sync lock. Returns
+ * false when the deletion is no longer waiting (settled by a newer version meanwhile).
+ */
+export async function applyUnverifiedDeletion(
+  userId: string,
+  deletion: UnverifiedDeletion,
+  options: Pick<SyncContext, 'makeThumbnail'> = {}
+): Promise<boolean> {
+  const touched: Touched = { documents: new Set(), pages: new Set() };
+  const applied = await applyUntracked(async () => {
+    const { item, rest } = await takeHeld(userId, deletion);
+    if (!item) return false;
+    const { kind, id } = item;
+    const state: BatchState = {
+      documents: new Working(),
+      pages: new Working(),
+      folders: new Working(),
+      signatures: new Working(),
+      settings: new Working(),
+      refs: new Working(),
+      marks: new Working(),
+      outbox: [],
+      dropped: [],
+      held: [],
+    };
+    switch (kind) {
+      case 'document': {
+        state.documents.load([[id, await db.documents.get(id)]]);
+        const pages = await db.pages.where('documentId').equals(id).toArray();
+        state.pages.load(pages.map((p) => [p.id, p]));
+        const refKeys = pages.map((p) => fileKey('page', p.id));
+        state.refs.load(pair(refKeys, (await db.syncMeta.bulkGet(refKeys)).map((r) => r?.value as FileRef | undefined)));
+        break;
+      }
+      case 'page':
+        state.pages.load([[id, await db.pages.get(id)]]);
+        state.refs.load([[fileKey('page', id), (await db.syncMeta.get(fileKey('page', id)))?.value as FileRef | undefined]]);
+        break;
+      case 'folder':
+        state.folders.load([[id, await db.folders.get(id)]]);
+        break;
+      case 'signature':
+        state.signatures.load([[id, await db.signatures.get(id)]]);
+        state.refs.load([[fileKey('signature', id), (await db.syncMeta.get(fileKey('signature', id)))?.value as FileRef | undefined]]);
+        break;
+      case 'settings':
+        state.settings.load([[id, await db.settings.get(id)]]);
+        break;
+    }
+    const row: RemoteRow = { ...item, deleted: true, keyVersion: 1, payload: null, files: [] };
+    applyTombstone({ now: () => Date.now() } as SyncContext, row, false, state, touched, undefined);
+
+    // The deletion is now this device's base version; a pending local change of it is dropped
+    const key = markKey(kind, id);
+    const mark = (await db.syncMeta.get(key))?.value as RecordMark | undefined;
+    await db.outbox.delete([kind, id]);
+    await writeRecords(state);
+    await db.syncMeta.put({ key, value: defined({ ...mark, clock: item.updatedAt, device: item.deviceId, hash: undefined }) });
+    await putHeld(userId, rest);
+    return true;
+  });
+  if (applied) await normalizeDocuments(options, touched);
+  return applied;
+}
+
+/**
+ * "Ignore": keep the record and queue it again with a clock past the deletion, so the next
+ * push restores it on the server (and on devices that applied the deletion). A document's
+ * pages are queued too, because devices that applied the deletion dropped them with it.
+ * Run under the sync lock, then request a sync. Returns false when no longer waiting.
+ */
+export async function ignoreUnverifiedDeletion(userId: string, deletion: UnverifiedDeletion, now = Date.now()): Promise<boolean> {
+  return applyUntracked(async () => {
+    const { item, rest } = await takeHeld(userId, deletion);
+    if (!item) return false;
+    const records: [SyncKind, string, boolean][] = [];
+    switch (item.kind) {
+      case 'document': {
+        if (await db.documents.get(item.id)) records.push(['document', item.id, false]);
+        const pages = await db.pages.where('documentId').equals(item.id).toArray();
+        for (const p of pages) records.push(['page', p.id, p.processedBlob != null]);
+        break;
+      }
+      case 'page': {
+        const page = await db.pages.get(item.id);
+        if (page) records.push(['page', item.id, page.processedBlob != null]);
+        break;
+      }
+      case 'folder':
+        if (await db.folders.get(item.id)) records.push(['folder', item.id, false]);
+        break;
+      case 'signature':
+        if (await db.signatures.get(item.id)) records.push(['signature', item.id, true]);
+        break;
+      case 'settings':
+        if (await db.settings.get(item.id)) records.push(['settings', item.id, false]);
+        break;
+    }
+    for (const [kind, id, hasFile] of records) {
+      const key = markKey(kind, id);
+      const mark = (await db.syncMeta.get(key))?.value as RecordMark | undefined;
+      const pending = await db.outbox.get([kind, id]);
+      const deleted = kind === item.kind && id === item.id;
+      // Past the deletion and anything else seen or pushed, like writeClock
+      const seen = Math.max(mark?.clock ?? 0, mark?.own ?? 0, deleted ? item.updatedAt : 0);
+      const clock = Math.max(now, seen + 1, pending?.updatedAt ?? 0);
+      await db.outbox.put({
+        kind,
+        id,
+        op: 'upsert',
+        updatedAt: clock,
+        fileChanged: hasFile || (pending?.fileChanged ?? false),
+        rev: (pending?.rev ?? 0) + 1,
+      });
+      // The deletion was seen: a push rejected by it is re-queued past it (requeueRejected)
+      if (deleted) {
+        await db.syncMeta.put({ key, value: defined({ ...(mark ?? { clock: 0, device: '' }), clock: item.updatedAt, device: item.deviceId }) });
+      }
+    }
+    await putHeld(userId, rest);
+    return true;
+  });
+}
+
 /**
  * Page order after a pull: by (pageNumber, id), except that a conflicted copy goes right after
  * the page it's a copy of (copies of one page by id). Every device computes the same order
@@ -1205,7 +1423,7 @@ export function orderPages<T extends Pick<Page, 'id' | 'pageNumber' | 'conflictO
  * devices adding a page at once both pick the same number — and recompute the derived fields
  * (pageCount, searchText). Local only (untracked); the thumbnail follows the first page.
  */
-async function normalizeDocuments(ctx: SyncContext, touched: Touched): Promise<void> {
+async function normalizeDocuments(ctx: Pick<SyncContext, 'makeThumbnail'>, touched: Touched): Promise<void> {
   if (touched.documents.size === 0) return;
   const thumbnails: Page[] = [];
   await applyUntracked(async () => {
@@ -1236,7 +1454,7 @@ async function normalizeDocuments(ctx: SyncContext, touched: Touched): Promise<v
   for (const page of thumbnails) await refreshThumbnail(ctx, page);
 }
 
-async function refreshThumbnail(ctx: SyncContext, page: Page): Promise<void> {
+async function refreshThumbnail(ctx: Pick<SyncContext, 'makeThumbnail'>, page: Page): Promise<void> {
   if (!ctx.makeThumbnail) return;
   try {
     const thumbnailBlob = await ctx.makeThumbnail(page);

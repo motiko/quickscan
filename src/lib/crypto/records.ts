@@ -21,8 +21,9 @@ import { encodeContext, fromBase64, FORMAT_V1, FORMAT_V2, toBase64, type Bytes }
  * authenticated through the AAD: the row's own `updated_at` can't be what's authenticated,
  * because `upsert_records` may lower it (it clamps to now() + 5 minutes). `openRecord` returns
  * the authenticated clock and the sync engine accepts a row clock at or below it, never above
- * (see engine.ts). Tombstones carry no payload (a schema constraint), so they can't be
- * authenticated; a payload is always sealed with deleted = '0'.
+ * (see engine.ts). A tombstone carries a minimal v2 payload (`{}`) sealed with deleted = '1',
+ * so a deletion is authenticated like any other write; a live record's payload is sealed with
+ * deleted = '0'. Tombstones without a payload (older clients) are unverified (engine.ts).
  *
  * `key_version` is a plain column, not part of the AAD: a wrong version only picks the wrong
  * key, which fails authentication anyway.

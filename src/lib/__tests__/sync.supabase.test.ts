@@ -13,8 +13,8 @@ import { updateSettings } from '@/lib/settings';
 import { getDeviceId, readOutbox } from '@/lib/outbox';
 import { generateVaultKey, type VaultKey } from '@/lib/crypto';
 import { createSupabaseBackend, type SupabaseLike } from '@/lib/sync/backend';
-import { runSync } from '@/lib/sync/engine';
-import { getFileRef, RetryTracker } from '@/lib/sync/state';
+import { applyUnverifiedDeletion, runSync } from '@/lib/sync/engine';
+import { getFileRef, getMeta, RetryTracker, unverifiedKey, type UnverifiedDeletion } from '@/lib/sync/state';
 import { cleanupOrphanedFiles, ORPHAN_GRACE_MS } from '@/lib/sync/cleanup';
 
 /*
@@ -54,6 +54,7 @@ async function use(device: Device) {
 }
 
 let client: SupabaseClient;
+let admin: SupabaseClient;
 let userId: string;
 let vault: VaultKey;
 
@@ -70,7 +71,7 @@ async function sync() {
 
 describe.skipIf(!enabled)('sync through local Supabase', () => {
   beforeAll(async () => {
-    const admin = createClient(URL!, SECRET!, { auth: { persistSession: false, autoRefreshToken: false } });
+    admin = createClient(URL!, SECRET!, { auth: { persistSession: false, autoRefreshToken: false } });
     const email = `sync-${crypto.randomUUID()}@example.test`;
     const password = crypto.randomUUID();
     const created = await admin.auth.admin.createUser({ email, password, email_confirm: true });
@@ -135,10 +136,50 @@ describe.skipIf(!enabled)('sync through local Supabase', () => {
     await deleteDocument(doc.id);
     await sync();
 
+    // Stored with its authenticated payload (v2, sealed with the deletion flag)
+    const { data: rows } = await client.from('records').select('deleted,payload,files').eq('kind', 'document').eq('id', doc.id);
+    expect(rows![0]).toMatchObject({ deleted: true, files: [] });
+    expect(String(rows![0].payload).startsWith('\\x02')).toBe(true);
+
     await use(devices.laptop);
-    await sync();
+    const report = await sync();
+    expect(report.unverified).toBe(0);
     expect(await db.documents.get(doc.id)).toBeUndefined();
     expect(await db.pages.where('documentId').equals(doc.id).count()).toBe(0);
+  });
+
+  it('never applies a tombstone without a payload silently (written straight to the table)', async () => {
+    await use(devices.phone);
+    const docId = await createDocument('Keep me', new Blob(['keep'], { type: 'image/jpeg' }));
+    await sync();
+    await use(devices.laptop);
+    await sync();
+    expect(await db.documents.get(docId)).toMatchObject({ name: 'Keep me' });
+
+    // Someone with write access but without the vault key forges a deletion. The secret
+    // (service_role) key has no privileges on `records` through the Data API at all
+    // (only `authenticated` is granted), so the forgery goes through a session of the account,
+    // writing the table directly instead of through upsert_records
+    const denied = await admin.from('records').update({ device_id: 'forger' }).eq('user_id', userId).eq('id', docId);
+    expect(denied.error?.code).toBe('42501');
+    const { error } = await client
+      .from('records')
+      .update({ deleted: true, payload: null, files: [], device_id: 'forger', updated_at: new Date(Date.now() + 1000).toISOString() })
+      .eq('user_id', userId)
+      .eq('kind', 'document')
+      .eq('id', docId);
+    expect(error).toBeNull();
+
+    const report = await sync();
+    expect(report.unverified).toBe(1);
+    expect(await db.documents.get(docId)).toMatchObject({ name: 'Keep me' });
+    expect(await db.pages.where('documentId').equals(docId).count()).toBe(1);
+    const held = (await getMeta<UnverifiedDeletion[]>(unverifiedKey(userId)))!;
+    expect(held).toEqual([expect.objectContaining({ kind: 'document', id: docId, deviceId: 'forger' })]);
+
+    // Applying it is the user's choice
+    expect(await applyUnverifiedDeletion(userId, held[0])).toBe(true);
+    expect(await db.documents.get(docId)).toBeUndefined();
   });
 
   it('removes orphaned files from Storage after the grace period, never referenced ones', async () => {

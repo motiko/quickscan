@@ -10,9 +10,19 @@ import { applyUntracked, getDeviceId, readOutbox } from '@/lib/outbox';
 import { MAX_CLOCK_LEAD_MS, writeClock } from '@/lib/sync-tracking';
 import { encryptRecord, generateVaultKey, type VaultKey } from '@/lib/crypto';
 import { createSupabaseBackend } from '@/lib/sync/backend';
-import { orderPages, runSync, type SyncContext } from '@/lib/sync/engine';
+import { applyUnverifiedDeletion, ignoreUnverifiedDeletion, orderPages, runSync, type SyncContext } from '@/lib/sync/engine';
 import { chooseUploadToAccount, removePreviousAccountData } from '@/lib/sync/account-switch';
-import { badRowsKey, getMeta, markKey, RetryTracker, type BadRow, type RecordMark } from '@/lib/sync/state';
+import {
+  badRowsKey,
+  getMeta,
+  markKey,
+  RetryTracker,
+  unverifiedKey,
+  type BadRow,
+  type RecordMark,
+  type UnverifiedDeletion,
+} from '@/lib/sync/state';
+import { listUnverifiedDeletions } from '@/lib/sync/unverified';
 import { materialHash } from '@/lib/sync/payload';
 import { FakeSupabase } from './fake-supabase';
 import type { Annotation, Page } from '@/types';
@@ -418,6 +428,232 @@ describe('replay protection', () => {
     await sync(server);
     expect(server.get('document', 'd1')!.payload![0]).toBe(0x02);
     expect(((await getMeta<RecordMark>(markKey('document', 'd1'))) ?? {}).v2).toBe(true);
+  });
+});
+
+describe('authenticated tombstones', () => {
+  const held = async () => (await getMeta<UnverifiedDeletion[]>(unverifiedKey(USER_A))) ?? [];
+
+  /** A forged (or pre-upgrade) deletion: no payload, a fresh clock, written straight to the table. */
+  function forgeTombstone(server: FakeSupabase, kind: 'document' | 'page', id: string) {
+    server.write({ kind, id, updatedAt: wall, deviceId: 'forger', deleted: true, keyVersion: 1, payload: null, files: [] });
+  }
+
+  it('a delete pushes an authenticated tombstone that deletes on the other device', async () => {
+    const server = newServer(USER_A);
+    const { docId, pageId } = await sharedDocument(server);
+    await device('A');
+    await deletePage(pageId); // its only page: the document goes too
+    await sync(server);
+    const row = server.get('document', docId)!;
+    expect(row.deleted).toBe(true);
+    expect(row.payload![0]).toBe(0x02);
+    tick();
+    await device('B');
+    const report = await sync(server);
+    expect(report.unverified).toBe(0);
+    expect(report.issues).toEqual([]);
+    expect(await db.documents.get(docId)).toBeUndefined();
+    expect(await db.pages.get(pageId)).toBeUndefined();
+    expect(await held()).toEqual([]);
+  });
+
+  it('holds a tombstone without a payload instead of deleting, and lists it under Sync problems', async () => {
+    const server = newServer(USER_A);
+    const { docId, pageId } = await sharedDocument(server);
+    tick();
+    forgeTombstone(server, 'document', docId);
+    await device('B');
+    const report = await sync(server);
+    expect(report.unverified).toBe(1);
+    expect(report.issues).toEqual([expect.objectContaining({ stage: 'pull', kind: 'document', id: docId })]);
+    expect(await db.documents.get(docId)).toMatchObject({ name: 'Lease' });
+    expect(await db.pages.get(pageId)).toBeDefined();
+    expect(await listUnverifiedDeletions(USER_A)).toEqual([
+      expect.objectContaining({ kind: 'document', id: docId, name: 'Lease', deviceId: 'forger' }),
+    ]);
+    // Not an unreadable row, and nothing is pushed back on its own
+    expect((await getMeta<BadRow[]>(badRowsKey(USER_A))) ?? []).toEqual([]);
+    expect(await readOutbox()).toEqual([]);
+    // Held across runs until the user decides
+    await sync(server);
+    expect(await held()).toHaveLength(1);
+  });
+
+  it('"Apply deletion" deletes locally without pushing anything', async () => {
+    const server = newServer(USER_A);
+    const { docId, pageId } = await sharedDocument(server);
+    tick();
+    forgeTombstone(server, 'document', docId);
+    await device('B');
+    await sync(server);
+    const [item] = await held();
+    const seq = server.seq;
+
+    expect(await applyUnverifiedDeletion(USER_A, item)).toBe(true);
+    expect(await db.documents.get(docId)).toBeUndefined();
+    expect(await db.pages.get(pageId)).toBeUndefined();
+    expect(await held()).toEqual([]);
+    expect(await readOutbox()).toEqual([]);
+    expect(await applyUnverifiedDeletion(USER_A, item)).toBe(false);
+    await sync(server);
+    expect(server.seq).toBe(seq);
+    expect(server.get('document', docId)!.deleted).toBe(true);
+  });
+
+  it('"Ignore" keeps the record and restores it on the server, pages included', async () => {
+    const server = newServer(USER_A);
+    const { docId, pageId } = await sharedDocument(server);
+    // Device C applies the forged deletion (as a device without the fix would), which drops
+    // the page locally with it
+    await device('C');
+    await sync(server);
+    tick();
+    forgeTombstone(server, 'document', docId);
+    await sync(server);
+    await applyUnverifiedDeletion(USER_A, (await held())[0]);
+    expect(await db.documents.get(docId)).toBeUndefined();
+    expect(await db.pages.get(pageId)).toBeUndefined();
+    tick();
+
+    await device('B');
+    await sync(server);
+    const [item] = await held();
+    expect(await ignoreUnverifiedDeletion(USER_A, item)).toBe(true);
+    expect(await held()).toEqual([]);
+    const report = await sync(server);
+    expect(report.issues).toEqual([]);
+    expect(server.get('document', docId)!.deleted).toBe(false);
+    expect(await db.documents.get(docId)).toMatchObject({ name: 'Lease' });
+
+    // The other device gets the document and its page back
+    tick();
+    await device('C');
+    await sync(server);
+    expect(await db.documents.get(docId)).toMatchObject({ name: 'Lease' });
+    expect(await db.pages.get(pageId)).toBeDefined();
+  });
+
+  it('keeps a pending local edit that an unverified deletion would beat, and "Ignore" pushes it', async () => {
+    const server = newServer(USER_A);
+    const { docId } = await sharedDocument(server);
+    await device('B');
+    await renameDocument(docId, 'Edited on B');
+    tick();
+    forgeTombstone(server, 'document', docId);
+    const report = await sync(server);
+    expect(report.unverified).toBe(1);
+    expect((await db.documents.get(docId))!.name).toBe('Edited on B');
+    expect(server.get('document', docId)!.deleted).toBe(true);
+    await ignoreUnverifiedDeletion(USER_A, (await held())[0]);
+    tick();
+    await sync(server);
+    expect(server.get('document', docId)!.deleted).toBe(false);
+    tick();
+    await device('A');
+    await sync(server);
+    expect((await db.documents.get(docId))!.name).toBe('Edited on B');
+  });
+
+  it('a newer version of the record settles a held deletion', async () => {
+    const server = newServer(USER_A);
+    const { docId } = await sharedDocument(server);
+    tick();
+    forgeTombstone(server, 'document', docId);
+    await device('B');
+    await sync(server);
+    expect(await held()).toHaveLength(1);
+    tick();
+    await device('A');
+    await renameDocument(docId, 'Renamed');
+    await sync(server);
+    tick();
+    await device('B');
+    await sync(server);
+    expect(await held()).toEqual([]);
+    expect((await db.documents.get(docId))!.name).toBe('Renamed');
+  });
+
+  it('applies a tombstone without a payload where nothing local would be deleted', async () => {
+    const server = newServer(USER_A);
+    forgeTombstone(server, 'page', 'never-here');
+    await sync(server);
+    tick();
+    forgeTombstone(server, 'page', 'never-here-2');
+    const report = await sync(server);
+    expect(report.unverified).toBe(0);
+    expect(report.issues).toEqual([]);
+    expect(await held()).toEqual([]);
+  });
+
+  it('refuses a tampered tombstone payload and keeps the record', async () => {
+    const server = newServer(USER_A);
+    const { docId } = await sharedDocument(server);
+    await device('A');
+    await deletePage((await db.pages.where('documentId').equals(docId).first())!.id);
+    await sync(server);
+    const row = server.get('document', docId)!;
+    const tampered = row.payload!.slice();
+    tampered[tampered.length - 1] ^= 1;
+    server.rows.set(`${USER_A}|document|${docId}`, { ...row, payload: tampered });
+    tick();
+    await device('B');
+    const report = await sync(server);
+    expect(report.issues).toEqual([expect.objectContaining({ kind: 'document', id: docId, message: 'Deletion couldn’t be verified' })]);
+    expect(await db.documents.get(docId)).toBeDefined();
+    expect(await getMeta<BadRow[]>(badRowsKey(USER_A))).toEqual([expect.objectContaining({ id: docId })]);
+  });
+
+  it('refuses a tombstone whose payload belongs to another version or a live row', async () => {
+    const server = newServer(USER_A);
+    const { docId } = await sharedDocument(server);
+    await device('B');
+    // The live v2 payload, moved into a tombstone
+    const live = server.get('document', docId)!;
+    server.rows.set(`${USER_A}|document|${docId}`, { ...live, deleted: true, seq: ++server.seq });
+    // A v1 payload can't authenticate the deletion flag
+    await server.remoteRecord(vault.key, { kind: 'folder', id: 'f1', updatedAt: wall - 5000, value: { name: 'F', createdAt: new Date() }, format: 1 });
+    const v1 = server.get('folder', 'f1')!;
+    const first = await sync(server);
+    expect(first.issues).toEqual([expect.objectContaining({ id: docId, message: 'Deletion couldn’t be verified' })]);
+    server.rows.set(`${USER_A}|folder|f1`, { ...v1, deleted: true, seq: ++server.seq });
+    const report = await sync(server);
+    expect(report.issues).toEqual([expect.objectContaining({ id: 'f1', message: 'Deletion couldn’t be verified' })]);
+    expect(await db.documents.get(docId)).toBeDefined();
+    expect(await db.folders.get('f1')).toBeDefined();
+  });
+
+  it('tolerates a server without the migration: the tombstone arrives unverified and is held', async () => {
+    const server = newServer(USER_A);
+    server.legacyTombstones = true;
+    const { docId } = await sharedDocument(server);
+    await device('A');
+    await deletePage((await db.pages.where('documentId').equals(docId).first())!.id);
+    const pushed = await sync(server);
+    expect(pushed.issues).toEqual([]);
+    expect(server.get('document', docId)).toMatchObject({ deleted: true, payload: null });
+    // The deleting device takes its own echo without asking
+    tick();
+    expect((await sync(server)).unverified).toBe(0);
+    tick();
+    await device('B');
+    const report = await sync(server);
+    // The page and the document
+    expect(report.unverified).toBe(2);
+    expect(await db.documents.get(docId)).toBeDefined();
+    for (const item of await held()) await applyUnverifiedDeletion(USER_A, item);
+    expect(await db.documents.get(docId)).toBeUndefined();
+    expect(await db.pages.count()).toBe(0);
+  });
+
+  it('a first sync (merge) still deletes nothing, even for an unverified tombstone', async () => {
+    const server = newServer(USER_A);
+    const docId = await createDocument('Local', img('x'));
+    server.write({ kind: 'document', id: docId, updatedAt: wall + 1000, deviceId: 'forger', deleted: true, keyVersion: 1, payload: null, files: [] });
+    const report = await sync(server);
+    expect(report.merged).toBe(true);
+    expect(await held()).toEqual([]);
+    expect(server.get('document', docId)!.deleted).toBe(false);
   });
 });
 

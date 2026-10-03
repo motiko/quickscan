@@ -2,7 +2,7 @@ import { db } from '@/lib/db';
 import { applyUntracked, type OutboxEntry } from '@/lib/outbox';
 import type { Folder, Page, ScannedDocument, Signature } from '@/types';
 import { withSyncLock } from './lock';
-import { badRowsKey, cursorKey, fileKey, FILE_PREFIX, LAST_USER_KEY, mergeKey, type FileRef } from './state';
+import { badRowsKey, cursorKey, fileKey, FILE_PREFIX, LAST_USER_KEY, mergeKey, unverifiedKey, type FileRef } from './state';
 
 /*
  * "Remove synced documents from this device": drop the local copies of everything whose
@@ -149,8 +149,9 @@ export async function removeSyncedFromDevice(userId: string): Promise<RemovalPla
       await db.folders.bulkDelete(plan.folders);
       await db.signatures.bulkDelete(plan.signatures);
       await db.syncMeta.bulkDelete(plan.refKeys);
-      // Download everything again next time; rows that couldn't be read get another chance
-      await db.syncMeta.bulkDelete([cursorKey(userId), badRowsKey(userId)]);
+      // Download everything again next time; rows that couldn't be read (and deletions that
+      // couldn't be verified) get another look
+      await db.syncMeta.bulkDelete([cursorKey(userId), badRowsKey(userId), unverifiedKey(userId)]);
       return plan;
     })
   );

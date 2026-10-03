@@ -7,11 +7,18 @@ import { useSyncStatus } from '@/hooks/useSyncStatus';
 import { confirmDialog } from '@/lib/dialogs';
 import { retrySync, type SyncProblem } from '@/lib/sync';
 import { badRowsKey, cleanupKey, type BadRow, type CleanupState } from '@/lib/sync/state';
+import {
+  applyDeletion,
+  ignoreDeletion,
+  listUnverifiedDeletions,
+  type UnverifiedDeletionItem,
+} from '@/lib/sync/unverified';
 import { forgetVault } from '@/lib/vault-session';
 
 const hintClass = 'text-xs text-gray-500 dark:text-gray-400';
 const errorClass = 'text-xs text-red-600 dark:text-red-400';
 const linkButtonClass = 'min-h-11 text-sm font-semibold text-blue-600 dark:text-blue-400 disabled:opacity-50';
+const dangerButtonClass = 'min-h-11 text-sm font-semibold text-red-600 dark:text-red-400 disabled:opacity-50';
 const MAX_LISTED = 5;
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -53,8 +60,9 @@ function describeProblem(p: SyncProblem): string {
 
 /**
  * Sync problems under the status line: the last error with what to do about it, items that
- * keep failing (retried with backoff), rows that couldn't be read, files still to download,
- * and storage use. Renders only what applies.
+ * keep failing (retried with backoff), rows that couldn't be read, deletions that couldn't be
+ * verified (apply or ignore each), files still to download, and storage use. Renders only
+ * what applies.
  */
 export function SyncProblems() {
   const auth = useAuth();
@@ -64,6 +72,7 @@ export function SyncProblems() {
     async () => (userId ? ((await db.syncMeta.get(badRowsKey(userId)))?.value as BadRow[] | undefined) : undefined),
     [userId]
   );
+  const unverified = useLiveQuery(async () => (userId ? listUnverifiedDeletions(userId) : []), [userId]) ?? [];
   const cleanup = useLiveQuery(
     async () => (userId ? ((await db.syncMeta.get(cleanupKey(userId)))?.value as CleanupState | undefined) : undefined),
     [userId]
@@ -86,7 +95,19 @@ export function SyncProblems() {
     if (confirmed) await forgetVault();
   };
 
-  if (!showRetry && pending === 0 && !usage) return null;
+  const applyUnverified = async (item: UnverifiedDeletionItem) => {
+    if (!userId) return;
+    const confirmed = await confirmDialog({
+      title: `Delete “${item.name}” on this device?`,
+      message:
+        'This deletion couldn’t be verified as coming from one of your devices. Apply it only if you or another of your devices deleted this.',
+      confirmLabel: 'Delete',
+      destructive: true,
+    });
+    if (confirmed) await applyDeletion(userId, item);
+  };
+
+  if (!showRetry && pending === 0 && !usage && unverified.length === 0) return null;
 
   return (
     <div className="mt-1 space-y-1" aria-live="polite">
@@ -111,6 +132,29 @@ export function SyncProblems() {
           damaged, encrypted with another key, from a newer version of QuickScan, or an older version the server sent
           again.
         </p>
+      )}
+      {unverified.length > 0 && (
+        <ul className="space-y-1">
+          {unverified.slice(0, MAX_LISTED).map((item) => (
+            <li key={`${item.kind}:${item.id}:${item.seq}`}>
+              <p className={errorClass}>
+                An unverified deletion for “{item.name}” was received. It was kept on this device: it may come from a
+                device that hasn’t updated QuickScan yet, or from someone who changed your data on the server.
+              </p>
+              <div className="flex gap-4">
+                <button onClick={() => void applyUnverified(item)} className={dangerButtonClass}>
+                  Apply deletion
+                </button>
+                <button onClick={() => userId && void ignoreDeletion(userId, item)} className={linkButtonClass}>
+                  Ignore
+                </button>
+              </div>
+            </li>
+          ))}
+          {unverified.length > MAX_LISTED && (
+            <li className={errorClass}>…and {unverified.length - MAX_LISTED} more.</li>
+          )}
+        </ul>
       )}
       {pending > 0 && <p className={hintClass}>{plural(pending, 'file')} not downloaded yet.</p>}
       {usage && (

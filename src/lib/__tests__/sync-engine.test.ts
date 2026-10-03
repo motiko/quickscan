@@ -118,7 +118,12 @@ describe('push', () => {
 
     await deleteDocument(docId);
     await runSync(await context(server));
-    expect(server.get('document', docId)).toMatchObject({ deleted: true, payload: null, files: [] });
+    const tombstone = server.get('document', docId)!;
+    expect(tombstone).toMatchObject({ deleted: true, files: [] });
+    // Authenticated: a small v2 payload sealed with the deletion flag set
+    expect(tombstone.payload![0]).toBe(0x02);
+    expect(tombstone.payload!.length).toBeLessThanOrEqual(256);
+    expect(await decrypted(server, 'document', docId)).toEqual({});
     expect(await readOutbox()).toEqual([]);
   });
 
