@@ -1,6 +1,6 @@
 # Scanner quality standards
 
-The bar QuickScan's scanner is held to, the metrics that measure it, and the evidence behind every change. Maintained by the `scanner-expert` agent (`.claude/agents/scanner-expert.md`); the benchmark protocol is in `.claude/skills/scanner-bench/SKILL.md`. Numbers in **Targets** are what the best mobile scanners achieve (Apple VisionKit / Notes, Microsoft Lens, Adobe Scan, Genius Scan, Google Drive scan) or what the SmartDoc 2015 / MIDV benchmarks established; numbers in **Current** come only from a committed benchmark run in `bench/results/` — never from memory or estimation.
+The bar QuickScan's scanner is held to, the metrics that measure it, and the evidence behind every change. Maintained by the `scanner-expert` agent (`.claude/agents/scanner-expert.md`); the benchmark protocol is in `.claude/skills/scanner-bench/SKILL.md`. The **Roadmap** sets the goals in three stages: the first is reachable with the classical pipeline, the second is parity with the best mobile scanners (Apple VisionKit / Notes, Microsoft Lens, Adobe Scan, Genius Scan, Google Drive scan) and with the SmartDoc 2015 / MIDV benchmark results, the third names the honest ceilings of a browser-only app. Numbers in **Current** come only from a committed benchmark run in `bench/results/` — never from memory or estimation.
 
 ## Metrics
 
@@ -21,30 +21,63 @@ The bar QuickScan's scanner is held to, the metrics that measure it, and the evi
 
 All of these are produced by `npm run bench` (see the skill) and written to `bench/results/<date>-<git sha>.json`; the human-readable summary of the latest run is `bench/results/latest.md`.
 
-## Targets
+## Roadmap
 
-| Metric | Target | Why this number |
-|--------|--------|-----------------|
-| M1 | ≥ 98 % on the SmartDoc-like subset, ≥ 95 % on hard cases (low contrast, same-colour background, partial occlusion) | SmartDoc 2015 Challenge 1 winners reached a mean Jaccard above 0.98 on simple backgrounds; commercial apps match this |
-| M2 | Mean IoU ≥ 0.97; mean corner error ≤ 0.5 % long edge | Below 0.5 % the crop error is invisible after warping to A4 at 200 dpi |
+Three stages, each a gate: work on the next stage starts only when a committed benchmark run on the full corpus clears every row of the current one. "Hard cases" are the corpus conditions `background: plain-similar | cluttered | dark`, `lighting: low | harsh-shadow | glare`, `occlusion: hand | object` and `distance: partial`; everything else is "plain". Device columns mean a recent iPhone (iPhone 15 class) and a mid-range Android from the last three years (Pixel 7a class); older devices must degrade gracefully, not meet the numbers. The stages are uncalibrated until the first baseline run: a Stage 1 row the current pipeline already clears is raised, a row it misses by more than half is split.
+
+### Stage 1 — no bad scans (classical pipeline, fix the structural defects)
+
+| Metric | Goal | Why this number |
+|--------|------|-----------------|
+| M1 | ≥ 92 % plain, ≥ 75 % hard | Where tuned contour pipelines plateau; low contrast and clutter need a model |
+| M2 | Mean IoU ≥ 0.95; corner error ≤ 1.0 % long edge | A 1 % error is a 3 mm sliver on A4, visible but not a lost margin |
+| M3 | ≤ 5 % | Halves what a hard-coded confidence lets through today |
+| M4 | Jitter ≤ 0.5 % long edge; stable within 10 frames | The tracker's current stability rule, made to actually hold |
+| M5 | ≤ 2000 ms when steady | 10 frames at 120 ms plus the 600 ms dwell, with no wasted frames |
+| M6 | p95 ≤ 80 ms iPhone, ≤ 150 ms Android, at the 320 px preview | Keeps the 8 fps cadence without dropped frames |
+| M7 | p95 ≤ 2500 ms for a 12 MP capture, and off the main thread | A frozen UI is the current failure; the worker makes it a progress state |
+| M8 | CER ≤ 5 % on clean print with the default filter; no filter worse than the raw crop by more than 2 % | Requires keeping the raw crop and measuring every filter against it |
+| M9 | A4 text page ≤ 600 KB; PDF page sized at 200 dpi, not pixel size | Stops the 42-inch PDF page and the oversized JPEGs |
+| M10 | ≥ 6 px/mm (~150 dpi) for A4 from a 12 MP capture | The warp must not throw away resolution it has |
+| M11 | ≥ 90 % | The current orientation retry, measured for the first time |
+| M12 | No increase over the baseline bundle | Nothing is added until it is measured |
+
+### Stage 2 — parity on everyday documents (small on-device corner model)
+
+| Metric | Goal | Why this number |
+|--------|------|-----------------|
+| M1 | ≥ 97 % plain, ≥ 92 % hard | SmartDoc 2015 Challenge 1 winners reached a mean Jaccard above 0.98 on simple backgrounds; commercial apps match this |
+| M2 | Mean IoU ≥ 0.97; corner error ≤ 0.5 % long edge | Below 0.5 % the crop error is invisible after warping to A4 at 200 dpi |
 | M3 | ≤ 2 % | A false capture is worse than a late one |
 | M4 | Jitter ≤ 0.3 % long edge; stable within 6 frames | Apple/Lens overlays appear locked to the page; visible wobble reads as "broken" |
 | M5 | ≤ 1500 ms when steady | Lens/VisionKit capture within about a second of settling |
-| M6 | p95 ≤ 60 ms on a mid-range Android, ≤ 30 ms on a recent iPhone, at the preview size used by the worker | Keeps a 10 fps analysis cadence with headroom for rendering and thermal throttling |
-| M7 | p95 ≤ 1200 ms for a 12 MP capture on a mid-range Android | Anything longer needs a progress UI |
-| M8 | CER ≤ 2 % on clean printed text with the default filter; the best filter for OCR is never more than 1 % worse than the raw crop | Tesseract LSTM reaches ~1 % CER on 300 dpi clean scans; preprocessing must not destroy information |
+| M6 | p95 ≤ 40 ms iPhone, ≤ 80 ms Android | Headroom for rendering and thermal throttling at 10 fps |
+| M7 | p95 ≤ 1200 ms for a 12 MP capture on Android | Anything longer needs a progress UI |
+| M8 | CER ≤ 2.5 % clean print, ≤ 8 % receipts, with the default filter; best filter never more than 1 % worse than the raw crop | Tesseract LSTM reaches ~1 % CER on 300 dpi clean scans; receipts are thermal print on curled paper |
 | M9 | Text page JPEG 150–400 KB at ~2500 px long edge; PDF page within 20 % of the JPEG | Matches Lens/Adobe output sizes; larger wastes storage and sync bandwidth without legibility gain |
-| M10 | ≥ 8 px/mm (~200 dpi) for an A4 page from a 12 MP capture; sharpness ratio ≥ 0.8 after warp | 200 dpi is the floor for reliable OCR and crisp print |
+| M10 | ≥ 8 px/mm (~200 dpi) for A4 from a 12 MP capture; sharpness ratio ≥ 0.8 after warp | 200 dpi is the floor for reliable OCR and crisp print |
 | M11 | ≥ 97 % | Users rarely notice the mechanism, always notice a sideways page |
-| M12 | Detection code + model ≤ 1.5 MB compressed; first live detection ≤ 2 s on 4G | tfjs with two backends alone can exceed this; measure before adding |
+| M12 | Detection code + model ≤ 1.5 MB compressed; first live detection ≤ 2 s on 4G | tfjs with two backends alone can exceed this; one backend, one small model |
+
+### Stage 3 — ceilings for a browser-only app
+
+Native scanners read RAW frames, fuse HDR exposures and use the platform OCR engine; a PWA gets a JPEG from a video track and Tesseract. These are the honest limits, and the point where cloud OCR (opt-in) takes over rather than more local work:
+
+| Area | Goal | Boundary |
+|------|------|----------|
+| Print OCR | CER ≤ 1.5 % on clean print | Tesseract's practical floor on phone captures; VisionKit's ~0.5 % is not reachable locally |
+| Curved pages | IoU ≥ 0.90 on `book-curved` with simple dewarping | Full dewarping models are too large for the M12 budget |
+| Handwriting | No local target; route to cloud OCR | Tesseract has no usable handwriting model |
+| Low light | M1 ≥ 85 % on `lighting: low` | No exposure fusion without RAW access; torch guidance is the lever |
+| Live cadence | 10 fps analysis, not 30 | Thermal throttling and battery on sustained preview |
 
 ## Current
 
 _No benchmark run committed yet. The first run of `npm run bench` on the baseline corpus fills this table and `bench/results/latest.md`._
 
-| Metric | Current | Run | Gap to target |
-|--------|---------|-----|---------------|
-| M1–M12 | — | — | — |
+| Metric | Current | Run | Stage 1 gap | Stage 2 gap |
+|--------|---------|-----|-------------|-------------|
+| M1–M12 | — | — | — | — |
 
 ## Known facts (verified in code, date in brackets)
 

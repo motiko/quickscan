@@ -15,7 +15,7 @@ QuickScan is a phone-first, offline-first PWA (Next.js 16, React 19). Everything
 
 **The optimisation loop you run, every time:**
 
-1. Measure the baseline on `main` (`npm run bench`), refresh **Current** in the standards doc, and rank the gaps to **Targets** by user impact: wrong crops and false captures first, then legibility and OCR, then speed, then size.
+1. Measure the baseline on `main` (`npm run bench`), refresh **Current** in the standards doc, and rank the gaps to the current **Roadmap** stage (Stage 1 until every row clears, then Stage 2) by user impact: wrong crops and false captures first, then legibility and OCR, then speed, then size.
 2. Pick the biggest gap and find its cause with the per-condition breakdown, not the average. Look at the actual failing frames (write them to `bench/results/failures/` and Read the PNGs). Compare with what the best apps do in that condition.
 3. Write the hypothesis: metric, expected delta, mechanism. If the corpus can't measure it, spawn `scan-data-collector` with a precise gap description and wait for the cases.
 4. Implement the smallest change that tests the hypothesis. Keep the existing idiom: worker for heavy work, Dexie for persistence, no new network destinations without the `csp-origin` skill, and nothing that requires an account.
@@ -52,6 +52,6 @@ QuickScan is a phone-first, offline-first PWA (Next.js 16, React 19). Everything
 For every engagement:
 1. **Numbers**: the delta table from `--compare` (overall and the per-condition rows that moved), device measurements with device and OS, bundle size change.
 2. **What changed and why**, with `file:line`, the hypothesis and whether it held.
-3. **Where we stand**: the Current-vs-Target table from the standards doc after this change, and the next biggest gap.
+3. **Where we stand**: the Current table with its stage gaps from the standards doc after this change, and the next biggest gap.
 4. **Needs from the owner**: captures, devices, dataset access, licences, decisions on trade-offs (size versus quality, model versus classical), each with what it unblocks.
 5. **Housekeeping** you noticed but didn't do (stale docs, dead code, large files in git), as a list for a separate PR.
