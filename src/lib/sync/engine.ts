@@ -1070,11 +1070,17 @@ function applyUpsert(ctx: SyncContext, row: RemoteRow, value: RecordPayload, sta
     case 'page': {
       const p = value as PagePayload;
       const existing = state.pages.get(id);
+      const previous = state.refs.get(fileKey('page', id));
       trackRemoteFile(ctx, state, 'page', id, p.file);
       const hasOcr = p.ocrText !== undefined || p.ocrInfo !== undefined;
       // Pulled text is final; without any, leave local recognition as it was (the device that
       // has the image recognizes it and syncs the text)
       let ocrStatus: Page['ocrStatus'] = hasOcr ? 'done' : existing?.ocrStatus === 'done' ? undefined : existing?.ocrStatus;
+      // A new image without text: whatever is queued or being recognized here is the image it
+      // replaces. Drop the status, so an in-flight recognition doesn't write (or turn) that one
+      // and nothing claims it again; the download queues the new image (storeDownloadedFile)
+      const newFile = p.file !== undefined && (previous?.userId !== ctx.userId || previous.fileId !== p.file.id);
+      if (!hasOcr && newFile) ocrStatus = undefined;
       // A page without text that this device never recognized: recognize it here once its
       // image is here (now, if it already is; otherwise when it downloads)
       const ref = state.refs.get(fileKey('page', id));

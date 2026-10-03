@@ -96,6 +96,74 @@ describe('OCR and sync', () => {
     expect(await readOutbox()).toEqual([expect.objectContaining({ kind: 'page', id: page.id, fileChanged: false })]);
   });
 
+  it('drops a recognition of the old image when a pull brings a new one that has not downloaded yet', async () => {
+    const server = new FakeSupabase(USER);
+    const docId = await createDocument('Scan', new Blob(['mine'], { type: 'image/jpeg' }));
+    const [page] = await db.pages.where('documentId').equals(docId).toArray();
+    const ctx = await context(server);
+    await runSync(ctx);
+    expect(await readOutbox()).toEqual([]);
+
+    // Another device replaced the image (no text yet)
+    const path = await server.remoteFile(vault.key, 'file-2', new Blob(['theirs'], { type: 'image/jpeg' }));
+    await server.remoteRecord(vault.key, {
+      kind: 'page',
+      id: page.id,
+      updatedAt: server.get('page', page.id)!.updatedAt + 1000,
+      value: { documentId: docId, pageNumber: 1, filter: 'original', createdAt: page.createdAt, file: { id: 'file-2', type: 'image/jpeg' } },
+      files: [path],
+    });
+
+    // Its download is held back until the test lets it go
+    let downloadStarted!: () => void;
+    const started = new Promise<void>((r) => (downloadStarted = r));
+    let releaseDownload!: () => void;
+    const released = new Promise<void>((r) => (releaseDownload = r));
+    const download = ctx.backend.downloadFile.bind(ctx.backend);
+    ctx.backend.downloadFile = async (p: string) => {
+      downloadStarted();
+      await released;
+      return download(p);
+    };
+
+    // A sync run pulls the new page while the capture here is being recognized
+    let run: Promise<unknown> | undefined;
+    const recognizeImage = vi.mocked(recognize).getMockImplementation()!;
+    vi.mocked(recognize).mockImplementation(async (b: Blob, langs: string[]) => {
+      if (!run) {
+        run = runSync(ctx);
+        await started;
+      }
+      return recognizeImage(b, langs);
+    });
+
+    await processPendingOcr();
+
+    // Nothing from the old image was written: no text, no turn, nothing queued to sync
+    const during = await db.pages.get(page.id);
+    expect(during!.ocrText).toBeUndefined();
+    expect(during!.ocrInfo).toBeUndefined();
+    expect(during!.ocrStatus).toBeUndefined();
+    expect(await during!.processedBlob!.text()).toBe('mine');
+    expect(await readOutbox()).toEqual([]);
+
+    releaseDownload();
+    await run;
+
+    const downloaded = await db.pages.get(page.id);
+    expect(await downloaded!.processedBlob!.text()).toBe('theirs');
+    expect(downloaded).toMatchObject({ ocrStatus: 'pending', keepOrientation: true });
+
+    await processPendingOcr();
+
+    const after = await db.pages.get(page.id);
+    expect(after!.ocrStatus).toBe('done');
+    expect(after!.ocrText).toBe(upsideDown.text);
+    // Recognized as it is, not turned
+    expect(await after!.processedBlob!.text()).toBe('theirs');
+    expect(await readOutbox()).toEqual([expect.objectContaining({ kind: 'page', id: page.id, fileChanged: false })]);
+  });
+
   it('keeps a rename from another device when OCR finishes here before the pull', async () => {
     const server = new FakeSupabase(USER);
     const docId = await createDocument('Scan', new Blob(['mine'], { type: 'image/jpeg' }));
