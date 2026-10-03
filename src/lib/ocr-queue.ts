@@ -3,7 +3,7 @@ import { recognize, type OcrResult } from '@/lib/ocr';
 import { getSettings } from '@/lib/settings';
 import { pageImage } from '@/lib/page-image';
 import { recognizeUpright, type Rotation, type UprightResult } from '@/lib/ocr-orientation';
-import { createThumbnail, rotateImage } from '@/lib/image-processing';
+import { createThumbnail, fitImage, rotateImage } from '@/lib/image-processing';
 import { getImageSize, getRenderedBlob } from '@/lib/annotations/flatten';
 import { rotateAnnotations90 } from '@/lib/annotations/geometry';
 import type { Annotation, Page } from '@/types';
@@ -35,6 +35,33 @@ export async function keepPageOrientation(pageId: string): Promise<void> {
  */
 function mayAutoOrient(page: Page): boolean {
   return page.originalBlob != null && !page.keepOrientation && page.ocrInfo === undefined && page.ocrText === undefined;
+}
+
+/**
+ * Longest side of the image Tesseract gets. Recognition doesn't improve past ~250 dpi (an A4
+ * page at this size), while a full 8–12 MP image inside the OCR worker, plus the rotated copies
+ * the orientation probes make of it, pushes iOS Safari past its memory limit and kills the
+ * page right after a scan is saved. A cropped 4K capture already fits; larger images (imports,
+ * uncropped frames) are scaled down for recognition only, and the word boxes are mapped back.
+ */
+const OCR_MAX_DIMENSION = 2500;
+
+/** Word boxes measured on the OCR copy, in the page image's pixels. */
+function scaleToPage(upright: UprightResult, scale: number): UprightResult {
+  if (scale === 1) return upright;
+  const toPage = (r: OcrResult): OcrResult => ({
+    ...r,
+    words: r.words.map((w) => ({
+      ...w,
+      bbox: {
+        x0: Math.round(w.bbox.x0 / scale),
+        y0: Math.round(w.bbox.y0 / scale),
+        x1: Math.round(w.bbox.x1 / scale),
+        y1: Math.round(w.bbox.y1 / scale),
+      },
+    })),
+  });
+  return { ...upright, result: toPage(upright.result), unrotated: upright.unrotated && toPage(upright.unrotated) };
 }
 
 /**
@@ -138,18 +165,22 @@ export async function processPendingOcr(): Promise<void> {
 
         try {
           const langs = settings.ocrLanguages;
+          // Tesseract and the orientation probes work on a bounded copy (OCR_MAX_DIMENSION)
+          const { blob: ocrImage, scale } = await fitImage(blob, OCR_MAX_DIMENSION);
           // An upside-down or sideways page is turned upright when that's clearly where its text reads
-          const upright: UprightResult = mayAutoOrient(current)
-            ? await recognizeUpright(blob, (b) => recognize(b, langs), rotateImage)
-            : { result: await recognize(blob, langs), rotation: 0 };
+          const recognized: UprightResult = mayAutoOrient(current)
+            ? await recognizeUpright(ocrImage, (b) => recognize(b, langs), rotateImage)
+            : { result: await recognize(ocrImage, langs), rotation: 0 };
+          const upright = scaleToPage(recognized, scale);
 
           let result = upright.result;
           let turn: { image: Blob; rotation: Rotation; size?: { width: number; height: number } } | undefined;
-          if (upright.rotation !== 0 && upright.image) {
+          if (upright.rotation !== 0) {
             try {
               // The annotations are turned with the image, which needs its size
               const size = current.annotations?.length ? await getImageSize(blob) : undefined;
-              turn = { image: upright.image, rotation: upright.rotation, size };
+              // The page image itself is turned once, at full size, now that the turn is settled
+              turn = { image: await rotateImage(blob, upright.rotation), rotation: upright.rotation, size };
             } catch (err) {
               console.warn('Could not turn the page upright; keeping it as scanned:', err);
               result = upright.unrotated ?? result;

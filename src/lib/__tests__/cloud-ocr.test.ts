@@ -2,6 +2,12 @@ import 'fake-indexeddb/auto';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@/lib/ocr', () => ({ recognize: vi.fn() }));
+vi.mock('@/lib/image-processing', () => ({
+  // Node has no canvas: the OCR copy is the image itself
+  fitImage: vi.fn(async (blob: Blob) => ({ blob, scale: 1 })),
+  rotateImage: vi.fn(async (blob: Blob, degrees: number) => new Blob([`${await blob.text()}@${degrees}`])),
+  createThumbnail: vi.fn(async () => new Blob(['thumb'])),
+}));
 vi.mock('@/lib/llm/image', () => ({ prepareImageForLlm: vi.fn() }));
 vi.mock('@/lib/llm/transcription', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/llm/transcription')>()),
