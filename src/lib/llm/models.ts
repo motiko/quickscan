@@ -48,6 +48,24 @@ export function pickModel(config: Pick<LlmConfig, 'schema' | 'openaiNative'>, mo
   return models[0];
 }
 
+/** OpenAI models that aren't for chat at all (speech, images, embeddings, moderation, legacy completions). */
+const OPENAI_NON_CHAT = /audio|realtime|transcribe|tts|whisper|image|dall-e|sora|embedding|moderation|babbage|davinci|search-preview|deep-research|computer-use/i;
+
+/**
+ * The models worth offering in a picker: the provider's list without entries that can't do
+ * plain text/vision generation, Gemini's `models/` prefix stripped (the client adds it back).
+ * OpenAI's list is unordered, so it is sorted; Anthropic and custom endpoints keep their order.
+ */
+export function selectableModels(config: Pick<LlmConfig, 'schema' | 'openaiNative'>, models: string[]): string[] {
+  let ids = [...new Set(models)];
+  if (config.schema === 'gemini') {
+    ids = ids.map((m) => m.replace(/^models\//, '')).filter((id) => id.startsWith('gemini-') && !GEMINI_EXCLUDED.test(id));
+  } else if (config.openaiNative) {
+    ids = ids.filter((id) => !OPENAI_NON_CHAT.test(id)).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }
+  return ids;
+}
+
 async function listGeminiModels(config: LlmConfig, fetchImpl: typeof fetch): Promise<string[] | null> {
   try {
     const response = await fetchImpl(joinUrl(config.baseUrl, 'models?pageSize=1000'), {

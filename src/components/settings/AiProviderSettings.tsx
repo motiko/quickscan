@@ -3,7 +3,7 @@
 import { useEffect, useId, useState } from 'react';
 import { getSettings, updateSettings } from '@/lib/settings';
 import { resolveLlmConfig } from '@/lib/llm/client';
-import { resolveModel } from '@/lib/llm/models';
+import { listProviderModels, pickModel, resolveModel, selectableModels } from '@/lib/llm/models';
 import { suggestNameWithLlm } from '@/lib/llm/naming';
 import { detectEndpoint, guessSchema } from '@/lib/llm/detect-endpoint';
 import type { AppSettings, CustomLlmEndpoint, LlmApiSchema, LlmProvider } from '@/types';
@@ -102,10 +102,13 @@ const OTHER_MODEL = '__other__';
 function ModelSelect({
   value,
   models,
+  automaticLabel,
   onSave,
 }: {
   value: string;
   models: string[];
+  /** Offers an empty choice with this label, meaning "pick one from the list at call time". */
+  automaticLabel?: string;
   onSave: (value: string) => Promise<void>;
 }) {
   const [typing, setTyping] = useState(false);
@@ -134,7 +137,7 @@ function ModelSelect({
             }}
             className={`${inputClass} appearance-none pr-9`}
           >
-            {!value && !typing && <option value="">Pick a model</option>}
+            {automaticLabel ? <option value="">{automaticLabel}</option> : !value && !typing && <option value="">Pick a model</option>}
             {models.map((m) => (
               <option key={m} value={m}>
                 {m}
@@ -204,7 +207,32 @@ async function detectAndSaveEndpoint(): Promise<Detection> {
   return { state: 'found', schema: detected.schema, models: detected.models };
 }
 
-function HostedProviderFields({ provider, settings }: { provider: (typeof HOSTED_PROVIDERS)[number]; settings: AppSettings }) {
+type HostedListing =
+  | { state: 'loading' }
+  /** `auto` is the model used when none is chosen. */
+  | { state: 'found'; models: string[]; auto: string | null }
+  | { state: 'failed' };
+
+/** The selected hosted provider's models, for the picker. */
+async function listHostedModels(settings: AppSettings): Promise<HostedListing> {
+  const config = resolveLlmConfig(settings);
+  if (!config) return { state: 'failed' };
+  const listed = await listProviderModels(config);
+  if (!listed) return { state: 'failed' };
+  const models = selectableModels(config, listed);
+  return { state: 'found', models, auto: pickModel(config, listed) };
+}
+
+function HostedProviderFields({
+  provider,
+  settings,
+  listing,
+}: {
+  provider: (typeof HOSTED_PROVIDERS)[number];
+  settings: AppSettings;
+  listing: HostedListing | undefined;
+}) {
+  const models = listing?.state === 'found' ? listing.models : [];
   return (
     <>
       <DraftTextField
@@ -222,12 +250,24 @@ function HostedProviderFields({ provider, settings }: { provider: (typeof HOSTED
       >
         Get a {provider.label} API key
       </a>
-      <DraftTextField
-        label="Model"
-        value={settings[provider.modelField]}
-        placeholder="Automatic, picked from your account"
-        onSave={(v) => updateSettings({ [provider.modelField]: v })}
-      />
+      {models.length > 0 ? (
+        <ModelSelect
+          value={settings[provider.modelField]}
+          models={models}
+          automaticLabel={listing?.state === 'found' && listing.auto ? `Automatic (${listing.auto})` : 'Automatic'}
+          onSave={(v) => updateSettings({ [provider.modelField]: v })}
+        />
+      ) : (
+        <DraftTextField
+          label="Model"
+          value={settings[provider.modelField]}
+          placeholder="Automatic, picked from your account"
+          onSave={(v) => updateSettings({ [provider.modelField]: v })}
+        />
+      )}
+      {listing?.state === 'failed' && (
+        <p className="-mt-1 text-xs text-gray-500 dark:text-gray-400">Could not list models. Check the API key, or enter a model.</p>
+      )}
     </>
   );
 }
@@ -344,6 +384,7 @@ export function AiProviderSettings({ settings }: { settings: AppSettings }) {
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [isTesting, setIsTesting] = useState(false);
   const [detection, setDetection] = useState<Detection>({ state: 'idle' });
+  const [hostedListing, setHostedListing] = useState<HostedListing | undefined>();
 
   const select = (changes: Partial<AppSettings>) => {
     setTestResult(null);
@@ -357,6 +398,24 @@ export function AiProviderSettings({ settings }: { settings: AppSettings }) {
     setDetection(result);
     return result;
   };
+
+  // List the hosted provider's models once it has a key, so the model is picked from a list.
+  const hostedProvider = HOSTED_PROVIDERS.find((p) => p.id === settings.llmProvider);
+  const hostedKey = hostedProvider ? settings[hostedProvider.keyField].trim() : '';
+  useEffect(() => {
+    if (!hostedProvider || !hostedKey) return;
+    let cancelled = false;
+    void listHostedModels(settings).then((result) => {
+      if (!cancelled) setHostedListing(result);
+    });
+    return () => {
+      cancelled = true;
+      // Keys and lists are per provider: never show one provider's models under another
+      setHostedListing(undefined);
+    };
+    // The list depends on the provider and its key, not on the rest of the settings
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hostedProvider?.id, hostedKey]);
 
   // List the saved endpoint's models when Settings opens, so the picker isn't only there
   // right after the URL was typed. Until the list arrives the model shows in a text field.
@@ -419,7 +478,7 @@ export function AiProviderSettings({ settings }: { settings: AppSettings }) {
             selected={settings.llmProvider === provider.id}
             onSelect={() => select({ llmProvider: provider.id })}
           >
-            <HostedProviderFields provider={provider} settings={settings} />
+            <HostedProviderFields provider={provider} settings={settings} listing={hostedListing} />
           </ProviderOption>
         ))}
         <ProviderOption

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { callLlm, type LlmConfig } from '@/lib/llm/client';
-import { clearModelCache, pickModel, resolveModel } from '@/lib/llm/models';
+import { clearModelCache, pickModel, resolveModel, selectableModels } from '@/lib/llm/models';
 
 const gemini: LlmConfig = { schema: 'gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta', apiKey: 'k', model: '' };
 const openai: LlmConfig = { schema: 'chat-completions', baseUrl: 'https://api.openai.com/v1', apiKey: 'sk', model: '', openaiNative: true };
@@ -9,6 +9,24 @@ const anthropic: LlmConfig = { schema: 'anthropic-messages', baseUrl: 'https://a
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 
 beforeEach(() => clearModelCache());
+
+describe('selectableModels', () => {
+  it('strips the Gemini prefix and drops non-generation models', () => {
+    expect(
+      selectableModels(gemini, ['models/gemini-3.8-flash', 'models/gemini-3.8-pro', 'models/gemini-embedding-001', 'models/gemini-3.8-flash-image', 'models/aqa'])
+    ).toEqual(['gemini-3.8-flash', 'gemini-3.8-pro']);
+  });
+
+  it('keeps only chat models from OpenAI, sorted', () => {
+    expect(
+      selectableModels(openai, ['gpt-5.2', 'whisper-1', 'gpt-4o-mini', 'gpt-5.2-mini', 'text-embedding-3-small', 'dall-e-3', 'o3', 'gpt-4o-realtime-preview', 'gpt-4o-mini'])
+    ).toEqual(['gpt-4o-mini', 'gpt-5.2', 'gpt-5.2-mini', 'o3']);
+  });
+
+  it('keeps the listed order elsewhere', () => {
+    expect(selectableModels(anthropic, ['claude-new', 'claude-old', 'claude-new'])).toEqual(['claude-new', 'claude-old']);
+  });
+});
 
 describe('pickModel', () => {
   it('prefers the Gemini Flash alias, else the newest stable Flash', () => {
