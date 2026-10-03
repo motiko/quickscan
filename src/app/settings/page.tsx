@@ -8,6 +8,7 @@ import { filterOcrLanguages, getOcrLanguage } from '@/lib/ocr-languages';
 import { requeueAllOcr } from '@/lib/ocr-queue';
 import { confirmDialog } from '@/lib/dialogs';
 import { AiProviderSettings } from '@/components/settings/AiProviderSettings';
+import { AccountSettings } from '@/components/settings/AccountSettings';
 
 /** Selected languages as removable chips, plus a searchable list of all languages. */
 function OcrLanguagePicker({
@@ -131,6 +132,8 @@ export default function SettingsPage() {
       </header>
 
       <main className="mx-auto w-full max-w-2xl flex-1 p-4">
+        <AccountSettings />
+
         {!isLoading && (
           <section className="rounded-xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
             <h2 className="px-4 pt-4 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">

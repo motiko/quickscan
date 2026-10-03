@@ -17,6 +17,7 @@
     "sim": "./scripts/ios-simulator.sh"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.117.2",
     "@tensorflow/tfjs": "^4.22.0",
     "@tensorflow/tfjs-backend-wasm": "^4.22.0",
     "@tensorflow/tfjs-backend-webgpu": "^4.22.0",

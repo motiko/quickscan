@@ -2,7 +2,7 @@
 
 A mobile-first Progressive Web App for scanning documents using your phone's camera. Inspired by GeniusScan — capture, crop, enhance, and export documents as PDFs, entirely client-side.
 
-> **No server, no signup, no cloud** — your documents stay on your device.
+> **Local-first, no signup required** — your documents stay on your device. An optional account (for upcoming sync between devices) is only offered when the build is configured with a Supabase project.
 
 ## ✨ Features (v1)
 
@@ -18,6 +18,7 @@ A mobile-first Progressive Web App for scanning documents using your phone's cam
 - **Smart naming** — New scans are named from their content (e.g. “Rechnung – Telekom – 2026-09-14”), optionally via any OpenAI-compatible model (OpenRouter, Ollama)
 - **Annotation** — Pen, highlighter, rectangles, arrows, text boxes, and a reusable signature
 - **Folders & tags** — File documents in folders, tag them freely, and filter the gallery by folder and tags
+- **Optional account** — Passwordless sign-in with an emailed code (Supabase Auth), the groundwork for cloud sync
 
 ## 🛠️ Tech Stack
 
@@ -31,6 +32,7 @@ A mobile-first Progressive Web App for scanning documents using your phone's cam
 | PDF Generation | [pdf-lib](https://pdf-lib.js.org/) |
 | OCR | [Tesseract.js](https://tesseract.projectnaptha.com/) |
 | PWA | [@serwist/next](https://serwist.pages.dev/) |
+| Accounts (optional) | [Supabase Auth](https://supabase.com/docs/guides/auth) |
 | Hosting | [Vercel](https://vercel.com/) |
 | CI | GitHub Actions |
 
@@ -73,6 +75,22 @@ Open [http://localhost:3000](http://localhost:3000) in your mobile browser (or u
 
 Live tests skip when their key is missing. Locally, copy `.env.example` to `.env.test.local` (gitignored) and fill in `CUSTOM_LLM_KEY`. In CI, the key comes from the `CUSTOM_LLM_KEY` repository secret (`gh secret set CUSTOM_LLM_KEY`) and is only exposed to the live test step.
 
+### Accounts (Supabase, optional)
+
+Without Supabase variables the app runs fully local and shows no account UI. To enable sign-in:
+
+1. Create a Supabase project — pick the **EU (Frankfurt)** region to keep data in the EU. Under Security, keep **Enable Data API** on, turn **Automatically expose new tables** off and **Enable automatic RLS** on: tables are then unreachable until a migration grants access and adds policies. Connect the GitHub integration with `supabase` as the Supabase directory so `supabase/migrations/` is applied on merge to `main`.
+2. **Authentication → Sign In / Providers → Email:** keep Email enabled (entering the emailed code also confirms the address).
+3. **Authentication → Emails → Magic Link** template: include the code, e.g. `Your QuickScan code: {{ .Token }}`. The app signs in with the code, not the link — an installed iOS PWA doesn't share storage with Safari, so a link would sign in the browser instead of the app.
+4. **Invite-only (recommended while it's just friends):** turn off *Allow new users to sign up* and invite people under **Authentication → Users → Invite**. Uninvited emails get "ask the owner to invite you".
+5. Set the variables in `.env.local` for development and in Vercel (Production + Preview):
+   ```bash
+   NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
+   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_…
+   ```
+   Both are under **Project Settings → API Keys → Publishable and secret API keys**. The publishable key is public by design and ends up in the client bundle. Never put a secret key (`sb_secret_…`) or the legacy `service_role` key in a `NEXT_PUBLIC_*` variable or anywhere in this app; the legacy `anon` key isn't used either.
+6. For production, configure a custom SMTP sender under **Authentication → Emails → SMTP** — Supabase's built-in sender is rate-limited to a few emails per hour.
+
 ## 📁 Project Structure
 
 ```
@@ -104,9 +122,13 @@ src/
 - [x] **Phase 2:** Auto edge detection, auto-capture, image enhancement, Share API
 - [ ] **Phase 3:** Organization & sync
   - [x] Folders & tags (local, on-device)
-  - [ ] User accounts
-  - [ ] Cloud sync
+  - [x] User accounts — passwordless email-code sign-in via Supabase Auth (optional, invite-only)
+  - [ ] Cloud sync — Supabase Postgres + Storage, row-level security per user, last-write-wins per record
 - [x] **Phase 4:** OCR/text extraction, AI document naming, annotation
+- [ ] **Phase 5:** Security & robustness
+  - [ ] End-to-end encryption — documents and images encrypted on the device before upload; key recovery story
+  - [ ] Data consistency & conflict resolution — offline edits on several devices, tombstones for deletes, conflict UI where last-write-wins isn't enough
+  - [ ] Security hardening & pentesting — RLS/storage policy audit, CSP and headers, auth abuse (enumeration, rate limits), dependency audit, external penetration test
 
 ## 🤝 Contributing
 
