@@ -34,6 +34,8 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
 
 let status = 1;
 try {
+  // Start from an empty out/ so pages from earlier builds never reach the app bundle.
+  rmSync(join(root, 'out'), { recursive: true, force: true });
   for (const path of SERVER_ONLY) {
     const to = join(stash, path);
     mkdirSync(dirname(to), { recursive: true });

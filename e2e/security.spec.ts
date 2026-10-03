@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { resetDatabase, hideDevOverlay } from './helpers';
 
-const PAGES = ['/', '/scan', '/settings', '/doc/does-not-exist'];
+const PAGES = ['/', '/scan', '/settings', '/doc/does-not-exist', '/doc?id=does-not-exist'];
 
 function directives(csp: string): Map<string, string[]> {
   const map = new Map<string, string[]>();

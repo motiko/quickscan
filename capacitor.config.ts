@@ -6,10 +6,8 @@ const config: CapacitorConfig = {
   appId: 'app.quickscan',
   appName: 'QuickScan',
   webDir: 'out',
-  ios: {
-    // Safari Web Inspector can attach to debug builds.
-    webContentsDebuggingEnabled: true,
-  },
+  // No webContentsDebuggingEnabled: an explicit true would make release builds inspectable
+  // too. Capacitor already enables Web Inspector for Debug builds (ios/debug.xcconfig).
 };
 
 export default config;

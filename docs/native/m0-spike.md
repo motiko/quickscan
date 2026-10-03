@@ -33,8 +33,14 @@ The probe page, sample image and scanner plugin used for the checks were removed
 
 ## Findings for later milestones
 
-- **M1 — CSP.** The static export has no CSP yet: no proxy, and meta tags can't set `frame-ancestors`. Before anything ships, the export needs a hash-based `<meta>` CSP over Next's inline scripts. The Capacitor build should avoid remote scripts, and `webContentsDebuggingEnabled` must be off in release builds.
-- **M1 — LLM proxy.** `/api/llm` must answer CORS for `capacitor://localhost`, or the app should use Capacitor's native HTTP.
+- **M1 — CSP.** The static export has no CSP yet, because there's no proxy. Before anything ships, a post-build step must:
+  - Put a `<meta http-equiv="Content-Security-Policy">` first in each exported page's `<head>`, with a `sha256` hash for every inline Next script and the web policy's other directives.
+  - Check a test that every inline script's hash is in its page's policy.
+  - Meta can't set `frame-ancestors`, reporting, nosniff or COOP; `SECURITY.md` should say so.
+  - The workers lose their `'wasm-unsafe-eval'` header policy, so check in the Simulator that WASM still compiles and `eval` doesn't.
+  - No remote scripts or `server.url` in release configs. `webContentsDebuggingEnabled` stays unset, so release builds aren't inspectable.
+- **M1 — no file moving.** `build-export.mjs` moves the server-only files aside, and `next.config.ts` refuses a web build while they're parked. Excluding them with a build-target-specific `pageExtensions` would leave the web tree untouched.
+- **M1 — LLM proxy.** The app has no `/api/llm`, so providers that need the proxy don't work there. Options: Capacitor's native HTTP, or CORS for `capacitor://localhost` on the hosted proxy. The latter needs a fresh look at the proxy's abuse surface.
 - **M1 — full page loads.** `DatabaseGate` uses `location.reload()`; with the custom router that now reloads the right page.
 - **M3 — import shape.** The scanner returns one file per page (≈1.5 MB JPEG each on the Simulator sample). The app should import a scan as one document with several pages (`importPagesToDocument`) and re-encode to the 150–400 KB target (M9).
 - **M6 — PRF parity test.** Wrap a test value with a passkey's PRF output on the web, then unwrap it with the native API for the same credential and salt. If the native API doesn't apply WebAuthn's salt hashing (SHA-256("WebAuthn PRF" ‖ 0x00 ‖ salt)), the plugin has to hash the salt itself. This needs the AASA file deployed on the production domain, the Team ID, and a device. It is the owner's call, because the AASA file is a public change to the site.
