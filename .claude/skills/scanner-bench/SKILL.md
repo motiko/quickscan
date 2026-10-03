@@ -74,7 +74,7 @@ Definitions and targets: `docs/scanner-standards.md`, M1–M12. Implementation r
 - **Output size and legibility**: bytes of each encoded blob; px/mm from the warped size and `docMm`; sharpness as variance of Laplacian on the warped grayscale divided by the same measure on the source region.
 - **Bundle (M12)**: after `npm run build`, sum the compressed sizes of the chunks that import scanic, tfjs, the model and Tesseract; skip with a note when there is no build.
 
-Every run writes `{ date, sha, branch, dirty, environment, corpusHash, metrics, perCase, devices }`. `--compare <file>` prints a delta table and exits non-zero when any target metric worsens beyond its noise band. Define the band per metric in `metrics.mjs` from three repeated baseline runs.
+Every run writes `{ date, sha, branch, dirty, environment, corpusHash, metrics, perCase, devices }`. `--compare <file>` prints a delta table and exits non-zero when any roadmap metric worsens beyond its noise band. Define the band per metric in `metrics.mjs` from three repeated baseline runs.
 
 ## The loop
 
@@ -85,7 +85,7 @@ Every run writes `{ date, sha, branch, dirty, environment, corpusHash, metrics, 
 5. **Record**: commit the results file, update `latest.md`, add the decision-log row in the standards doc with the deltas, and put the per-condition table in the PR body.
 6. **Guard**: a metric that moved without being predicted gets explained or the change is reverted.
 
-A regression on any target metric blocks the merge unless the decision log says why the trade is worth it.
+A regression on any roadmap metric blocks the merge unless the decision log says why the trade is worth it.
 
 ## Device protocol
 
