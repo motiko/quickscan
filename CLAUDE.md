@@ -46,7 +46,7 @@ QuickScan is a mobile-first Progressive Web App (PWA) built with Next.js 16 (App
     - `pdf.ts`: PDF generation using `pdf-lib`.
     - `image-processing.ts`: Canvas-based image filters and transformations.
     - `scanner.worker.ts`: Web Worker for computationally expensive edge detection (jscanify/OpenCV.js).
-    - `ocr.ts` / `ocr-queue.ts`: Tesseract.js OCR; pages with `ocrStatus: 'pending'` are processed in the background (`OcrRunner` in the root layout).
+    - `ocr.ts` / `ocr-queue.ts`: Tesseract.js OCR; pages with `ocrStatus: 'pending'` are processed in the background (`OcrRunner` in the root layout); pages whose first pass is under 60 % confidence are retried at 180/90/270° and stored upright (`ocr-orientation.ts`).
     - `import.ts`: Image upload from the gallery (JPEG/PNG/WebP/HEIC) — one document per file, queued for OCR; progress is a module-level store read via `useImportState`.
     - `llm/`: Shared LLM client (`client.ts`: OpenAI, Anthropic, Google, or custom Chat Completions / Anthropic Messages endpoints; text and image input), endpoint detection, image downscaling for vision input, and the naming prompt.
     - `naming/`: Document naming from OCR text — on-device heuristics, or the configured LLM via `llm/naming.ts`.
