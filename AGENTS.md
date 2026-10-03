@@ -60,7 +60,7 @@ QuickScan is a **mobile-first PWA** for scanning documents using the phone camer
 - **Optional, always.** Check `isSupabaseConfigured()` / `useAuth().status === 'disabled'` and render nothing account-related when it's off. Scanning, OCR, export and everything local must never require signing in.
 - **One client:** get it from `getSupabase()` in `src/lib/supabase.ts` (lazy-loaded, never imported statically). Auth state lives in `src/lib/auth.ts` and is read via `useAuth()`.
 - **Sign-in is an emailed one-time code**, not a magic link: an installed iOS PWA has its own storage, separate from Safari, so links sign in the wrong place. Keep `detectSessionInUrl: false`.
-- **Keys:** only the anon/publishable key goes in `NEXT_PUBLIC_SUPABASE_ANON_KEY`. The `service_role`/secret key must never appear in this repo, the client bundle or Vercel env. Authorization is enforced by row-level security — every table and storage bucket gets RLS policies scoped to `auth.uid()` in the same change that creates it.
+- **Keys:** only the publishable key (`sb_publishable_…`) goes in `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`; don't use the legacy `anon` JWT. Secret keys (`sb_secret_…`) and the legacy `service_role` key must never appear in this repo, the client bundle or Vercel env. Authorization is enforced by row-level security — every table and storage bucket gets RLS policies scoped to `auth.uid()` in the same change that creates it.
 - **Schema changes are migrations** in `supabase/migrations/`, applied by the Supabase GitHub integration on merge to `main`. The project doesn't auto-expose new tables, so each `create table` migration also grants the `authenticated` role exactly the operations it needs (`grant select, insert, update, delete on public.<table> to authenticated;`) — never grant to `anon`. Automatic RLS is on, but still write `alter table … enable row level security` explicitly.
 - **Sync-friendly data:** new Dexie records use client-generated string IDs and `createdAt`/`updatedAt`, so they can be replicated later without migrations.
 - **Web Workers for heavy computation.** All OpenCV.js / image processing runs in Web Workers to keep the UI thread responsive.
@@ -246,7 +246,7 @@ All checks must pass before merging.
 
 - **Hosting:** Vercel (auto-deploys from `main`, preview URLs on PRs)
 - **HTTPS:** Required for camera access — Vercel provides this automatically
-- **Environment:** None required. Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` (Production + Preview) to enable accounts; see "Accounts (Supabase, optional)" in the README for project setup. CI builds without them.
+- **Environment:** None required. Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (Production + Preview) to enable accounts; see "Accounts (Supabase, optional)" in the README for project setup. CI builds without them.
 
 <!-- BEGIN:nextjs-agent-rules -->
 

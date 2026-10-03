@@ -86,9 +86,9 @@ Without Supabase variables the app runs fully local and shows no account UI. To 
 5. Set the variables in `.env.local` for development and in Vercel (Production + Preview):
    ```bash
    NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon / publishable key>
+   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_…
    ```
-   The anon key is public by design and ends up in the client bundle. Never put the `service_role` / secret key in a `NEXT_PUBLIC_*` variable or anywhere in this app.
+   Both are under **Project Settings → API Keys → Publishable and secret API keys**. The publishable key is public by design and ends up in the client bundle. Never put a secret key (`sb_secret_…`) or the legacy `service_role` key in a `NEXT_PUBLIC_*` variable or anywhere in this app; the legacy `anon` key isn't used either.
 6. For production, configure a custom SMTP sender under **Authentication → Emails → SMTP** — Supabase's built-in sender is rate-limited to a few emails per hour.
 
 ## 📁 Project Structure

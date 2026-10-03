@@ -50,11 +50,11 @@ QuickScan is a mobile-first Progressive Web App (PWA) built with Next.js 16 (App
     - `folders.ts` / `tags.ts`: Flat folders (Dexie `folders` table, referenced by `document.folderId`) and free-form tags stored on each document (`document.tags`); deleting a folder unfiles its documents, renaming/deleting a tag rewrites every document carrying it.
     - `document-filter.ts`: Pure gallery filtering by folder, tags (all must match) and search text.
     - `dialogs.ts`: `confirmDialog` / `alertDialog` / `promptDialog`, rendered by `DialogHost` in the root layout.
-    - `supabase.ts` / `auth.ts`: Optional Supabase client (lazy, only when `NEXT_PUBLIC_SUPABASE_URL`/`_ANON_KEY` are set) and the auth store read via `useAuth` — passwordless sign-in with an emailed one-time code; the Account section in `/settings`.
+    - `supabase.ts` / `auth.ts`: Optional Supabase client (lazy, only when `NEXT_PUBLIC_SUPABASE_URL`/`_PUBLISHABLE_KEY` are set) and the auth store read via `useAuth` — passwordless sign-in with an emailed one-time code; the Account section in `/settings`.
 - `src/hooks/`: Shared React hooks for camera, database, and document state.
 
 ### Key Technical Decisions
-- **Local-First**: All data is stored in IndexedDB via Dexie.js and the app works fully without an account. The only server code is `/api/llm`, a stateless pass-through for LLM providers without CORS support (allowlisted in `PROXIED_HOSTS`). Supabase (Auth now, sync later) is optional and talked to directly from the client; authorization lives in row-level security, and only the anon key may ship to the client.
+- **Local-First**: All data is stored in IndexedDB via Dexie.js and the app works fully without an account. The only server code is `/api/llm`, a stateless pass-through for LLM providers without CORS support (allowlisted in `PROXIED_HOSTS`). Supabase (Auth now, sync later) is optional and talked to directly from the client; authorization lives in row-level security, and only the publishable key may ship to the client.
 - **Edge Detection**: Uses a Web Worker to prevent UI blocking during OpenCV.js processing.
 - **PWA**: Implemented via `@serwist/next` for offline-first capabilities and "Add to Home Screen" experience.
 - **PDF Export**: Multi-page PDFs are generated on the client using `pdf-lib`, with annotations flattened into the page images and an invisible OCR text layer.
