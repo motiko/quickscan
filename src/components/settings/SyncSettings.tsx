@@ -241,7 +241,7 @@ export function SyncSettings({ email }: { email: string }) {
       {vault.status === 'no-vault' && <TurnOnSync email={email} />}
       {vault.status === 'locked' && <UnlockSync />}
       {vault.status === 'unlocked' && <SyncOn email={email} />}
-      {vault.status === 'unlocked' && <RemoveSyncedDocuments beforeRemove={forgetVault} />}
+      {vault.status === 'unlocked' && <RemoveSyncedDocuments beforeRemove={async () => void (await forgetVault())} />}
       {vault.status === 'locked' && <RemoveSyncedDocuments />}
       {vault.status === 'error' && (
         <div className="flex items-center justify-between gap-4 px-4 py-3">
