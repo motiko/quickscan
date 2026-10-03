@@ -29,6 +29,7 @@ A mobile-first Progressive Web App for scanning documents using your phone's cam
 - **Your first sync merges; a different account asks first.** The first sync of a device uploads what's on it and deletes nothing on either side. If you later sign in with a *different* account on a device that holds another account's documents, sync pauses and Settings asks whether to upload them to the new account or remove the ones that are safely in the other account from this device (anything that never finished syncing stays).
 - **Pages from other devices get recognized here too.** A page that arrives without text is run through on-device OCR once its image has downloaded, and the text syncs back.
 - **Images live in Storage.** Page images upload once per change and download in the background on your other devices; replaced or deleted images are cleaned up from your storage after a day or two. Original (uncropped) photos never leave the device that took them.
+- **Deletions are verified.** A delete is encrypted and signed like any other change, so the server can't fake one: a deletion that can't be verified (from a device on an older version of QuickScan, or forged) never removes anything by itself — Settings asks you to *Apply deletion* or *Ignore* it.
 - **Problems show in Settings**, under Sync: items that keep failing (with Retry), items that couldn't be read, files still downloading, and storage used.
 - **Cleaning up a device.** *Remove synced documents from this device* (also offered when signing out) deletes the local copies of everything that's safely in your account and keeps anything not yet synced. Signing in and unlocking again downloads them.
 
@@ -43,7 +44,7 @@ A mobile-first Progressive Web App for scanning documents using your phone's cam
 | Local Storage | [Dexie.js](https://dexie.org/) (IndexedDB) |
 | PDF Generation | [pdf-lib](https://pdf-lib.js.org/) |
 | OCR | [Tesseract.js](https://tesseract.projectnaptha.com/) |
-| PWA | [@serwist/next](https://serwist.pages.dev/) |
+| PWA | Web app manifest (no service worker yet) |
 | Accounts (optional) | [Supabase Auth](https://supabase.com/docs/guides/auth) |
 | Hosting | [Vercel](https://vercel.com/) |
 | CI | GitHub Actions |
@@ -91,7 +92,7 @@ Live tests skip when their key is missing. Locally, copy `.env.example` to `.env
 
 Without Supabase variables the app runs fully local and shows no account UI. To enable sign-in:
 
-1. Create a Supabase project — pick the **EU (Frankfurt)** region to keep data in the EU. Under Security, keep **Enable Data API** on, turn **Automatically expose new tables** off and **Enable automatic RLS** on: tables are then unreachable until a migration grants access and adds policies. Connect the GitHub integration with `supabase` as the Supabase directory so `supabase/migrations/` is applied on merge to `main`.
+1. Create a Supabase project — pick the **EU (Frankfurt)** region to keep data in the EU. Under Security, keep **Enable Data API** on, turn **Automatically expose new tables** off and **Enable automatic RLS** on: tables are then unreachable until a migration grants access and adds policies. Migrations in `supabase/migrations/` are applied by hand (see below).
 2. **Authentication → Sign In / Providers → Email:** keep Email enabled (entering the emailed code also confirms the address).
 3. **Authentication → Emails → Magic Link** template: include the code, e.g. `Your QuickScan code: {{ .Token }}`. The app signs in with the code, not the link — an installed iOS PWA doesn't share storage with Safari, so a link would sign in the browser instead of the app.
 4. **Invite-only (recommended while it's just friends):** turn off *Allow new users to sign up* and invite people under **Authentication → Users → Invite**. Uninvited emails get "ask the owner to invite you".
@@ -103,7 +104,7 @@ Without Supabase variables the app runs fully local and shows no account UI. To 
    Both are under **Project Settings → API Keys → Publishable and secret API keys**. The publishable key is public by design and ends up in the client bundle. Never put a secret key (`sb_secret_…`) or the legacy `service_role` key in a `NEXT_PUBLIC_*` variable or anywhere in this app; the legacy `anon` key isn't used either.
 6. For production, configure a custom SMTP sender under **Authentication → Emails → SMTP** — Supabase's built-in sender is rate-limited to a few emails per hour.
 
-**Database migrations** live in `supabase/migrations/` and are applied to the production project by the GitHub integration when a PR is merged to `main` — review SQL before merging. pgTAP tests in `supabase/tests/` check the row-level security and sync functions; CI runs them on PRs touching `supabase/**`. Locally (needs Docker):
+**Database migrations** live in `supabase/migrations/` and are applied to the production project by hand with `npx supabase@2.119.0 db push` (after `supabase link`), before merging the PR whose code needs them — review the SQL first. pgTAP tests in `supabase/tests/` check the row-level security and sync functions; CI runs them on PRs touching `supabase/**`. Locally (needs Docker):
 
 ```bash
 npx supabase start -x realtime,imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
@@ -113,7 +114,7 @@ npx supabase stop --no-backup
 
 QR pairing and passkeys have opt-in Playwright tests against the local stack (`e2e/pairing.spec.ts`, two browser contexts; `e2e/passkeys.spec.ts`, a CDP virtual authenticator with PRF in Chromium). Run `npx supabase start` without `-x`, then follow the comment at the top of each spec.
 
-This only touches the local Docker stack; never `supabase link` or `db push` to the hosted project.
+This only touches the local Docker stack.
 
 **Sync integration test.** Two simulated devices sync through a real local stack (RPC, RLS, Storage); CI runs it in the Supabase workflow:
 
