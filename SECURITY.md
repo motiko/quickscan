@@ -4,6 +4,10 @@
 
 Please report security issues privately to the repository owner ([@motiko](https://github.com/motiko)), not in a public issue or pull request. Use GitHub's **Report a vulnerability** button on the Security tab if it's available, or otherwise contact the owner through their GitHub profile and ask for a private channel. Include steps to reproduce and the impact you expect. Please don't test against other people's accounts or data. A local stack (`npx supabase start`) or your own deployment is enough for almost everything.
 
+## Reviews
+
+- [Phase 5 pentest, October 2026](docs/security/pentest-2026-10.md) — RLS and Storage policies, `upsert_records`, auth, the E2EE layer, the web/CSP layer, dependencies, pairing and passkeys. No high/medium findings; one low-severity `/api/llm` proxy hardening fixed. Regression tests: `supabase/tests/pentest_test.sql`, `src/lib/__tests__/pentest-crypto.test.ts`, `src/lib/__tests__/llm-proxy-route.test.ts`.
+
 ## Threat model
 
 QuickScan is **local-first**. Documents, page images, OCR text, annotations and settings live in IndexedDB on the device, and the app works fully without an account or network.
