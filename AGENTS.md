@@ -62,7 +62,7 @@ QuickScan is a **mobile-first PWA** for scanning documents using the phone camer
 - **Sign-in is an emailed one-time code**, not a magic link: an installed iOS PWA has its own storage, separate from Safari, so links sign in the wrong place. Keep `detectSessionInUrl: false`.
 - **Keys:** only the publishable key (`sb_publishable_…`) goes in `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`; don't use the legacy `anon` JWT. Secret keys (`sb_secret_…`) and the legacy `service_role` key must never appear in this repo, the client bundle or Vercel env. Authorization is enforced by row-level security — every table and storage bucket gets RLS policies scoped to `auth.uid()` in the same change that creates it.
 - **Schema changes are migrations** in `supabase/migrations/`, applied by the Supabase GitHub integration on merge to `main`. The project doesn't auto-expose new tables, so each `create table` migration also grants the `authenticated` role exactly the operations it needs (`grant select, insert, update, delete on public.<table> to authenticated;`) — never grant to `anon`. Automatic RLS is on, but still write `alter table … enable row level security` explicitly.
-- **Sync-friendly data:** new Dexie records use client-generated string IDs and `createdAt`/`updatedAt`, so they can be replicated later without migrations.
+- **Sync-friendly data:** new Dexie records use client-generated string IDs and `createdAt`/`updatedAt`, so they can be replicated later without migrations. Local changes to synced tables are recorded in the `outbox` automatically (see Data Model); a new synced table or local-only field goes in `TRACKED_TABLES` in `lib/sync-tracking.ts`.
 - **Web Workers for heavy computation.** All OpenCV.js / image processing runs in Web Workers to keep the UI thread responsive.
 
 ### Mobile-First
@@ -160,8 +160,14 @@ Folders are flat. Deleting a folder keeps its documents and unfiles them.
   corners: [Point, Point, Point, Point];
   filter: 'original' | 'grayscale' | 'bw';
   createdAt: Date;
+  updatedAt: Date;     // stamped automatically by the sync tracking on every synced change
 }
 ```
+
+### Sync bookkeeping (no network yet)
+- `outbox` — one pending change per synced record, keyed `[kind+id]` (`kind`: document, page, folder, signature, settings): `op` `'upsert' | 'delete'`, `updatedAt` (epoch ms of the latest local write — the last-write-wins clock), `fileChanged`, `rev`. A `'delete'` entry is the tombstone. Filled by the `syncTrackingMiddleware` in `lib/sync-tracking.ts` for **every** write in any read-write transaction — don't enqueue by hand. Writes that only touch local-only fields (thumbnails, `originalBlob`, `ocrStatus`) and settings other than `ocrLanguages` aren't recorded.
+- `syncMeta` — device-local sync state (device id); never syncs.
+- `lib/outbox.ts` is the API for the sync engine: `readOutbox`, `getOutboxEntry`, `ackOutbox`, `applyUntracked` (writes pulled remote changes without re-queueing them), `getDeviceId`.
 
 > **Important:** Always store images as `Blob` objects in IndexedDB, never as Base64 strings. Base64 adds 33% size overhead and causes GC spikes on mobile.
 

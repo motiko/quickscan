@@ -30,6 +30,7 @@ function makePage(overrides: Partial<Page> = {}): Page {
     originalBlob: new Blob(['p1']),
     filter: 'original',
     createdAt: new Date(),
+    updatedAt: new Date(),
     ocrStatus: 'done',
     ocrText: 'Invoce 42',
     ocrWords: words,

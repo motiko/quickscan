@@ -21,6 +21,7 @@ function makePage(id: string, pageNumber: number, overrides: Partial<Page> = {})
     originalBlob: new Blob([id]),
     filter: 'original',
     createdAt: new Date(),
+    updatedAt: new Date(),
     ocrStatus: 'pending',
     ...overrides,
   };

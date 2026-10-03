@@ -15,6 +15,7 @@ function page(id: string, pageNumber: number, overrides: Partial<Page> = {}): Pa
     originalBlob: new Blob([id]),
     filter: 'original',
     createdAt: new Date(),
+    updatedAt: new Date(),
     ocrStatus: 'done',
     ocrText: '',
     ...overrides,

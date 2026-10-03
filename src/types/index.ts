@@ -108,6 +108,8 @@ export interface Page {
   filter: ImageFilter;
   rotation?: number; // 0, 90, 180, 270
   createdAt: Date;
+  // Last change to anything that syncs; set automatically on every tracked write (lib/sync-tracking.ts)
+  updatedAt: Date;
   ocrStatus?: OcrStatus;
   ocrText?: string;
   ocrWords?: OcrWord[];
