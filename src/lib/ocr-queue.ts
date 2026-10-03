@@ -2,12 +2,36 @@ import { db } from '@/lib/db';
 import { recognize } from '@/lib/ocr';
 import { getSettings } from '@/lib/settings';
 import { pageImage } from '@/lib/page-image';
+import { recognizeUpright, type Rotation } from '@/lib/ocr-orientation';
+import { createThumbnail, rotateImage } from '@/lib/image-processing';
+import { getImageSize, getRenderedBlob } from '@/lib/annotations/flatten';
+import { rotateAnnotations90 } from '@/lib/annotations/geometry';
+import type { Annotation, Page } from '@/types';
 
 type PageOcrListener = (documentId: string, pageNumber: number) => void | Promise<void>;
 
 const listeners = new Set<PageOcrListener>();
 let running = false;
 let rerunRequested = false;
+// Pages the user turned by hand this session; auto-orientation leaves them as they are
+const userOriented = new Set<string>();
+
+/** Call when the user rotates a page, so OCR doesn't turn it back. */
+export function keepPageOrientation(pageId: string): void {
+  userOriented.add(pageId);
+}
+
+/** Turn a page's annotations with its image (clockwise, in 90° steps). */
+async function rotateAnnotations(page: Page, image: Blob, rotation: Rotation): Promise<Annotation[] | undefined> {
+  if (!page.annotations?.length) return page.annotations;
+  let { width, height } = await getImageSize(image);
+  let annotations = page.annotations;
+  for (let turned = 0; turned < rotation; turned += 90) {
+    annotations = rotateAnnotations90(annotations, width, height);
+    [width, height] = [height, width];
+  }
+  return annotations;
+}
 
 /** Subscribe to "a page finished OCR" events (used by auto-naming). */
 export function onPageOcrDone(listener: PageOcrListener): () => void {
@@ -64,13 +88,21 @@ export async function processPendingOcr(): Promise<void> {
         await db.pages.update(page.id, { ocrStatus: 'processing' });
 
         try {
-          const result = await recognize(blob, settings.ocrLanguages);
+          const langs = settings.ocrLanguages;
+          // An upside-down or sideways page is turned upright when that's clearly where its text reads
+          const { result, rotation, image } = userOriented.has(page.id)
+            ? { result: await recognize(blob, langs), rotation: 0 as const, image: undefined }
+            : await recognizeUpright(blob, (b) => recognize(b, langs), rotateImage);
           // If the image changed mid-recognition, updatePage reset it to pending; don't overwrite
           const after = await db.pages.get(page.id);
           if (!after || after.ocrStatus !== 'processing') continue;
 
+          const turned = rotation !== 0 && image
+            ? { processedBlob: image, annotations: await rotateAnnotations(after, blob, rotation) }
+            : {};
           const { detectOcrLanguage } = await import('@/lib/language-detect');
           await db.pages.update(page.id, {
+            ...turned,
             ocrStatus: 'done',
             ocrText: result.text,
             ocrWords: result.words,
@@ -83,6 +115,7 @@ export async function processPendingOcr(): Promise<void> {
               recognizedAt: new Date(),
             },
           });
+          if (rotation !== 0 && after.pageNumber === 1) await refreshThumbnail(page.id);
           await rebuildSearchText(page.documentId);
           await notifyPageOcrDone(page.documentId, after.pageNumber);
         } catch (err) {
@@ -93,6 +126,17 @@ export async function processPendingOcr(): Promise<void> {
     } while (rerunRequested);
   } finally {
     running = false;
+  }
+}
+
+async function refreshThumbnail(pageId: string): Promise<void> {
+  try {
+    const page = await db.pages.get(pageId);
+    if (!page || !pageImage(page)) return;
+    const thumbnailBlob = await createThumbnail(await getRenderedBlob(page));
+    await db.documents.update(page.documentId, { thumbnailBlob, updatedAt: new Date() });
+  } catch (err) {
+    console.warn('Thumbnail refresh failed:', err);
   }
 }
 

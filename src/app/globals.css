@@ -69,6 +69,17 @@
   padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 1.5rem);
 }
 
+/* Side padding that also clears the notch in landscape */
+@utility px-safe-offset-3 {
+  padding-left: calc(env(safe-area-inset-left, 0px) + 0.75rem);
+  padding-right: calc(env(safe-area-inset-right, 0px) + 0.75rem);
+}
+
+@utility px-safe-offset-4 {
+  padding-left: calc(env(safe-area-inset-left, 0px) + 1rem);
+  padding-right: calc(env(safe-area-inset-right, 0px) + 1rem);
+}
+
 @utility bottom-safe-offset-6 {
   bottom: calc(env(safe-area-inset-bottom, 0px) + 1.5rem);
 }

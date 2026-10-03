@@ -30,7 +30,7 @@ interface TextSheetProps {
 }
 
 const iconButton =
-  'flex h-9 w-9 items-center justify-center rounded-full text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-neutral-800 disabled:opacity-40 disabled:hover:bg-transparent';
+  'flex h-11 w-11 items-center justify-center rounded-full text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-neutral-800 disabled:opacity-40 disabled:hover:bg-transparent';
 
 const CLOUD_RETRY_LABEL = 'Retry text extraction with cloud model';
 const NO_CLOUD_STATES: ReadonlyMap<string, CloudOcrState> = new Map();
@@ -117,7 +117,7 @@ function PageInfo({
           <button
             onClick={() => onAddLanguage(missing)}
             disabled={isBusy(page)}
-            className="shrink-0 rounded-full border border-current px-3 py-1 font-semibold disabled:opacity-40"
+            className="shrink-0 min-h-11 rounded-full border border-current px-4 font-semibold disabled:opacity-40"
           >
             Add &amp; retry
           </button>
@@ -144,7 +144,7 @@ function PageText({ page, cloud }: { page: Page; cloud?: CloudOcrState }) {
           <span>Cloud text extraction failed: {cloud.message}</span>
           <button
             onClick={() => dismissCloudOcrError(page.id)}
-            className="shrink-0 rounded-full border border-current px-3 py-1 text-xs font-semibold"
+            className="shrink-0 min-h-11 rounded-full border border-current px-4 text-xs font-semibold"
           >
             Dismiss
           </button>
@@ -161,7 +161,7 @@ function PageText({ page, cloud }: { page: Page; cloud?: CloudOcrState }) {
           <span>Text recognition failed.</span>
           <button
             onClick={() => void retryOcr(page.id)}
-            className="rounded-full border border-current px-3 py-1 text-xs font-semibold"
+            className="min-h-11 rounded-full border border-current px-4 text-xs font-semibold"
           >
             Retry
           </button>
@@ -173,7 +173,10 @@ function PageText({ page, cloud }: { page: Page; cloud?: CloudOcrState }) {
             {text}
           </pre>
         ) : (
-          <p className="text-sm text-gray-500 dark:text-gray-400">No text found on this page.</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            No text found on this page. If it’s upside down or sideways, rotate it in the page view and its text is read
+            again.
+          </p>
         ))}
     </>
   );

@@ -164,7 +164,7 @@ export function AnnotationToolbar({
             onClick={() => onToolChange(t.id)}
             aria-label={t.label}
             aria-pressed={t.id === tool}
-            className={`flex flex-col items-center rounded-lg px-1.5 py-1 text-[10px] font-medium ${
+            className={`flex flex-col items-center rounded-lg px-1.5 py-1 text-[0.625rem] font-medium ${
               t.id === tool ? 'bg-white/15 text-white' : 'text-gray-400 hover:text-white'
             }`}
           >

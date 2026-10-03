@@ -29,28 +29,35 @@ import { getImageSize, getRenderedBlob } from '@/lib/annotations/flatten';
 import { rotateAnnotations90 } from '@/lib/annotations/geometry';
 import { AnnotationEditor } from '@/components/annotate/AnnotationEditor';
 import { hasPageImage, requirePageImage } from '@/lib/page-image';
+import { keepPageOrientation } from '@/lib/ocr-queue';
+import { useVault } from '@/hooks/useVault';
+import { PencilIcon } from '@/components/ui/icons';
 import { Annotation, Page } from '@/types';
 
 function PageItem({
   page,
   index,
-  onClick,
+  onOpen,
 }: {
   page: Page;
   index: number;
-  onClick: (page: Page) => void;
+  onOpen: (page: Page) => void;
 }) {
   const url = useRenderedPageUrl(page);
   // Synced from another device and its image hasn't downloaded yet
   const missing = !hasPageImage(page);
 
   return (
-    <div
-      className={`relative aspect-[3/4] overflow-hidden rounded-xl bg-gray-200 dark:bg-neutral-800 shadow-sm transition-shadow ${missing ? '' : 'hover:shadow-md cursor-pointer'}`}
-      onClick={() => url && onClick(page)}
+    <button
+      type="button"
+      onClick={() => url && onOpen(page)}
+      disabled={missing}
+      aria-label={`Open page ${index + 1}`}
+      data-page-id={page.id}
+      className="relative block aspect-[3/4] w-full overflow-hidden rounded-xl bg-gray-200 dark:bg-neutral-800 shadow-sm transition-shadow enabled:hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-500"
     >
       {missing ? (
-        <div className="flex h-full w-full flex-col items-center justify-center gap-2 p-3 text-center text-gray-500 dark:text-gray-400">
+        <div className="flex h-full w-full flex-col items-center justify-center gap-2 p-3 text-center text-gray-600 dark:text-gray-300">
           <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M20 16.6A5 5 0 0 0 18 7h-1.26A8 8 0 1 0 4 15.25"></path>
             <polyline points="8 17 12 21 16 17"></polyline>
@@ -70,15 +77,38 @@ function PageItem({
       )}
       {page.conflictOf && (
         <div
-          className="absolute left-2 top-2 rounded-full bg-amber-500 px-2.5 py-0.5 text-xs font-semibold text-white shadow-sm"
+          className="absolute left-2 top-2 rounded-full bg-amber-700 px-2.5 py-0.5 text-xs font-semibold text-white shadow-sm"
           data-testid="conflict-badge"
         >
           Conflicted copy
         </div>
       )}
-      <div className="absolute bottom-2 right-2 rounded-full bg-black/60 px-2.5 py-0.5 text-xs font-semibold text-white backdrop-blur-sm">
+      <div className="absolute bottom-2 right-2 rounded-full bg-black/60 px-2.5 py-0.5 text-xs font-semibold text-white backdrop-blur-sm" aria-hidden="true">
         {index + 1}
       </div>
+    </button>
+  );
+}
+
+/** Every page is recognized but none has text: usually a page the wrong way round. */
+function NoTextNotice({ onOpenPage }: { onOpenPage: () => void }) {
+  return (
+    <div
+      role="status"
+      className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl bg-white dark:bg-neutral-900 px-4 py-3 ring-1 ring-gray-200 dark:ring-neutral-800"
+    >
+      <div className="min-w-[min(12rem,100%)] flex-1 text-sm">
+        <p className="font-semibold text-gray-900 dark:text-gray-100">No text recognized</p>
+        <p className="mt-0.5 text-gray-600 dark:text-gray-300">
+          If a page is upside down or sideways, open it and use Rotate. Its text is read again automatically.
+        </p>
+      </div>
+      <button
+        onClick={onOpenPage}
+        className="min-h-11 shrink-0 rounded-full bg-gray-100 dark:bg-neutral-800 px-4 text-sm font-semibold text-blue-700 dark:text-blue-300 hover:bg-gray-200 dark:hover:bg-neutral-700"
+      >
+        Open page
+      </button>
     </div>
   );
 }
@@ -97,14 +127,31 @@ export default function DocumentViewer() {
   const [isUpdatingPage, setIsUpdatingPage] = useState(false);
   const [showText, setShowText] = useState(false);
   const [showDocumentText, setShowDocumentText] = useState(false);
-  const [copiedAll, setCopiedAll] = useState(false);
   const [isAddingPages, setIsAddingPages] = useState(false);
   const { settings } = useSettings();
+  const syncOn = useVault().status === 'unlocked';
   const llmConfigured = settings.llmEnabled && resolveLlmConfig(settings) !== null;
   const inputRef = useRef<HTMLInputElement>(null);
+  const titleButtonRef = useRef<HTMLButtonElement>(null);
+  const viewerCloseRef = useRef<HTMLButtonElement>(null);
+  const lastViewedPageId = useRef<string | null>(null);
 
   const selectedIndex = selectedPageId ? pages.findIndex((p) => p.id === selectedPageId) : -1;
   const selectedPage = selectedIndex >= 0 ? pages[selectedIndex] : null;
+  const viewerOpen = !!selectedPage;
+
+  // The viewer is a modal layer: focus moves into it, and back to the page's thumbnail when it closes
+  useEffect(() => {
+    if (viewerOpen) {
+      viewerCloseRef.current?.focus();
+    } else if (lastViewedPageId.current) {
+      window.document.querySelector<HTMLButtonElement>(`button[data-page-id="${lastViewedPageId.current}"]`)?.focus();
+      lastViewedPageId.current = null;
+    }
+  }, [viewerOpen]);
+  useEffect(() => {
+    if (selectedPageId) lastViewedPageId.current = selectedPageId;
+  }, [selectedPageId]);
   const selectedPageUrl = useRenderedPageUrl(selectedPage);
   const hasPrevPage = selectedIndex > 0;
   const hasNextPage = selectedIndex >= 0 && selectedIndex < pages.length - 1;
@@ -157,7 +204,7 @@ export default function DocumentViewer() {
 
   if (isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-neutral-950">
+      <div className="flex min-h-dvh items-center justify-center bg-gray-50 dark:bg-neutral-950">
         <div className="flex flex-col items-center gap-2">
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
           <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Loading document...</p>
@@ -168,7 +215,7 @@ export default function DocumentViewer() {
 
   if (!document) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center p-4 bg-gray-50 dark:bg-neutral-950">
+      <div className="flex min-h-dvh flex-col items-center justify-center p-4 bg-gray-50 dark:bg-neutral-950">
         <p className="mb-4 text-lg font-medium text-gray-700 dark:text-gray-300">Document not found</p>
         <button
           onClick={() => router.push('/')}
@@ -186,25 +233,32 @@ export default function DocumentViewer() {
     setTimeout(() => inputRef.current?.focus(), 50);
   };
 
+  const finishRename = () => {
+    setIsEditingName(false);
+    // Back on the title, so keyboard and screen reader users don't lose their place
+    setTimeout(() => titleButtonRef.current?.focus(), 0);
+  };
+
   const handleNameSubmit = async () => {
     if (editName.trim() && editName !== document.name) {
       await renameDocument(id, editName.trim());
     }
-    setIsEditingName(false);
+    finishRename();
   };
 
   const handleNameKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') handleNameSubmit();
+    if (e.key === 'Enter') void handleNameSubmit();
     if (e.key === 'Escape') {
       e.preventDefault(); // cancel the rename only, not an open layer
-      setIsEditingName(false);
+      finishRename();
     }
   };
 
   const handleDelete = async () => {
+    const what = pages.length === 1 ? 'Its page is' : `All ${pages.length} pages are`;
     const confirmed = await confirmDialog({
       title: 'Delete this document?',
-      message: `All ${pages.length} page${pages.length !== 1 ? 's' : ''} are deleted. This can’t be undone.`,
+      message: `${what} deleted from this device${syncOn ? ' and your other synced devices' : ''}. This can’t be undone.`,
       confirmLabel: 'Delete',
       destructive: true,
     });
@@ -239,21 +293,6 @@ export default function DocumentViewer() {
     }
   };
 
-  const handleCopyAllText = async () => {
-    const text = collectDocumentText(pages);
-    if (!text) {
-      void alertDialog({ title: 'No recognized text yet', message: 'Text appears here once recognition has finished.' });
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopiedAll(true);
-      setTimeout(() => setCopiedAll(false), 1500);
-    } catch (err) {
-      console.error('Copy failed:', err);
-    }
-  };
-
   const handleSwipeStart = (e: React.TouchEvent) => {
     if (e.touches.length !== 1) {
       swipeStart.current = null;
@@ -285,6 +324,8 @@ export default function DocumentViewer() {
   const handleRotateCurrentPage = async () => {
     if (!selectedPage || isUpdatingPage) return;
     setIsUpdatingPage(true);
+    // The user picks the orientation now; text recognition (re-run below) mustn't turn it back
+    keepPageOrientation(selectedPage.id);
     try {
       const currentBlob = requirePageImage(selectedPage);
       const [rotatedBlob, size] = await Promise.all([rotateImage(currentBlob, 90), getImageSize(currentBlob)]);
@@ -296,6 +337,7 @@ export default function DocumentViewer() {
       );
     } catch (err) {
       console.error('Failed to rotate page:', err);
+      void alertDialog({ title: 'Couldn’t rotate the page', message: 'Please try again.' });
     } finally {
       setIsUpdatingPage(false);
     }
@@ -340,71 +382,87 @@ export default function DocumentViewer() {
     }
   };
 
+  const ocrSettled = pages.length > 0 && pages.every((p) => p.ocrStatus === 'done' && hasPageImage(p));
+  const showNoText = ocrSettled && !collectDocumentText(pages);
+  // While the viewer is open, everything under it is out of reach for focus and screen readers
+  const behindViewer = viewerOpen;
+
+  const pageHasNoText =
+    !!selectedPage && selectedPage.ocrStatus === 'done' && !selectedPage.ocrText?.trim() && hasPageImage(selectedPage);
+  const viewerAction =
+    'flex min-h-14 min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-xl px-1 py-1.5 text-center text-xs font-medium leading-tight text-gray-200 hover:bg-white/10 hover:text-white disabled:opacity-60';
+
+  // Labels give way to icons (names stay for screen readers) when large text can't fit them
+  const toolbarLabel = 'sr-only @min-[20rem]:not-sr-only';
+  const toolbarButton =
+    'flex min-h-14 min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-xl px-1 py-1.5 text-center text-xs font-semibold leading-tight text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-neutral-800 disabled:opacity-50 transition-colors';
+  const toolbarAction = `${toolbarButton} hover:text-blue-700 dark:hover:text-blue-300`;
+
   return (
-    <div className="flex min-h-screen flex-col bg-gray-50 dark:bg-neutral-950 pb-safe-offset-6">
+    <div className="flex min-h-dvh flex-col bg-gray-50 dark:bg-neutral-950">
       {/* Top Header */}
-      <header className="sticky top-0 z-30 bg-white dark:bg-neutral-900 px-4 shadow-xs pt-safe dark:shadow-none dark:border-b dark:border-neutral-800">
-        <div className="flex h-16 items-center justify-between gap-3">
+      <header
+        inert={behindViewer}
+        className="@container sticky top-0 z-30 bg-white dark:bg-neutral-900 pl-safe pr-safe pt-safe shadow-xs dark:shadow-none dark:border-b dark:border-neutral-800"
+      >
+        <div className="flex min-h-16 flex-wrap items-center gap-2 px-4 py-2">
           <button
             onClick={() => router.push('/')}
-            className="-ml-2 flex h-11 w-11 items-center justify-center rounded-full text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-neutral-800 active:bg-gray-200 dark:active:bg-neutral-700"
+            className="-ml-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-neutral-800 active:bg-gray-200 dark:active:bg-neutral-700"
             aria-label="Back to gallery"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <polyline points="15 18 9 12 15 6"></polyline>
             </svg>
           </button>
 
-          <div className="min-w-0 flex-1">
+          <div className="order-last min-w-0 basis-full @min-[22rem]:order-none @min-[22rem]:flex-1 @min-[22rem]:basis-0">
             {isEditingName ? (
               <input
                 ref={inputRef}
                 type="text"
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
-                onBlur={handleNameSubmit}
+                onBlur={() => void handleNameSubmit()}
                 onKeyDown={handleNameKeyDown}
-                className="w-full rounded-lg border border-blue-500 bg-white dark:bg-neutral-900 px-2.5 py-1 text-base font-semibold text-gray-900 dark:text-gray-100 outline-none"
+                aria-label="Document name"
+                enterKeyHint="done"
+                className="min-h-11 w-full rounded-lg border border-blue-500 bg-white dark:bg-neutral-900 px-2.5 py-1 text-base font-semibold text-gray-900 dark:text-gray-100 outline-none"
               />
             ) : (
-              <h1
-                onClick={handleNameClick}
-                className="truncate text-base font-bold text-gray-900 dark:text-gray-100 cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
-                title="Click to rename"
-              >
-                {document.name}
+              <h1 className="min-w-0">
+                {/* The pencil says the title is editable, for touch, mouse and keyboard alike */}
+                <button
+                  ref={titleButtonRef}
+                  onClick={handleNameClick}
+                  aria-describedby="rename-hint"
+                  className="group -ml-1 flex min-h-11 max-w-full items-center gap-1.5 rounded-lg px-1 text-left text-base font-bold text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-neutral-800"
+                >
+                  <span className="line-clamp-2 min-w-0 break-words">{document.name}</span>
+                  <span className="shrink-0 text-gray-500 group-hover:text-blue-600 dark:text-gray-400 dark:group-hover:text-blue-400">
+                    <PencilIcon size={16} />
+                  </span>
+                </button>
+                <span id="rename-hint" hidden>
+                  Rename
+                </span>
               </h1>
             )}
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              {pages.length} page{pages.length !== 1 ? 's' : ''} • Tap title to rename
+            <p className="px-0.5 text-xs text-gray-600 dark:text-gray-400">
+              {pages.length} page{pages.length !== 1 ? 's' : ''}
             </p>
           </div>
 
           <button
-            onClick={handleCopyAllText}
-            className="flex h-9 items-center justify-center rounded-full px-2.5 text-xs font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-neutral-800"
-            aria-label="Copy all text"
-            title="Copy all text"
-          >
-            {copiedAll ? (
-              'Copied'
-            ) : (
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-              </svg>
-            )}
-          </button>
-
-          <button
             onClick={() => handleExport('share')}
             disabled={isExporting || pages.length === 0}
-            className="flex items-center gap-1.5 rounded-full bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow hover:bg-blue-700 active:scale-95 disabled:opacity-50 transition-all"
+            aria-busy={isExporting}
+            className="ml-auto flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-full bg-blue-600 px-3.5 text-sm font-semibold text-white shadow hover:bg-blue-700 active:scale-95 disabled:opacity-50 transition-all"
           >
             {isExporting ? (
-              <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" aria-hidden="true" />
             ) : (
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
                 <circle cx="18" cy="5" r="3"></circle>
                 <circle cx="6" cy="12" r="3"></circle>
                 <circle cx="18" cy="19" r="3"></circle>
@@ -412,13 +470,13 @@ export default function DocumentViewer() {
                 <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
               </svg>
             )}
-            Share PDF
+            <span>Share PDF</span>
           </button>
         </div>
       </header>
 
       {/* Pages Grid */}
-      <main className="flex-1 p-4 max-w-2xl mx-auto w-full">
+      <main inert={behindViewer} className="mx-auto w-full max-w-2xl flex-1 py-4 px-safe-offset-4">
         {isAddingPages && (
           <div
             className="mb-4 flex items-center gap-3 rounded-xl bg-blue-50 dark:bg-blue-950/60 px-4 py-3 text-sm font-medium text-blue-900 dark:text-blue-100"
@@ -429,67 +487,73 @@ export default function DocumentViewer() {
           </div>
         )}
         <DocumentOrganizer document={document} />
+        {showNoText && <NoTextNotice onOpenPage={() => setSelectedPageId(pages[0].id)} />}
         {llmConfigured && pages.length > 0 && (
           <SummaryCard document={document} pages={pages} />
         )}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
           {pages.map((page, index) => (
             <PageItem
               key={page.id}
               page={page}
               index={index}
-              onClick={(p) => setSelectedPageId(p.id)}
+              onOpen={(p) => setSelectedPageId(p.id)}
             />
           ))}
         </div>
       </main>
 
-      {/* Bottom Sticky Action Bar */}
-      <div className="fixed bottom-0 left-0 right-0 z-20 flex justify-around border-t border-gray-200 dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-md px-3 pt-3 pb-safe-offset-3 shadow-lg">
-        <button
-          onClick={() => router.push(`/scan?docId=${id}`)}
-          className="flex flex-col items-center justify-center p-2 text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <line x1="12" y1="5" x2="12" y2="19"></line>
-            <line x1="5" y1="12" x2="19" y2="12"></line>
-          </svg>
-          <span className="text-[11px] font-semibold mt-1">Add Page</span>
-        </button>
+      {/* Bottom action bar: sticky at the end of the column, so the last page scrolls clear of it */}
+      <div
+        inert={behindViewer}
+        className="@container sticky bottom-0 z-20 border-t border-gray-200 dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-md px-safe-offset-3 pt-2 pb-safe-offset-2 shadow-lg"
+      >
+        <div role="group" aria-label="Document actions" className="mx-auto flex max-w-2xl items-stretch gap-1">
+          <button onClick={() => router.push(`/scan?docId=${id}`)} className={toolbarAction}>
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            <span className={toolbarLabel}>Add Page</span>
+          </button>
 
-        <button
-          onClick={() => setShowDocumentText(true)}
-          disabled={pages.length === 0}
-          aria-label="Show text of all pages"
-          className="flex flex-col items-center justify-center p-2 text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 disabled:opacity-50 transition-colors"
-        >
-          <LiveTextIcon size={22} />
-          <span className="text-[11px] font-semibold mt-1">Text</span>
-        </button>
+          <button
+            onClick={() => setShowDocumentText(true)}
+            disabled={pages.length === 0}
+            aria-label="Show text of all pages"
+            className={toolbarAction}
+          >
+            <LiveTextIcon size={22} />
+            <span className={toolbarLabel}>Text</span>
+          </button>
 
-        <button
-          onClick={() => handleExport('download')}
-          disabled={isExporting || pages.length === 0}
-          className="flex flex-col items-center justify-center p-2 text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 disabled:opacity-50 transition-colors"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-            <polyline points="7 10 12 15 17 10"></polyline>
-            <line x1="12" y1="15" x2="12" y2="3"></line>
-          </svg>
-          <span className="text-[11px] font-semibold mt-1">Download PDF</span>
-        </button>
+          <button
+            onClick={() => handleExport('download')}
+            disabled={isExporting || pages.length === 0}
+            className={toolbarAction}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            <span className={toolbarLabel}>Download PDF</span>
+          </button>
 
-        <button
-          onClick={handleDelete}
-          className="flex flex-col items-center justify-center p-2 text-gray-600 dark:text-gray-300 hover:text-red-600 dark:hover:text-red-400 transition-colors"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <polyline points="3 6 5 6 21 6"></polyline>
-            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-          </svg>
-          <span className="text-[11px] font-semibold mt-1">Delete</span>
-        </button>
+          {/* Destructive action set apart from the everyday ones */}
+          <div aria-hidden="true" className="mx-2 my-2 w-px shrink-0 bg-gray-200 dark:bg-neutral-700" />
+
+          <button
+            onClick={handleDelete}
+            className={`${toolbarButton} hover:text-red-700 dark:hover:text-red-300`}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+            <span className={toolbarLabel}>Delete</span>
+          </button>
+        </div>
       </div>
 
       {showDocumentText && (
@@ -504,18 +568,24 @@ export default function DocumentViewer() {
 
       {/* Full Screen Page Viewer Modal */}
       {selectedPage && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-black/95 backdrop-blur-md select-none">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="page-viewer-title"
+          className="fixed inset-0 z-50 flex flex-col bg-black/95 backdrop-blur-md select-none"
+        >
           {/* Top modal header */}
-          <div className="flex items-center justify-between px-4 pb-4 pt-safe-offset-4 bg-black/50">
-            <span className="text-white text-sm font-semibold">
+          <div className="flex items-center justify-between px-safe-offset-4 pb-3 pt-safe-offset-3 bg-black/50">
+            <h2 id="page-viewer-title" className="text-white text-sm font-semibold">
               Page {selectedIndex + 1} of {pages.length}
-            </span>
+            </h2>
             <button
+              ref={viewerCloseRef}
               onClick={closePageViewer}
-              className="rounded-full bg-white/20 p-2 text-white hover:bg-white/30"
+              className="flex h-11 w-11 items-center justify-center rounded-full bg-white/20 text-white hover:bg-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
               aria-label="Close"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                 <line x1="18" y1="6" x2="6" y2="18"></line>
                 <line x1="6" y1="6" x2="18" y2="18"></line>
               </svg>
@@ -530,11 +600,11 @@ export default function DocumentViewer() {
               </p>
               <button
                 onClick={() => void keepConflictedCopy(selectedPage.id)}
-                className="min-h-11 font-semibold text-white"
+                className="min-h-11 min-w-11 px-3 font-semibold text-white"
               >
                 Keep
               </button>
-              <button onClick={handleDeleteCurrentPage} className="min-h-11 font-semibold text-red-300">
+              <button onClick={handleDeleteCurrentPage} className="min-h-11 min-w-11 px-3 font-semibold text-red-300">
                 Delete
               </button>
             </div>
@@ -590,62 +660,60 @@ export default function DocumentViewer() {
           </div>
 
           {/* Bottom actions for this page */}
-          <div className="flex items-center justify-around px-4 pt-4 pb-safe-offset-4 bg-black/60 border-t border-gray-800">
-            <button
-              onClick={handleRotateCurrentPage}
-              disabled={isUpdatingPage}
-              className="flex flex-col items-center text-gray-300 hover:text-white"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
-              </svg>
-              <span className="text-[11px] font-medium mt-1">Rotate</span>
-            </button>
+          <div className="bg-black/60 border-t border-gray-800 px-safe-offset-3 pt-2 pb-safe-offset-3">
+            {pageHasNoText && (
+              <p className="pb-2 text-center text-sm text-gray-200" role="status">
+                No text found on this page. If it’s upside down or sideways, use Rotate.
+              </p>
+            )}
+            <div role="group" aria-label="Page actions" className="mx-auto flex max-w-2xl items-stretch gap-1">
+              <button
+                onClick={handleRotateCurrentPage}
+                disabled={isUpdatingPage}
+                aria-busy={isUpdatingPage}
+                className={viewerAction}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                  <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
+                </svg>
+                Rotate
+              </button>
 
-            <button
-              onClick={() => setShowText(true)}
-              aria-label="Show page text"
-              className="flex flex-col items-center text-gray-300 hover:text-white"
-            >
-              <LiveTextIcon />
-              <span className="text-[11px] font-medium mt-1">Text</span>
-            </button>
+              <button onClick={() => setShowText(true)} aria-label="Show page text" className={viewerAction}>
+                <LiveTextIcon />
+                <span>Text</span>
+              </button>
 
-            <button
-              onClick={() => setIsAnnotating(true)}
-              className="flex flex-col items-center text-gray-300 hover:text-white"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 20h9" />
-                <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" />
-              </svg>
-              <span className="text-[11px] font-medium mt-1">Annotate</span>
-            </button>
+              <button onClick={() => setIsAnnotating(true)} className={viewerAction}>
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M12 20h9" />
+                  <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" />
+                </svg>
+                Annotate
+              </button>
 
-            <button
-              onClick={handleShareCurrentPage}
-              className="flex flex-col items-center text-gray-300 hover:text-white"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="18" cy="5" r="3"></circle>
-                <circle cx="6" cy="12" r="3"></circle>
-                <circle cx="18" cy="19" r="3"></circle>
-                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
-                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
-              </svg>
-              <span className="text-[11px] font-medium mt-1">Share</span>
-            </button>
+              <button onClick={handleShareCurrentPage} className={viewerAction}>
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                  <circle cx="18" cy="5" r="3"></circle>
+                  <circle cx="6" cy="12" r="3"></circle>
+                  <circle cx="18" cy="19" r="3"></circle>
+                  <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+                  <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+                </svg>
+                Share
+              </button>
 
-            <button
-              onClick={handleDeleteCurrentPage}
-              className="flex flex-col items-center text-gray-300 hover:text-red-400"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <polyline points="3 6 5 6 21 6"></polyline>
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-              </svg>
-              <span className="text-[11px] font-medium mt-1">Delete Page</span>
-            </button>
+              {/* Destructive action set apart from the everyday ones */}
+              <div aria-hidden="true" className="mx-1 my-2 w-px shrink-0 bg-white/20" />
+
+              <button onClick={handleDeleteCurrentPage} className={`${viewerAction} hover:text-red-300`}>
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                  <polyline points="3 6 5 6 21 6"></polyline>
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                </svg>
+                Delete Page
+              </button>
+            </div>
           </div>
 
           {showText && (
