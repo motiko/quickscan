@@ -17,6 +17,7 @@ A mobile-first Progressive Web App for scanning documents using your phone's cam
 - **Text recognition (OCR)** — On-device Tesseract.js; copy text, search the gallery, and export searchable PDFs
 - **Smart naming** — New scans are named from their content (e.g. “Rechnung – Telekom – 2026-09-14”), optionally via any OpenAI-compatible model (OpenRouter, Ollama)
 - **Annotation** — Pen, highlighter, rectangles, arrows, text boxes, and a reusable signature
+- **Folders & tags** — File documents in folders, tag them freely, and filter the gallery by folder and tags
 - **Optional account** — Passwordless sign-in with an emailed code (Supabase Auth), the groundwork for cloud sync
 
 ## 🛠️ Tech Stack
@@ -78,7 +79,7 @@ Live tests skip when their key is missing. Locally, copy `.env.example` to `.env
 
 Without Supabase variables the app runs fully local and shows no account UI. To enable sign-in:
 
-1. Create a Supabase project — pick the **EU (Frankfurt)** region to keep data in the EU.
+1. Create a Supabase project — pick the **EU (Frankfurt)** region to keep data in the EU. Under Security, keep **Enable Data API** on, turn **Automatically expose new tables** off and **Enable automatic RLS** on: tables are then unreachable until a migration grants access and adds policies. Connect the GitHub integration with `supabase` as the Supabase directory so `supabase/migrations/` is applied on merge to `main`.
 2. **Authentication → Sign In / Providers → Email:** keep Email enabled (entering the emailed code also confirms the address).
 3. **Authentication → Emails → Magic Link** template: include the code, e.g. `Your QuickScan code: {{ .Token }}`. The app signs in with the code, not the link — an installed iOS PWA doesn't share storage with Safari, so a link would sign in the browser instead of the app.
 4. **Invite-only (recommended while it's just friends):** turn off *Allow new users to sign up* and invite people under **Authentication → Users → Invite**. Uninvited emails get "ask the owner to invite you".
@@ -119,9 +120,9 @@ src/
 - [x] Project setup & CI
 - [x] **Phase 1:** Camera capture, manual crop, filters, PDF export, gallery
 - [x] **Phase 2:** Auto edge detection, auto-capture, image enhancement, Share API
-- [ ] **Phase 3:** User accounts, cloud sync, folders & tags
-  - [x] Accounts — passwordless email-code sign-in via Supabase Auth (optional, invite-only)
-  - [ ] Folders & tags
+- [ ] **Phase 3:** Organization & sync
+  - [x] Folders & tags (local, on-device)
+  - [x] User accounts — passwordless email-code sign-in via Supabase Auth (optional, invite-only)
   - [ ] Cloud sync — Supabase Postgres + Storage, row-level security per user, last-write-wins per record
 - [x] **Phase 4:** OCR/text extraction, AI document naming, annotation
 - [ ] **Phase 5:** Security & robustness

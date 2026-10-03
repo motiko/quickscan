@@ -1,5 +1,5 @@
 import Dexie, { type EntityTable } from 'dexie';
-import type { ScannedDocument, Page, Signature } from '@/types';
+import type { ScannedDocument, Page, Signature, Folder } from '@/types';
 import { LEGACY_LLM_KEYS, migrateLegacyLlmSettings } from './llm-settings-migration';
 
 export interface SettingRow {
@@ -12,6 +12,7 @@ const db = new Dexie('QuickScanDB') as Dexie & {
   pages: EntityTable<Page, 'id'>;
   settings: EntityTable<SettingRow, 'key'>;
   signatures: EntityTable<Signature, 'id'>;
+  folders: EntityTable<Folder, 'id'>;
 };
 
 db.version(1).stores({
@@ -49,6 +50,13 @@ db.version(5).upgrade(async (tx) => {
   if (!updates) return;
   await settings.bulkPut(Object.entries(updates).map(([key, value]) => ({ key, value })));
   await settings.bulkDelete(LEGACY_LLM_KEYS);
+});
+
+// Folders & tags. Both fields are optional on documents, so existing documents need no
+// rewrite: no folderId means unfiled, no tags means untagged.
+db.version(6).stores({
+  documents: 'id, name, createdAt, updatedAt, folderId, *tags',
+  folders: 'id, name, createdAt, updatedAt',
 });
 
 export { db };

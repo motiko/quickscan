@@ -47,6 +47,9 @@ QuickScan is a mobile-first Progressive Web App (PWA) built with Next.js 16 (App
     - `naming/`: Document naming from OCR text — on-device heuristics, or the configured LLM via `llm/naming.ts`.
     - `annotations/`: Annotation geometry, canvas rendering and flattening onto page images.
     - `settings.ts`: App settings stored in the Dexie `settings` table.
+    - `folders.ts` / `tags.ts`: Flat folders (Dexie `folders` table, referenced by `document.folderId`) and free-form tags stored on each document (`document.tags`); deleting a folder unfiles its documents, renaming/deleting a tag rewrites every document carrying it.
+    - `document-filter.ts`: Pure gallery filtering by folder, tags (all must match) and search text.
+    - `dialogs.ts`: `confirmDialog` / `alertDialog` / `promptDialog`, rendered by `DialogHost` in the root layout.
     - `supabase.ts` / `auth.ts`: Optional Supabase client (lazy, only when `NEXT_PUBLIC_SUPABASE_URL`/`_ANON_KEY` are set) and the auth store read via `useAuth` — passwordless sign-in with an emailed one-time code; the Account section in `/settings`.
 - `src/hooks/`: Shared React hooks for camera, database, and document state.
 
@@ -55,4 +58,5 @@ QuickScan is a mobile-first Progressive Web App (PWA) built with Next.js 16 (App
 - **Edge Detection**: Uses a Web Worker to prevent UI blocking during OpenCV.js processing.
 - **PWA**: Implemented via `@serwist/next` for offline-first capabilities and "Add to Home Screen" experience.
 - **PDF Export**: Multi-page PDFs are generated on the client using `pdf-lib`, with annotations flattened into the page images and an invisible OCR text layer.
+- **Folders & Tags**: Local only for now, but sync-ready: string (nanoid) ids, `createdAt`/`updatedAt` on folders, every change bumps the document's `updatedAt`, and the tag list is never stored separately (it's derived from documents). A `folderId` pointing at a missing folder counts as unfiled.
 - **Annotations**: Stored as vector data on each page (coordinates normalized 0..1), separate from the image, so they stay editable.

@@ -47,6 +47,18 @@ export interface ScannedDocument {
   // Documents created before this field existed are treated like 'user'.
   nameSource?: 'default' | 'auto' | 'user';
   summary?: DocumentSummary;
+  // Folder the document is filed in; absent (or pointing at a deleted folder) means unfiled
+  folderId?: string;
+  // Free-form tags, normalized and sorted (see lib/tags.ts); absent means no tags
+  tags?: string[];
+}
+
+/** A flat folder documents can be filed in. Documents reference it by id. */
+export interface Folder {
+  id: string; // nanoid
+  name: string;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 /** LLM-written summary of a document's recognized text. */

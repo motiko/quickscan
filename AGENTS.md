@@ -61,6 +61,7 @@ QuickScan is a **mobile-first PWA** for scanning documents using the phone camer
 - **One client:** get it from `getSupabase()` in `src/lib/supabase.ts` (lazy-loaded, never imported statically). Auth state lives in `src/lib/auth.ts` and is read via `useAuth()`.
 - **Sign-in is an emailed one-time code**, not a magic link: an installed iOS PWA has its own storage, separate from Safari, so links sign in the wrong place. Keep `detectSessionInUrl: false`.
 - **Keys:** only the anon/publishable key goes in `NEXT_PUBLIC_SUPABASE_ANON_KEY`. The `service_role`/secret key must never appear in this repo, the client bundle or Vercel env. Authorization is enforced by row-level security — every table and storage bucket gets RLS policies scoped to `auth.uid()` in the same change that creates it.
+- **Schema changes are migrations** in `supabase/migrations/`, applied by the Supabase GitHub integration on merge to `main`. The project doesn't auto-expose new tables, so each `create table` migration also grants the `authenticated` role exactly the operations it needs (`grant select, insert, update, delete on public.<table> to authenticated;`) — never grant to `anon`. Automatic RLS is on, but still write `alter table … enable row level security` explicitly.
 - **Sync-friendly data:** new Dexie records use client-generated string IDs and `createdAt`/`updatedAt`, so they can be replicated later without migrations.
 - **Web Workers for heavy computation.** All OpenCV.js / image processing runs in Web Workers to keep the UI thread responsive.
 
@@ -86,7 +87,7 @@ QuickScan is a **mobile-first PWA** for scanning documents using the phone camer
 - **No CSS-in-JS** — no styled-components, Emotion, etc.
 
 ### Dialogs & Overlays
-- **Never use `window.alert`, `window.confirm` or `window.prompt`.** Use `confirmDialog()` / `alertDialog()` from `src/lib/dialogs.ts` (rendered by `<DialogHost>` in the root layout). Give the dialog a question as `title`, the consequence as `message`, a verb as `confirmLabel` ("Delete", "Re-run", not "OK"), and `destructive: true` for deleting/discarding.
+- **Never use `window.alert`, `window.confirm` or `window.prompt`.** Use `confirmDialog()` / `alertDialog()` / `promptDialog()` from `src/lib/dialogs.ts` (rendered by `<DialogHost>` in the root layout). Give the dialog a question as `title`, the consequence as `message`, a verb as `confirmLabel` ("Delete", "Re-run", not "OK"), and `destructive: true` for deleting/discarding.
 - **Escape closes every layer.** Any overlay, sheet, modal, full-screen viewer or mode (camera, crop, annotation editor, …) must close on Escape via `useEscape(onClose)` from `src/hooks/useEscape.ts`, calling the same handler as its close/cancel button (including any discard confirmation). Layers stack, so Escape only closes the topmost one; call the hook in the component that renders the layer.
 - **Inputs that handle Escape themselves** (cancelling an inline edit) must call `e.preventDefault()` so the layer underneath stays open.
 
@@ -132,8 +133,21 @@ The IndexedDB schema is defined in `src/lib/db.ts`. Key entities:
   updatedAt: Date;
   pageCount: number;
   thumbnailBlob: Blob; // small JPEG thumbnail of first page
+  folderId?: string;   // FK → Folder.id; absent (or a deleted folder) = unfiled
+  tags?: string[];     // free-form, normalized, sorted; see lib/tags.ts
 }
 ```
+
+### Folder
+```typescript
+{
+  id: string;          // nanoid
+  name: string;        // unique (case-insensitive)
+  createdAt: Date;
+  updatedAt: Date;
+}
+```
+Folders are flat. Deleting a folder keeps its documents and unfiles them.
 
 ### Page
 ```typescript
