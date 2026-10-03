@@ -72,7 +72,8 @@ function FolderPickerSheet({
   );
 }
 
-function TagEditor({ document }: { document: ScannedDocument }) {
+/** Tags of a document; `leading` (the folder picker) shares their row, so the card stays one line when it can. */
+function TagEditor({ document, leading }: { document: ScannedDocument; leading?: React.ReactNode }) {
   const allTags = useAllTags();
   const tags = document.tags ?? [];
   const [isAdding, setIsAdding] = useState(false);
@@ -98,37 +99,40 @@ function TagEditor({ document }: { document: ScannedDocument }) {
 
   return (
     <div>
-      <ul aria-label="Tags" className="flex flex-wrap items-center gap-2">
-        {tags.map((tag) => (
-          <li
-            key={tag}
-            className="flex h-8 items-center gap-1 rounded-full bg-blue-50 pl-3 text-sm font-medium text-blue-800 dark:bg-blue-950/60 dark:text-blue-200"
-          >
-            <span className="max-w-[12rem] truncate">{tag}</span>
-            <button
-              onClick={() => void removeTagFromDocument(document.id, tag)}
-              aria-label={`Remove tag ${tag}`}
-              className="flex h-8 w-8 items-center justify-center rounded-full hover:bg-blue-100 dark:hover:bg-blue-900"
+      <div className="flex flex-wrap items-start gap-2">
+        {leading}
+        <ul aria-label="Tags" className="flex min-w-[8rem] flex-1 basis-0 flex-wrap items-center gap-2">
+          {tags.map((tag) => (
+            <li
+              key={tag}
+              className="flex h-11 min-w-0 max-w-full items-center rounded-full bg-blue-50 pl-3.5 text-sm font-medium text-blue-800 dark:bg-blue-950/60 dark:text-blue-200"
             >
-              <CloseIcon size={14} />
-            </button>
-          </li>
-        ))}
-        {!isAdding && (
-          <li>
-            <button
-              onClick={() => {
-                setIsAdding(true);
-                setTimeout(() => inputRef.current?.focus(), 0);
-              }}
-              className="flex h-8 items-center gap-1 rounded-full border border-dashed border-gray-300 px-3 text-sm font-medium text-gray-600 hover:bg-gray-100 dark:border-neutral-700 dark:text-gray-300 dark:hover:bg-neutral-800"
-            >
-              <PlusIcon size={14} />
-              Add tag
-            </button>
-          </li>
-        )}
-      </ul>
+              <span className="min-w-0 truncate" title={tag}>{tag}</span>
+              <button
+                onClick={() => void removeTagFromDocument(document.id, tag)}
+                aria-label={`Remove tag ${tag}`}
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full hover:bg-blue-100 dark:hover:bg-blue-900"
+              >
+                <CloseIcon size={14} />
+              </button>
+            </li>
+          ))}
+          {!isAdding && (
+            <li>
+              <button
+                onClick={() => {
+                  setIsAdding(true);
+                  setTimeout(() => inputRef.current?.focus(), 0);
+                }}
+                className="flex h-11 items-center gap-1.5 rounded-full border border-dashed border-gray-400 px-3.5 text-sm font-medium text-gray-700 hover:bg-gray-100 dark:border-neutral-600 dark:text-gray-300 dark:hover:bg-neutral-800"
+              >
+                <PlusIcon size={14} />
+                Add tag
+              </button>
+            </li>
+          )}
+        </ul>
+      </div>
 
       {isAdding && (
         <div className="mt-3">
@@ -172,20 +176,20 @@ function TagEditor({ document }: { document: ScannedDocument }) {
               maxLength={MAX_TAG_LENGTH}
               autoComplete="off"
               enterKeyHint="done"
-              className="min-w-0 flex-1 rounded-xl bg-gray-100 dark:bg-neutral-800 px-3 py-2 text-base text-gray-900 dark:text-gray-100 placeholder:text-gray-500 outline-none focus:ring-2 focus:ring-blue-500"
+              className="min-h-11 min-w-0 flex-1 rounded-xl bg-gray-100 dark:bg-neutral-800 px-3 py-2 text-base text-gray-900 dark:text-gray-100 placeholder:text-gray-500 outline-none focus:ring-2 focus:ring-blue-500"
             />
             <button
               type="submit"
               onMouseDown={(e) => e.preventDefault()}
               disabled={!typed}
-              className="rounded-xl bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+              className="min-h-11 rounded-xl bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
             >
               Add
             </button>
             <button
               type="button"
               onClick={close}
-              className="rounded-xl px-3 text-sm font-semibold text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-neutral-800"
+              className="min-h-11 rounded-xl px-3 text-sm font-semibold text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-neutral-800"
             >
               Done
             </button>
@@ -200,7 +204,7 @@ function TagEditor({ document }: { document: ScannedDocument }) {
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => void add(tag)}
                   aria-label={`Add tag ${tag}`}
-                  className="flex h-8 items-center gap-1 rounded-full bg-gray-100 px-3 text-sm text-gray-800 hover:bg-gray-200 dark:bg-neutral-800 dark:text-gray-100 dark:hover:bg-neutral-700"
+                  className="flex h-11 items-center gap-1 rounded-full bg-gray-100 px-3.5 text-sm text-gray-800 hover:bg-gray-200 dark:bg-neutral-800 dark:text-gray-100 dark:hover:bg-neutral-700"
                 >
                   <TagIcon size={13} />
                   {tag}
@@ -211,7 +215,7 @@ function TagEditor({ document }: { document: ScannedDocument }) {
                   type="button"
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => void add(typed)}
-                  className="flex h-8 items-center gap-1 rounded-full px-3 text-sm font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/60"
+                  className="flex h-11 items-center gap-1 rounded-full px-3.5 text-sm font-medium text-blue-700 hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-950/60"
                 >
                   <PlusIcon size={13} />
                   Create “{typed}”
@@ -243,19 +247,25 @@ export function DocumentOrganizer({ document }: { document: ScannedDocument }) {
   };
 
   return (
-    <section aria-label="Folder and tags" className="mb-4 space-y-3 rounded-xl bg-white dark:bg-neutral-900 p-3 ring-1 ring-gray-200 dark:ring-neutral-800">
-      <button
-        onClick={() => setIsPickingFolder(true)}
-        aria-label={`Folder: ${folderName}. Move to folder`}
-        className="flex h-9 max-w-full items-center gap-2 rounded-full bg-gray-100 px-3 text-sm font-medium text-gray-800 hover:bg-gray-200 dark:bg-neutral-800 dark:text-gray-100 dark:hover:bg-neutral-700"
-      >
-        <FolderIcon size={16} />
-        <span className="truncate">{folderName}</span>
-        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <polyline points="6 9 12 15 18 9" />
-        </svg>
-      </button>
-      <TagEditor document={document} />
+    <section aria-label="Folder and tags" className="mb-4 rounded-xl bg-white dark:bg-neutral-900 p-2 ring-1 ring-gray-200 dark:ring-neutral-800">
+      <TagEditor
+        document={document}
+        leading={
+          <button
+            onClick={() => setIsPickingFolder(true)}
+            aria-label={`Folder: ${folderName}. Move to folder`}
+            className="flex h-11 min-w-0 max-w-full items-center gap-2 rounded-full bg-gray-100 px-3.5 text-sm font-medium text-gray-800 hover:bg-gray-200 dark:bg-neutral-800 dark:text-gray-100 dark:hover:bg-neutral-700"
+          >
+            <span className="shrink-0">
+              <FolderIcon size={16} />
+            </span>
+            <span className="min-w-0 truncate">{folderName}</span>
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </button>
+        }
+      />
 
       {isPickingFolder && (
         <FolderPickerSheet

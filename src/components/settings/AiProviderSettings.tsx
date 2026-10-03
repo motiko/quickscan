@@ -330,7 +330,7 @@ function ProviderOption({
         <input type="radio" name="llm-provider" checked={selected} onChange={onSelect} className="h-4 w-4 accent-blue-600" />
         <span className="flex-1 text-sm font-medium text-gray-900 dark:text-gray-100">{label}</span>
         {detail && (
-          <span className="max-w-[45%] truncate rounded border border-gray-200 dark:border-neutral-700 px-1.5 py-0.5 font-mono text-[11px] text-gray-600 dark:text-gray-400">
+          <span className="max-w-[45%] truncate rounded border border-gray-200 dark:border-neutral-700 px-1.5 py-0.5 font-mono text-[0.6875rem] text-gray-600 dark:text-gray-400">
             {detail}
           </span>
         )}

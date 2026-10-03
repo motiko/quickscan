@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useSyncExternalStore } from 'react';
+import { useRef, useState, useSyncExternalStore } from 'react';
 import type { Page } from '@/types';
 import { retryDocumentOcr, retryOcr } from '@/lib/ocr-queue';
 import {
@@ -16,6 +16,7 @@ import { collectDocumentText } from '@/lib/ocr-text';
 import { ocrLanguageName } from '@/lib/ocr-languages';
 import { getSettings, updateSettings } from '@/lib/settings';
 import { useEscape } from '@/hooks/useEscape';
+import { useModalFocus } from '@/hooks/useModalFocus';
 import { CheckIcon, CloseIcon, CloudIcon, CopyIcon, InfoIcon, RetryIcon } from '@/components/ui/icons';
 
 interface TextSheetProps {
@@ -30,7 +31,7 @@ interface TextSheetProps {
 }
 
 const iconButton =
-  'flex h-9 w-9 items-center justify-center rounded-full text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-neutral-800 disabled:opacity-40 disabled:hover:bg-transparent';
+  'flex h-11 w-11 items-center justify-center rounded-full text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-neutral-800 disabled:opacity-40 disabled:hover:bg-transparent';
 
 const CLOUD_RETRY_LABEL = 'Retry text extraction with cloud model';
 const NO_CLOUD_STATES: ReadonlyMap<string, CloudOcrState> = new Map();
@@ -117,7 +118,7 @@ function PageInfo({
           <button
             onClick={() => onAddLanguage(missing)}
             disabled={isBusy(page)}
-            className="shrink-0 rounded-full border border-current px-3 py-1 font-semibold disabled:opacity-40"
+            className="shrink-0 min-h-11 rounded-full border border-current px-4 font-semibold disabled:opacity-40"
           >
             Add &amp; retry
           </button>
@@ -144,7 +145,7 @@ function PageText({ page, cloud }: { page: Page; cloud?: CloudOcrState }) {
           <span>Cloud text extraction failed: {cloud.message}</span>
           <button
             onClick={() => dismissCloudOcrError(page.id)}
-            className="shrink-0 rounded-full border border-current px-3 py-1 text-xs font-semibold"
+            className="shrink-0 min-h-11 rounded-full border border-current px-4 text-xs font-semibold"
           >
             Dismiss
           </button>
@@ -161,7 +162,7 @@ function PageText({ page, cloud }: { page: Page; cloud?: CloudOcrState }) {
           <span>Text recognition failed.</span>
           <button
             onClick={() => void retryOcr(page.id)}
-            className="rounded-full border border-current px-3 py-1 text-xs font-semibold"
+            className="min-h-11 rounded-full border border-current px-4 text-xs font-semibold"
           >
             Retry
           </button>
@@ -173,7 +174,10 @@ function PageText({ page, cloud }: { page: Page; cloud?: CloudOcrState }) {
             {text}
           </pre>
         ) : (
-          <p className="text-sm text-gray-500 dark:text-gray-400">No text found on this page.</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            No text found on this page. If it’s upside down or sideways, rotate it in the page view and its text is read
+            again.
+          </p>
         ))}
     </>
   );
@@ -186,6 +190,10 @@ export function TextSheet({ pages, title, ocrLanguages, documentId, onClose }: T
   const showPageHeadings = pages.length > 1;
   const busy = pages.some(isBusy);
   useEscape(onClose);
+  // A modal layer (UX-008): focus moves to Close, what's underneath is inert, focus goes back on close
+  const layerRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  useModalFocus(layerRef, closeRef);
   const { settings } = useSettings();
   const cloudAvailable = settings.llmEnabled && resolveLlmConfig(settings) !== null;
   const cloudStates = useSyncExternalStore(subscribeCloudOcr, getCloudOcrStates, () => NO_CLOUD_STATES);
@@ -215,11 +223,12 @@ export function TextSheet({ pages, title, ocrLanguages, documentId, onClose }: T
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col justify-end bg-black/40 select-none" onClick={onClose}>
+    <div ref={layerRef} className="fixed inset-0 z-50 flex flex-col justify-end bg-black/40 select-none" onClick={onClose}>
       <div
         className="flex max-h-[75dvh] flex-col rounded-t-2xl bg-white dark:bg-neutral-900 pb-safe-offset-4"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
+        aria-modal="true"
         aria-label="Recognized text"
       >
         <div className="flex items-center justify-between gap-2 border-b border-gray-200 dark:border-neutral-800 py-2 pl-4 pr-2">
@@ -272,7 +281,7 @@ export function TextSheet({ pages, title, ocrLanguages, documentId, onClose }: T
             <span className="sr-only" aria-live="polite">
               {copied ? 'Copied' : ''}
             </span>
-            <button onClick={onClose} aria-label="Close" title="Close" className={iconButton}>
+            <button ref={closeRef} onClick={onClose} aria-label="Close" title="Close" className={iconButton}>
               <CloseIcon />
             </button>
           </div>

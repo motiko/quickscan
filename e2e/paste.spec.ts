@@ -36,11 +36,11 @@ test.describe('Paste from clipboard', () => {
   test('pasting an image inside a document adds a page', async ({ page }) => {
     await seedDocument(page);
     await page.goto('/doc/d1');
-    await expect(page.getByText('1 page •')).toBeVisible();
+    await expect(page.getByText('1 page', { exact: true })).toBeVisible();
 
     await pasteImage(page);
 
-    await expect(page.getByText('2 pages •')).toBeVisible();
+    await expect(page.getByText('2 pages', { exact: true })).toBeVisible();
     await expect(page.getByAltText('Page 2')).toBeVisible();
   });
 });

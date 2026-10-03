@@ -962,6 +962,7 @@ function keepLocalLoser(
       originalBlob: local.originalBlob,
       processedBlob: local.processedBlob,
       ocrStatus: local.ocrStatus === 'processing' ? 'pending' : local.ocrStatus,
+      keepOrientation: local.keepOrientation,
     }),
     ref?.userId === ctx.userId ? ref : undefined
   );
@@ -1069,11 +1070,17 @@ function applyUpsert(ctx: SyncContext, row: RemoteRow, value: RecordPayload, sta
     case 'page': {
       const p = value as PagePayload;
       const existing = state.pages.get(id);
+      const previous = state.refs.get(fileKey('page', id));
       trackRemoteFile(ctx, state, 'page', id, p.file);
       const hasOcr = p.ocrText !== undefined || p.ocrInfo !== undefined;
       // Pulled text is final; without any, leave local recognition as it was (the device that
       // has the image recognizes it and syncs the text)
       let ocrStatus: Page['ocrStatus'] = hasOcr ? 'done' : existing?.ocrStatus === 'done' ? undefined : existing?.ocrStatus;
+      // A new image without text: whatever is queued or being recognized here is the image it
+      // replaces. Drop the status, so an in-flight recognition doesn't write (or turn) that one
+      // and nothing claims it again; the download queues the new image (storeDownloadedFile)
+      const newFile = p.file !== undefined && (previous?.userId !== ctx.userId || previous.fileId !== p.file.id);
+      if (!hasOcr && newFile) ocrStatus = undefined;
       // A page without text that this device never recognized: recognize it here once its
       // image is here (now, if it already is; otherwise when it downloads)
       const ref = state.refs.get(fileKey('page', id));
@@ -1102,6 +1109,7 @@ function applyUpsert(ctx: SyncContext, row: RemoteRow, value: RecordPayload, sta
           originalBlob: existing?.originalBlob,
           processedBlob: existing?.processedBlob,
           ocrStatus,
+          keepOrientation: existing?.keepOrientation,
         })
       );
       if (existing && existing.documentId !== p.documentId) touched.documents.add(existing.documentId);
@@ -1517,7 +1525,14 @@ async function storeDownloadedFile(ref: FileRef, blob: Blob, sha256: string): Pr
     // A pulled page without text that this device never recognized: queue it for OCR now
     // that its image is here (OcrRunner picks it up; the text syncs back as a normal edit)
     const needsOcr = page.ocrText === undefined && page.ocrInfo === undefined && page.ocrStatus === undefined;
-    await db.pages.update(ref.id, needsOcr ? { processedBlob: blob, ocrStatus: 'pending' } : { processedBlob: blob });
+    // Text being recognized from the image this one replaces is stale: recognize the new one
+    // instead (like updatePage), so the OCR queue doesn't write it, or a turn of it, back
+    const reset = needsOcr || page.ocrStatus === 'processing';
+    // The image is another device's version, turned the way it was left there: OCR here must
+    // not auto-orient it, even on the device that captured the page (which still has its
+    // original and may not have recognized it yet)
+    const fields: Partial<Page> = { processedBlob: blob, keepOrientation: true };
+    await db.pages.update(ref.id, reset ? { ...fields, ocrStatus: 'pending' } : fields);
     await db.syncMeta.put({ key, value: done });
     return { ...page, processedBlob: blob };
   }

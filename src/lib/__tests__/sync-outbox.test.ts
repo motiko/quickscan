@@ -43,11 +43,13 @@ describe('outbox: documents and pages', () => {
     expect(page.updatedAt).toBeInstanceOf(Date);
   });
 
-  it('records document updates and bumps nothing for thumbnail-only writes', async () => {
+  it('records document updates and bumps nothing for thumbnail or derived-field writes', async () => {
     const docId = await createDocument('Scan', blob('img'));
     await db.outbox.clear();
 
     await db.documents.update(docId, { thumbnailBlob: blob('t') });
+    // Derived from the pages and recomputed on every device: never synced
+    await db.documents.update(docId, { searchText: 'invoice', pageCount: 2 });
     expect(await entries()).toEqual([]);
 
     await renameDocument(docId, 'Invoice');
@@ -99,7 +101,7 @@ describe('outbox: documents and pages', () => {
     await expectBumped();
   });
 
-  it('ignores writes to local-only page fields (OCR queue state, original image)', async () => {
+  it('ignores writes to local-only page fields (OCR queue state, original image, orientation flag)', async () => {
     const docId = await createDocument('Scan', blob('img'));
     const [page] = await db.pages.where('documentId').equals(docId).toArray();
     await db.outbox.clear();
@@ -108,6 +110,7 @@ describe('outbox: documents and pages', () => {
     // As resetStaleOcr / requeueAllOcr do
     await db.pages.toCollection().modify({ ocrStatus: 'pending' });
     await db.pages.update(page.id, { originalBlob: blob('raw') });
+    await db.pages.update(page.id, { keepOrientation: true });
     expect(await entries()).toEqual([]);
     expect((await db.pages.get(page.id))?.updatedAt).toEqual(page.updatedAt);
   });

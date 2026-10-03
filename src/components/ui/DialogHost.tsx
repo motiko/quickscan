@@ -1,23 +1,33 @@
 'use client';
 
-import { useState, useSyncExternalStore } from 'react';
+import { useRef, useState, useSyncExternalStore } from 'react';
 import { getActiveDialog, resolveDialog, subscribeDialogs, type DialogRequest } from '@/lib/dialogs';
 import { useEscape } from '@/hooks/useEscape';
+import { useModalFocus } from '@/hooks/useModalFocus';
 
 function Dialog({ request }: { request: DialogRequest }) {
   const { id, kind, title, message, destructive } = request;
   const [value, setValue] = useState(request.defaultValue ?? '');
   const close = (confirmed: boolean) => resolveDialog(id, confirmed, kind === 'prompt' ? value : undefined);
   useEscape(() => close(false));
+  const isPrompt = kind === 'prompt';
+  // Modal over whatever is open (UX-008): focus starts in the field, on Cancel for destructive
+  // actions (so Enter can't delete by accident), else on OK; it goes back to the opener on close
+  const layerRef = useRef<HTMLDivElement>(null);
+  const initialRef = useRef<HTMLElement | null>(null);
+  const initial = (el: HTMLElement | null) => {
+    initialRef.current = el;
+  };
+  useModalFocus(layerRef, initialRef);
 
   const titleId = `dialog-title-${id}`;
   const messageId = `dialog-message-${id}`;
   const button = 'flex-1 rounded-xl py-3 text-sm font-semibold transition-colors active:scale-98';
-  const isPrompt = kind === 'prompt';
   const canConfirm = !isPrompt || value.trim() !== '';
 
   return (
     <div
+      ref={layerRef}
       className="fixed inset-0 z-[100] flex items-end justify-center bg-black/50 p-4 pb-safe-offset-4 backdrop-blur-[2px] sm:items-center"
       onClick={() => close(false)}
     >
@@ -50,7 +60,7 @@ function Dialog({ request }: { request: DialogRequest }) {
             aria-label={request.label ?? title}
             placeholder={request.placeholder}
             maxLength={request.maxLength}
-            autoFocus
+            ref={initial}
             autoComplete="off"
             enterKeyHint="done"
             className="mt-4 w-full rounded-xl bg-gray-100 dark:bg-neutral-800 px-3 py-3 text-base text-gray-900 dark:text-gray-100 placeholder:text-gray-500 outline-none focus:ring-2 focus:ring-blue-500"
@@ -61,8 +71,7 @@ function Dialog({ request }: { request: DialogRequest }) {
             <button
               type="button"
               onClick={() => close(false)}
-              // Destructive actions start on Cancel so Enter can't delete by accident
-              autoFocus={destructive}
+              ref={destructive ? initial : undefined}
               className={`${button} bg-gray-100 text-gray-900 hover:bg-gray-200 dark:bg-neutral-800 dark:text-gray-100 dark:hover:bg-neutral-700`}
             >
               {request.cancelLabel ?? 'Cancel'}
@@ -70,7 +79,7 @@ function Dialog({ request }: { request: DialogRequest }) {
           )}
           <button
             type="submit"
-            autoFocus={!destructive && !isPrompt}
+            ref={!destructive && !isPrompt ? initial : undefined}
             disabled={!canConfirm}
             className={`${button} text-white disabled:opacity-50 ${
               destructive ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'

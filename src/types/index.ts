@@ -111,6 +111,9 @@ export interface Page {
   // Last change to anything that syncs; set automatically on every tracked write (lib/sync-tracking.ts)
   updatedAt: Date;
   ocrStatus?: OcrStatus;
+  // OCR must not turn this page upright on its own: turned by hand, re-queued after a first
+  // attempt, or its image came from another device. Local only (never syncs).
+  keepOrientation?: boolean;
   ocrText?: string;
   ocrWords?: OcrWord[];
   ocrLang?: string; // languages joined by '+'; kept for pages recognized before ocrInfo

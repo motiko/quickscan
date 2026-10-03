@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { Page, ScannedDocument } from '@/types';
 import { collectDocumentText } from '@/lib/ocr-text';
 import { generateDocumentSummary, isSummaryOutdated } from '@/lib/document-summary';
@@ -14,7 +14,7 @@ interface SummaryCardProps {
 const COLLAPSED_KEY = 'quickscan.summaryCollapsed';
 
 const iconButton =
-  'flex h-9 w-9 items-center justify-center rounded-full text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-neutral-800 disabled:opacity-40 disabled:hover:bg-transparent';
+  'flex h-11 w-11 items-center justify-center rounded-full text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-neutral-800 disabled:opacity-40 disabled:hover:bg-transparent';
 
 function readCollapsed(): boolean {
   try {
@@ -81,6 +81,7 @@ export function SummaryCard({ document, pages }: SummaryCardProps) {
   const [overflows, setOverflows] = useState(false);
   const [copied, setCopied] = useState(false);
   const textRef = useRef<HTMLParagraphElement>(null);
+  const hintId = useId();
 
   const ocrBusy = pages.some((p) => p.ocrStatus === 'pending' || p.ocrStatus === 'processing');
   const hasText = collectDocumentText(pages).length > 0;
@@ -138,7 +139,7 @@ export function SummaryCard({ document, pages }: SummaryCardProps) {
       <button
         onClick={() => void generate()}
         disabled={!canGenerate}
-        className="shrink-0 rounded-full border border-current px-3 py-1 text-xs font-semibold disabled:opacity-40"
+        className="min-h-11 shrink-0 rounded-full border border-current px-4 text-xs font-semibold disabled:opacity-60"
       >
         Retry
       </button>
@@ -147,22 +148,25 @@ export function SummaryCard({ document, pages }: SummaryCardProps) {
 
   // No summary yet: a slim call to action
   if (!summary && !isGenerating) {
-    const hint = ocrBusy
-      ? 'Available once text recognition finishes'
-      : !hasText
-        ? 'No recognized text to summarize yet'
-        : null;
+    // Nothing to summarize and nothing coming: no button (the page explains the missing text)
+    if (!hasText && !ocrBusy && !error) return null;
+    const hint = ocrBusy ? 'Available once text recognition finishes' : null;
     return (
       <section className="mb-4" aria-label="Summary">
         <button
           onClick={() => void generate()}
           disabled={!canGenerate}
-          className="flex w-full items-center justify-center gap-2 rounded-xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-4 py-2.5 text-sm font-semibold text-blue-600 dark:text-blue-400 shadow-sm hover:bg-blue-50 dark:hover:bg-blue-950/40 active:scale-[0.99] disabled:opacity-50 disabled:hover:bg-white dark:disabled:hover:bg-neutral-900 transition-all"
+          aria-describedby={hint ? hintId : undefined}
+          className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-4 py-2.5 text-sm font-semibold text-blue-700 dark:text-blue-300 shadow-sm enabled:hover:bg-blue-50 dark:enabled:hover:bg-blue-950/40 enabled:active:scale-[0.99] disabled:border-dashed disabled:bg-transparent disabled:text-gray-600 dark:disabled:bg-transparent dark:disabled:text-gray-400 disabled:shadow-none transition-all"
         >
           <SparkleIcon />
           Summarize
         </button>
-        {hint && <p className="mt-1.5 text-center text-xs text-gray-500 dark:text-gray-400">{hint}</p>}
+        {hint && (
+          <p id={hintId} className="mt-1.5 text-center text-xs text-gray-600 dark:text-gray-400">
+            {hint}
+          </p>
+        )}
         {errorRow}
       </section>
     );
@@ -179,7 +183,7 @@ export function SummaryCard({ document, pages }: SummaryCardProps) {
           onClick={toggleCollapsed}
           aria-expanded={!collapsed}
           aria-controls="document-summary-body"
-          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg px-1.5 py-1.5 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+          className="flex min-h-11 min-w-0 flex-1 items-center gap-1.5 rounded-lg px-1.5 py-1.5 text-left text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
         >
           <ChevronIcon open={!collapsed} />
           <span className="text-blue-600 dark:text-blue-400">
@@ -237,7 +241,7 @@ export function SummaryCard({ document, pages }: SummaryCardProps) {
                 {(overflows || expanded) && (
                   <button
                     onClick={() => setExpanded((e) => !e)}
-                    className="font-semibold text-blue-600 dark:text-blue-400 hover:underline"
+                    className="min-h-11 font-semibold text-blue-700 dark:text-blue-300 hover:underline"
                   >
                     {expanded ? 'Show less' : 'Show more'}
                   </button>
@@ -248,13 +252,13 @@ export function SummaryCard({ document, pages }: SummaryCardProps) {
                     <button
                       onClick={() => void generate()}
                       disabled={!canGenerate}
-                      className="font-semibold text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50"
+                      className="min-h-11 font-semibold text-blue-700 dark:text-blue-300 hover:underline disabled:opacity-60"
                     >
                       Refresh
                     </button>
                   </span>
                 ) : (
-                  <span className="min-w-0 truncate text-gray-400 dark:text-gray-500" title={summary.model}>
+                  <span className="min-w-0 truncate text-gray-600 dark:text-gray-400" title={summary.model}>
                     {summary.model}
                   </span>
                 )}

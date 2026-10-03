@@ -108,8 +108,9 @@ export async function updatePage(
   pageId: string,
   updates: Partial<Pick<Page, 'processedBlob' | 'filter' | 'corners' | 'annotations'>>
 ): Promise<void> {
-  // A new image invalidates any text recognized from the old one
-  const ocrReset = updates.processedBlob ? { ocrStatus: 'pending' as const } : {};
+  // A new image invalidates any text recognized from the old one; one changed by hand (turned)
+  // is the orientation the user wants, so OCR mustn't turn it upright on its own
+  const ocrReset = updates.processedBlob ? { ocrStatus: 'pending' as const, keepOrientation: true } : {};
   await db.pages.update(pageId, { ...updates, ...ocrReset });
 }
 

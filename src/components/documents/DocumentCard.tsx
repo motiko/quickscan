@@ -138,7 +138,7 @@ export function DocumentCard({ document, onDelete, isProcessing = false }: Docum
           <div className="pointer-events-none absolute inset-0 ring-1 ring-inset ring-black/5 dark:ring-white/10" aria-hidden="true" />
 
           {isProcessing && (
-            <div className="absolute bottom-2 left-2 flex items-center gap-1.5 rounded-full bg-black/60 px-2 py-1 text-[11px] font-medium text-white backdrop-blur-sm">
+            <div className="absolute bottom-2 left-2 flex items-center gap-1.5 rounded-full bg-black/60 px-2 py-1 text-[0.6875rem] font-medium text-white backdrop-blur-sm">
               <div className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
               Processing
             </div>
@@ -208,7 +208,7 @@ export function DocumentCard({ document, onDelete, isProcessing = false }: Docum
           )}
         </button>
 
-        <span role="status" className="flex-1 truncate text-center text-[11px] font-medium text-gray-500 dark:text-gray-400">
+        <span role="status" className="flex-1 truncate text-center text-[0.6875rem] font-medium text-gray-500 dark:text-gray-400">
           {copyState === 'copied' ? 'Copied' : copyState === 'empty' ? 'No text yet' : ''}
         </span>
 

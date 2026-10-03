@@ -51,7 +51,7 @@ test.describe('Annotation', () => {
 
     // Pen is the default tool
     await drag(page, canvas, [0.2, 0.2], [0.6, 0.25]);
-    await tools.getByRole('button', { name: 'Highlighter' }).click();
+    await tools.getByRole('button', { name: 'Highlight' }).click();
     await drag(page, canvas, [0.1, 0.08], [0.5, 0.08]);
     await tools.getByRole('button', { name: 'Rectangle' }).click();
     await drag(page, canvas, [0.5, 0.5], [0.2, 0.4]); // drawn up-left on purpose
@@ -111,7 +111,7 @@ test.describe('Annotation', () => {
     await tap(page, canvas, [0.2, 0.35]);
     await expect(page.getByRole('button', { name: 'Delete selected' })).toBeVisible();
 
-    await page.getByRole('button', { name: 'Color #dc2626' }).click();
+    await page.getByRole('button', { name: 'Color red' }).click();
     // Drag it somewhere else
     await drag(page, canvas, [0.2, 0.35], [0.3, 0.45]);
     await page.getByRole('button', { name: 'Done' }).click();

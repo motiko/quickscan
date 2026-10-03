@@ -6,6 +6,7 @@ import type { Annotation, Page, Point, Signature } from '@/types';
 import { useBlobUrl } from '@/hooks/useBlobUrl';
 import { useAnnotationHistory } from '@/hooks/useAnnotationHistory';
 import { useEscape } from '@/hooks/useEscape';
+import { useModalFocus } from '@/hooks/useModalFocus';
 import { confirmDialog } from '@/lib/dialogs';
 import { drawAnnotations, canvasMeasure, textFont, type SignatureImages } from '@/lib/annotations/render';
 import {
@@ -25,6 +26,8 @@ interface AnnotationEditorProps {
   page: Page;
   onSave: (annotations: Annotation[]) => Promise<void> | void;
   onCancel: () => void;
+  /** Stable (`useCallback`); where focus goes when the editor closes, instead of the opener. */
+  returnFocus?: () => HTMLElement | null;
 }
 
 // Sizes per tool, as fractions of the image width
@@ -49,11 +52,14 @@ type Drag =
   | { kind: 'move'; start: Point; origin: Annotation; moved: boolean; wasSelected: boolean }
   | { kind: 'resize'; origin: Annotation };
 
+const iconButton =
+  'flex h-11 w-11 items-center justify-center rounded-full text-gray-200 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-30';
+
 function annotationColor(a: Annotation): string | null {
   return a.type === 'signature' ? null : a.color;
 }
 
-export function AnnotationEditor({ page, onSave, onCancel }: AnnotationEditorProps) {
+export function AnnotationEditor({ page, onSave, onCancel, returnFocus }: AnnotationEditorProps) {
   const baseUrl = useBlobUrl(pageImage(page));
   const history = useAnnotationHistory(page.annotations ?? []);
 
@@ -75,6 +81,11 @@ export function AnnotationEditor({ page, onSave, onCancel }: AnnotationEditorPro
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
   const dragRef = useRef<Drag | null>(null);
+  // A modal layer over the page viewer (UX-008): focus moves to Cancel, and back on close
+  const layerRef = useRef<HTMLDivElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const undoRef = useRef<HTMLButtonElement>(null);
+  useModalFocus(layerRef, cancelRef, returnFocus);
 
   const annotations = preview ?? history.annotations;
   const selected = annotations.find((a) => a.id === selectedId) ?? null;
@@ -435,22 +446,30 @@ export function AnnotationEditor({ page, onSave, onCancel }: AnnotationEditorPro
     : undefined;
 
   return (
-    <div className="fixed inset-0 z-[60] flex flex-col bg-neutral-950 select-none" role="dialog" aria-label="Annotate page">
-      <div className="flex items-center justify-between gap-2 px-3 pb-2 pt-safe-offset-2">
+    <div
+      ref={layerRef}
+      className="fixed inset-0 z-[60] flex flex-col bg-neutral-950 select-none"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Annotate page"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2 px-safe-offset-3 pb-2 pt-safe-offset-2">
         <button
+          ref={cancelRef}
           onClick={() => void handleCancel()}
-          className="rounded-full px-3 py-1.5 text-sm font-semibold text-gray-300 hover:bg-white/10"
+          className="min-h-11 rounded-full px-4 text-sm font-semibold text-gray-300 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
         >
           Cancel
         </button>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center">
           <button
+            ref={undoRef}
             onClick={history.undo}
             disabled={!history.canUndo}
-            className="flex h-9 w-9 items-center justify-center rounded-full text-gray-200 hover:bg-white/10 disabled:opacity-30"
+            className={iconButton}
             aria-label="Undo"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M9 14 4 9l5-5" />
               <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />
             </svg>
@@ -458,19 +477,34 @@ export function AnnotationEditor({ page, onSave, onCancel }: AnnotationEditorPro
           <button
             onClick={history.redo}
             disabled={!history.canRedo}
-            className="flex h-9 w-9 items-center justify-center rounded-full text-gray-200 hover:bg-white/10 disabled:opacity-30"
+            className={iconButton}
             aria-label="Redo"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="m15 14 5-5-5-5" />
               <path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13" />
             </svg>
           </button>
+          {/* Up here rather than in the color/size row, which has no room for a 44 px target at 360 px */}
+          {selected && (
+            <button
+              onClick={() => {
+                handleDeleteSelected();
+                // The button goes away with the selection; Undo can bring the annotation back
+                undoRef.current?.focus();
+              }}
+              className={`${iconButton} text-red-400`} aria-label="Delete selected">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polyline points="3 6 5 6 21 6" />
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+              </svg>
+            </button>
+          )}
         </div>
         <button
           onClick={handleSave}
           disabled={isSaving}
-          className="rounded-full bg-blue-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+          className="min-h-11 rounded-full bg-blue-600 px-5 text-sm font-semibold text-white hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-50"
         >
           {isSaving ? 'Saving…' : 'Done'}
         </button>
@@ -530,8 +564,6 @@ export function AnnotationEditor({ page, onSave, onCancel }: AnnotationEditorPro
         onColorChange={handleColor}
         sizeIndex={sizeIndex}
         onSizeChange={setSizeIndex}
-        hasSelection={!!selected}
-        onDeleteSelected={handleDeleteSelected}
       />
 
       {showSignaturePad && (
