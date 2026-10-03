@@ -100,6 +100,8 @@ npx supabase test db
 npx supabase stop --no-backup
 ```
 
+QR pairing has an opt-in Playwright test with two browser contexts against the local stack (`e2e/pairing.spec.ts`; run `npx supabase start` without `-x`, then follow the comment at the top of the spec).
+
 This only touches the local Docker stack; never `supabase link` or `db push` to the hosted project.
 
 **Sync integration test.** Two simulated devices sync through a real local stack (RPC, RLS, Storage); CI runs it in the Supabase workflow:
@@ -110,7 +112,7 @@ eval "$(npx supabase status -o env)"
 npm run test:supabase
 ```
 
-**Sync setup (end-to-end encrypted).** Once signed in, the Account section shows **Sync**. On the first device, *Turn on sync* creates the vault key and shows a recovery key once (copy, download or print it); only the vault key wrapped by the recovery key is stored in Supabase. Other devices unlock with *Unlock sync on this device* and the recovery key. *Create a new recovery key* replaces it (the old one stops working). Without the recovery key and without another unlocked device, synced data can't be recovered. Signing out forgets the key on that device; documents stay. Once unlocked, sync runs in the background (on start, on focus, when back online, a few seconds after a change and every 5 minutes); a cloud icon in the gallery header shows its state and syncs on tap. The first sync with an account merges: everything on the device is uploaded, nothing is deleted on either side.
+**Sync setup (end-to-end encrypted).** Once signed in, the Account section shows **Sync**. On the first device, *Turn on sync* creates the vault key and shows a recovery key once (copy, download or print it); only the vault key wrapped by the recovery key is stored in Supabase. To add another device, sign in there and tap *Scan from another device*: it shows a QR code that an unlocked device scans under *Add a device* (WhatsApp-style; the code expires after 5 minutes and holds only a one-time public key, and the vault key travels sealed to that key). The recovery key still works as the alternative. *Create a new recovery key* replaces it (the old one stops working). Without the recovery key and without another unlocked device, synced data can't be recovered. Signing out forgets the key on that device; documents stay. Once unlocked, sync runs in the background (on start, on focus, when back online, a few seconds after a change and every 5 minutes); a cloud icon in the gallery header shows its state and syncs on tap. The first sync with an account merges: everything on the device is uploaded, nothing is deleted on either side.
 
 ## 📁 Project Structure
 
