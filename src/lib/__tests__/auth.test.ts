@@ -75,11 +75,36 @@ describe('normalizeEmail / normalizeCode', () => {
 describe('describeAuthError', () => {
   it('explains disabled sign-ups as an invitation problem', () => {
     expect(describeAuthError({ code: 'signup_disabled', message: 'Signups not allowed for otp' })).toMatch(/invite/);
+    // What signInWithOtp answers for an unknown email with shouldCreateUser: false
+    expect(describeAuthError({ code: 'otp_disabled', message: 'Signups not allowed for otp' })).toMatch(/invite/);
+  });
+
+  it("doesn't say whether the email has an account", () => {
+    expect(describeAuthError({ code: 'otp_disabled', message: 'Signups not allowed for otp' })).not.toMatch(/account/i);
   });
 
   it('explains expired codes and rate limits', () => {
     expect(describeAuthError({ code: 'otp_expired', message: 'Token has expired or is invalid' })).toMatch(/expired/);
     expect(describeAuthError({ status: 429, message: 'email rate limit exceeded' })).toMatch(/Too many/);
+  });
+
+  it('checks rate limits first and passes on the wait', () => {
+    expect(
+      describeAuthError({
+        status: 429,
+        code: 'over_email_send_rate_limit',
+        message: 'For security purposes, you can only request this after 37 seconds.',
+      })
+    ).toBe('Too many attempts. Try again in 37 seconds.');
+    expect(describeAuthError({ status: 429, code: 'over_request_rate_limit', message: 'Token is invalid' })).toMatch(
+      /Too many/
+    );
+  });
+
+  it("doesn't mistake an invalid email for a wrong code", () => {
+    expect(describeAuthError({ code: 'email_address_invalid', message: 'Email address "x@y" is invalid' })).toBe(
+      'Enter a valid email address.'
+    );
   });
 
   it('falls back to the server message', () => {
@@ -90,7 +115,8 @@ describe('describeAuthError', () => {
 describe('sign-in actions', () => {
   it('sends a code to the normalized email', async () => {
     await sendSignInCode(' Me@Example.com ');
-    expect(auth.signInWithOtp).toHaveBeenCalledWith({ email: 'me@example.com' });
+    // Never creates an account: they come from invitations only
+    expect(auth.signInWithOtp).toHaveBeenCalledWith({ email: 'me@example.com', options: { shouldCreateUser: false } });
   });
 
   it('verifies the code as an email OTP', async () => {
