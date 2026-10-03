@@ -39,6 +39,7 @@ QuickScan is a mobile-first Progressive Web App (PWA) built with Next.js 16 (App
 - `src/lib/`: Core business logic and utilities.
     - `db.ts`: IndexedDB schema management via Dexie.js.
     - `sync-tracking.ts` / `outbox.ts`: Groundwork for cloud sync, no network yet. A Dexie middleware records every create/update/delete of a synced record (documents, pages, folders, signatures, the `ocrLanguages` setting) in the `outbox` table, one coalesced entry per record, with deletes as tombstones; it also bumps `page.updatedAt`. `outbox.ts` has the sync engine's API (`readOutbox`, `ackOutbox`, `applyUntracked` for pulled writes, `getDeviceId`).
+    - `crypto/`: End-to-end encryption for sync, WebCrypto only, no network. One AES-256-GCM vault key per user, stored on the device as a non-extractable `CryptoKey` (`vault.ts`); `encryptRecord`/`encryptFile` bind each ciphertext to user + record/file id via AAD; `wrap.ts` wraps the vault key with a high-entropy secret (HKDF) for the server, the recovery key (`recovery-key.ts`, 28 Crockford base32 chars with a checksum) being one; `pairing.ts` seals it to a new device (ECDH P-256). Byte layouts are documented in each file.
     - `camera.ts`: Media device access (`getUserMedia`).
     - `pdf.ts`: PDF generation using `pdf-lib`.
     - `image-processing.ts`: Canvas-based image filters and transformations.
