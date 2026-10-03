@@ -1,12 +1,11 @@
 import type { Metadata, Viewport } from 'next';
+import { connection } from 'next/server';
 import './globals.css';
 import { OcrRunner } from '@/components/OcrRunner';
 import { SyncRunner } from '@/components/SyncRunner';
 import { DialogHost } from '@/components/ui/DialogHost';
 import { DatabaseGate } from '@/components/DatabaseGate';
 
-// Render per request so Next can put the proxy's CSP nonce on its scripts (src/proxy.ts).
-export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
   title: 'QuickScan',
@@ -30,7 +29,10 @@ export const viewport: Viewport = {
   ],
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Render per request so Next can put the proxy's CSP nonce on its scripts (src/proxy.ts).
+  // The static export for the native app has no proxy and is prerendered instead.
+  if (process.env.NEXT_PUBLIC_BUILD_TARGET !== 'export') await connection();
   return (
     <html lang="en">
       <body className="antialiased">

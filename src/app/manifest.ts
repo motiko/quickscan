@@ -1,5 +1,8 @@
 import type { MetadataRoute } from 'next';
 
+// Static content; also required by the static export (scripts/build-export.mjs).
+export const dynamic = 'force-static';
+
 export default function manifest(): MetadataRoute.Manifest {
   return {
     name: 'QuickScan',

@@ -11,6 +11,7 @@ import { hasPageImage } from '@/lib/page-image';
 import { collectDocumentText } from '@/lib/ocr-text';
 import { alertDialog } from '@/lib/dialogs';
 import { documentSnippet, isDefaultDocumentName } from '@/lib/document-name';
+import { docHref } from '@/lib/routes';
 
 // 36px square tap targets for touch.
 const actionButtonClass =
@@ -110,7 +111,7 @@ export function DocumentCard({ document, onDelete, isProcessing = false }: Docum
     <div className="relative group flex h-full flex-col rounded-xl overflow-hidden bg-white dark:bg-neutral-900 border border-gray-200 dark:border-neutral-800 shadow-sm hover:shadow-md transition-shadow">
       {/* The link covers thumbnail and info only; the actions below are its siblings, not inside it */}
       <Link
-        href={`/doc/${document.id}`}
+        href={docHref(document.id)}
         className="flex flex-1 flex-col rounded-t-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500"
       >
         {/* Thumbnail area; the inset ring keeps dark thumbnails apart from a dark card */}

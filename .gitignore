@@ -70,3 +70,6 @@ tests/fixtures/camera/*.MOV
 # Synthetic cases are regenerated from the seed by npm run bench:synth
 /bench/corpus/frames/synth/
 /bench/corpus/previews/synth/
+
+# Static export for the native app: server-only files parked by scripts/build-export.mjs
+/.export-stash/

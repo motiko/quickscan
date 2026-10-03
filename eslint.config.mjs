@@ -43,6 +43,9 @@ const eslintConfig = defineConfig([
     ".claude/**",
     // Tesseract worker and cores copied from node_modules by scripts/copy-tesseract.mjs
     "public/tesseract/**",
+    // Native projects: generated code and a copy of the static export (npm run cap:sync)
+    "ios/**",
+    "android/**",
   ]),
 ]);
 

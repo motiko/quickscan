@@ -14,7 +14,7 @@ const workerCsp = [
   },
 ];
 
-const nextConfig: NextConfig = {
+const webConfig: NextConfig = {
   poweredByHeader: false,
   async headers() {
     return [
@@ -25,4 +25,14 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+// Static export for the native (Capacitor) app: no server, so no proxy, route handlers or
+// response headers. scripts/build-export.mjs sets this and moves the server-only files aside.
+const exportConfig: NextConfig = {
+  output: "export",
+  poweredByHeader: false,
+  images: { unoptimized: true },
+  // Tests still import the parked server files; types are checked by the web build and CI.
+  typescript: { ignoreBuildErrors: true },
+};
+
+export default process.env.NEXT_PUBLIC_BUILD_TARGET === "export" ? exportConfig : webConfig;
