@@ -101,6 +101,8 @@ npx supabase stop --no-backup
 
 This only touches the local Docker stack; never `supabase link` or `db push` to the hosted project.
 
+**Sync setup (end-to-end encrypted).** Once signed in, the Account section shows **Sync**. On the first device, *Turn on sync* creates the vault key and shows a recovery key once (copy, download or print it); only the vault key wrapped by the recovery key is stored in Supabase. Other devices unlock with *Unlock sync on this device* and the recovery key. *Create a new recovery key* replaces it (the old one stops working). Without the recovery key and without another unlocked device, synced data can't be recovered. Signing out forgets the key on that device; documents stay.
+
 ## 📁 Project Structure
 
 ```
