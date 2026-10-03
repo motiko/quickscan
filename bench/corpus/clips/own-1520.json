@@ -1,0 +1,25 @@
+{
+  "id": "own-1520",
+  "private": true,
+  "source": "../../../tests/fixtures/camera/private/IMG_1520.MOV",
+  "fps": 24,
+  "duration": 0.206667,
+  "width": 2160,
+  "height": 3840,
+  "rotation": -90,
+  "codec": "hevc",
+  "hdr": true,
+  "device": "iPhone 14 Pro",
+  "created": "2026-10-02T07:16:25.000000Z",
+  "inViewAt": 0,
+  "stillAt": null,
+  "notes": "document in view from the first frame (no off-document lead-in)",
+  "frames": [
+    {
+      "t": 0.05333349999999999,
+      "id": "own-1520-settle",
+      "file": "frames/private/own-1520-settle.jpg",
+      "quad": null
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+Musterfirma GmbH
+
+Beispielstraße 1
+00000 Musterstadt
+www.example.invalid
+
+Rechnung
+
+Datum: 28.12.2021
+Belegnummer: 2024-2906
+Betrag: 9.930,52 €
+Kundennummer: 724705
+
+Leistung Menge Einzelpreis Betrag
+PDF-Export mit Textebene 2 15,00 € 30,00 €
+Dokumentenscan, Grundgebühr 1 49,00 € 49,00 €
+Archivierung 12 Monate 1 36,00 € 36,00 €
+Seitenerkennung je Stapel 3 12,50 € 37,50 €
+Datenträger, verschlüsselt 2 29,90 € 59,80 €
+Schulung vor Ort, halber Tag 1 420,00 € 420,00 €
+Support, Stunde 2 85,00 € 170,00 €
+
+Nettobetrag   802,30 €
+Umsatzsteuer 19 %   152,44 €
+Rechnungsbetrag   954,74 €
+
+Zahlbar innerhalb von 14 Tagen ohne Abzug. Bitte geben Sie bei der
+Überweisung die Belegnummer an. Dieses Dokument ist ein Testdruck ohne
+reale Geschäftsbeziehung.

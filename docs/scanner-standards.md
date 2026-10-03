@@ -71,6 +71,10 @@ Native scanners read RAW frames, fuse HDR exposures and use the platform OCR eng
 | Low light | M1 ≥ 85 % on `lighting: low` | No exposure fusion without RAW access; torch guidance is the lever |
 | Live cadence | 10 fps analysis, not 30 | Thermal throttling and battery on sustained preview |
 
+## Corpus
+
+The cases the benchmark runs against are described in `docs/scanner-data-plan.md` (sources, what is worth having, the owner's shot list, training-data design) and listed in `bench/corpus/manifest.json` (schema version 2; licences in `bench/corpus/README.md`). Corpus v1 (2026-10-03): 150 synthetic cases from self-generated pages with exact OCR text (100 positives with every hard condition ≥ 20, 50 negatives), 100 public-dataset cases (SmartDoc 2015: 60, CORD: 20, MIDV-500: 20) and 31 private stills from the owner's clips with corner proposals awaiting confirmation. Nothing from the shot list has been filmed yet.
+
 ## Current
 
 _No benchmark run committed yet. The first run of `npm run bench` on the baseline corpus fills this table and `bench/results/latest.md`._
@@ -87,7 +91,9 @@ _No benchmark run committed yet. The first run of `npm run bench` on the baselin
 - [2026-10-03] `pdf.ts` embeds the page image as-is and sizes the PDF page in points equal to the image's pixel size (72 dpi), so a 3000 px scan becomes a ~42-inch page.
 - [2026-10-03] Reported by code survey, to re-verify before acting: `warpPerspective` and the filters run full-resolution pixel loops on the main thread with no maximum output size; live frames reach the worker by structured clone rather than transfer; scanic's own ML mode fetches its model from jsDelivr, which the CSP would have to allow; object URLs created during processing are never revoked; `AGENTS.md`/`CLAUDE.md` still name jscanify/OpenCV.js and 1920×1080 constraints.
 - [2026-10-03] The only automated checks on detection quality are `tests/visual-crop.test.ts` (one frame of one video: four corners, confidence > 0.3) and `tests/scanner-integration.test.ts` (mocked detector). Neither measures accuracy.
-- [2026-10-03] `tests/fixtures/camera/*.MOV` (~100 MB) and `tests/output/frame_IMG_1525.MOV.png` (29 MB) are tracked in git. Fixtures of this size belong behind a download script or Git LFS.
+- [2026-10-03] The four clips formerly tracked under `tests/fixtures/camera/` (~100 MB; two showed personal documents) and the 29 MB `tests/output/` frame are no longer tracked: all eleven owner clips live in `tests/fixtures/camera/private/` (ignored by version control) and enter the corpus as `private: true` cases. History was not rewritten.
+- [2026-10-03] All eleven owner clips are iPhone 14 Pro HEVC 10-bit HLG "HDR Video" (`arib-std-b67`, BT.2020) with a 90° (two: 180°) rotation tag. A browser camera stream is 8-bit SDR, so frames pulled from them look flat unless tone-mapped; `bench/tools/extract-frames.mjs` applies an SDR approximation and records `capture.hdr: true`. New clips are shot with HDR Video off (`docs/scanner-data-plan.md`).
+- [2026-10-03] On one synthetic A4 page (plain-contrast background, even light, no skew, 320 px preview) the classical detector lands within 3 % of the long edge of the true corners (`tests/visual-crop.test.ts`). One easy case, not a measurement; the per-condition numbers come from the benchmark.
 
 ## Decision log
 

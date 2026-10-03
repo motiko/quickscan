@@ -1,0 +1,37 @@
+{
+  "id": "own-1521",
+  "private": true,
+  "source": "../../../tests/fixtures/camera/private/IMG_1521.MOV",
+  "fps": 30,
+  "duration": 5.133333,
+  "width": 2160,
+  "height": 3840,
+  "rotation": -90,
+  "codec": "hevc",
+  "hdr": true,
+  "device": "iPhone 14 Pro",
+  "created": "2026-10-02T07:16:29.000000Z",
+  "inViewAt": 0,
+  "stillAt": null,
+  "notes": "document in view from the first frame (no off-document lead-in)",
+  "frames": [
+    {
+      "t": 1.5,
+      "id": "own-1521-settle",
+      "file": "frames/private/own-1521-settle.jpg",
+      "quad": null
+    },
+    {
+      "t": 3.18,
+      "id": "own-1521-mid",
+      "file": "frames/private/own-1521-mid.jpg",
+      "quad": null
+    },
+    {
+      "t": 4.78,
+      "id": "own-1521-end",
+      "file": "frames/private/own-1521-end.jpg",
+      "quad": null
+    }
+  ]
+}

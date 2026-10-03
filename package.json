@@ -17,7 +17,11 @@
     "e2e": "playwright test",
     "e2e:ui": "playwright test --ui",
     "e2e:headed": "playwright test --headed",
-    "sim": "./scripts/ios-simulator.sh"
+    "sim": "./scripts/ios-simulator.sh",
+    "bench:pages": "node bench/tools/pages.mjs",
+    "bench:synth": "node bench/tools/synth.mjs",
+    "bench:validate": "node bench/tools/validate-manifest.mjs",
+    "bench:fetch": "node bench/tools/fetch-corpus.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.117.2",

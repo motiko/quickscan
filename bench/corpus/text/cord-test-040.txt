@@ -1,0 +1,7 @@
+Snack Lestari All
+2 27,000 54,000
+Bakery mer,Daging,abon,keju,cokelat,dll Aneka Sisir Banana,Pizza,yoko,Mar
+2 7,000 14,000
+TOTAL 68,000
+CASH 100,000
+CHANGE 32,000

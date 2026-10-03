@@ -1,0 +1,404 @@
+{
+  "version": 1,
+  "set": "eval",
+  "seed": 1,
+  "dpi": 300,
+  "pages": [
+    {
+      "id": "e-a4-eng-serif11",
+      "set": "eval",
+      "seed": 1,
+      "lang": "eng",
+      "doc": "a4-text",
+      "sizeMm": [
+        210,
+        297
+      ],
+      "font": "Liberation Serif 11 pt",
+      "dpi": 300,
+      "png": "e-a4-eng-serif11.png",
+      "pdf": "e-a4-eng-serif11.pdf",
+      "text": "bench/corpus/text/e-a4-eng-serif11.txt",
+      "chars": 2463,
+      "notes": "eng serif 11 pt, 20 mm margin"
+    },
+    {
+      "id": "e-a4-eng-sans10",
+      "set": "eval",
+      "seed": 1,
+      "lang": "eng",
+      "doc": "a4-text",
+      "sizeMm": [
+        210,
+        297
+      ],
+      "font": "Liberation Sans 10 pt",
+      "dpi": 300,
+      "png": "e-a4-eng-sans10.png",
+      "pdf": "e-a4-eng-sans10.pdf",
+      "text": "bench/corpus/text/e-a4-eng-sans10.txt",
+      "chars": 2530,
+      "notes": "eng sans 10 pt, 20 mm margin"
+    },
+    {
+      "id": "e-a4-eng-serif12-headings",
+      "set": "eval",
+      "seed": 1,
+      "lang": "eng",
+      "doc": "a4-text",
+      "sizeMm": [
+        210,
+        297
+      ],
+      "font": "Liberation Serif 12 pt",
+      "dpi": 300,
+      "png": "e-a4-eng-serif12-headings.png",
+      "pdf": "e-a4-eng-serif12-headings.pdf",
+      "text": "bench/corpus/text/e-a4-eng-serif12-headings.txt",
+      "chars": 1876,
+      "notes": "eng serif 12 pt, headings, 20 mm margin"
+    },
+    {
+      "id": "e-a4-eng-sans8-dense",
+      "set": "eval",
+      "seed": 1,
+      "lang": "eng",
+      "doc": "a4-text",
+      "sizeMm": [
+        210,
+        297
+      ],
+      "font": "Liberation Sans 8 pt",
+      "dpi": 300,
+      "png": "e-a4-eng-sans8-dense.png",
+      "pdf": "e-a4-eng-sans8-dense.pdf",
+      "text": "bench/corpus/text/e-a4-eng-sans8-dense.txt",
+      "chars": 4135,
+      "notes": "eng sans 8 pt, 15 mm margin"
+    },
+    {
+      "id": "e-a4-eng-mono10",
+      "set": "eval",
+      "seed": 1,
+      "lang": "eng",
+      "doc": "a4-text",
+      "sizeMm": [
+        210,
+        297
+      ],
+      "font": "Liberation Mono 10 pt",
+      "dpi": 300,
+      "png": "e-a4-eng-mono10.png",
+      "pdf": "e-a4-eng-mono10.pdf",
+      "text": "bench/corpus/text/e-a4-eng-mono10.txt",
+      "chars": 1962,
+      "notes": "eng mono 10 pt, number blocks, 20 mm margin"
+    },
+    {
+      "id": "e-a4-eng-twocol10",
+      "set": "eval",
+      "seed": 1,
+      "lang": "eng",
+      "doc": "a4-text",
+      "sizeMm": [
+        210,
+        297
+      ],
+      "font": "Liberation Serif 10 pt",
+      "dpi": 300,
+      "png": "e-a4-eng-twocol10.png",
+      "pdf": "e-a4-eng-twocol10.pdf",
+      "text": "bench/corpus/text/e-a4-eng-twocol10.txt",
+      "chars": 3070,
+      "notes": "eng two columns, serif 10 pt; reading order column 1 then column 2"
+    },
+    {
+      "id": "e-a4-deu-serif11",
+      "set": "eval",
+      "seed": 1,
+      "lang": "deu",
+      "doc": "a4-text",
+      "sizeMm": [
+        210,
+        297
+      ],
+      "font": "Liberation Serif 11 pt",
+      "dpi": 300,
+      "png": "e-a4-deu-serif11.png",
+      "pdf": "e-a4-deu-serif11.pdf",
+      "text": "bench/corpus/text/e-a4-deu-serif11.txt",
+      "chars": 2541,
+      "notes": "deu serif 11 pt, 20 mm margin"
+    },
+    {
+      "id": "e-a4-deu-sans10",
+      "set": "eval",
+      "seed": 1,
+      "lang": "deu",
+      "doc": "a4-text",
+      "sizeMm": [
+        210,
+        297
+      ],
+      "font": "Liberation Sans 10 pt",
+      "dpi": 300,
+      "png": "e-a4-deu-sans10.png",
+      "pdf": "e-a4-deu-sans10.pdf",
+      "text": "bench/corpus/text/e-a4-deu-sans10.txt",
+      "chars": 2789,
+      "notes": "deu sans 10 pt, 20 mm margin"
+    },
+    {
+      "id": "e-a4-deu-serif12-headings",
+      "set": "eval",
+      "seed": 1,
+      "lang": "deu",
+      "doc": "a4-text",
+      "sizeMm": [
+        210,
+        297
+      ],
+      "font": "Liberation Serif 12 pt",
+      "dpi": 300,
+      "png": "e-a4-deu-serif12-headings.png",
+      "pdf": "e-a4-deu-serif12-headings.pdf",
+      "text": "bench/corpus/text/e-a4-deu-serif12-headings.txt",
+      "chars": 1435,
+      "notes": "deu serif 12 pt, headings, number blocks, 20 mm margin"
+    },
+    {
+      "id": "e-a4-deu-sans8-dense",
+      "set": "eval",
+      "seed": 1,
+      "lang": "deu",
+      "doc": "a4-text",
+      "sizeMm": [
+        210,
+        297
+      ],
+      "font": "Liberation Sans 8 pt",
+      "dpi": 300,
+      "png": "e-a4-deu-sans8-dense.png",
+      "pdf": "e-a4-deu-sans8-dense.pdf",
+      "text": "bench/corpus/text/e-a4-deu-sans8-dense.txt",
+      "chars": 4433,
+      "notes": "deu sans 8 pt, 15 mm margin"
+    },
+    {
+      "id": "e-a4-deu-mono10",
+      "set": "eval",
+      "seed": 1,
+      "lang": "deu",
+      "doc": "a4-text",
+      "sizeMm": [
+        210,
+        297
+      ],
+      "font": "Liberation Mono 10 pt",
+      "dpi": 300,
+      "png": "e-a4-deu-mono10.png",
+      "pdf": "e-a4-deu-mono10.pdf",
+      "text": "bench/corpus/text/e-a4-deu-mono10.txt",
+      "chars": 1945,
+      "notes": "deu mono 10 pt, number blocks, 20 mm margin"
+    },
+    {
+      "id": "e-a4-deu-twocol10",
+      "set": "eval",
+      "seed": 1,
+      "lang": "deu",
+      "doc": "a4-text",
+      "sizeMm": [
+        210,
+        297
+      ],
+      "font": "Liberation Sans 10 pt",
+      "dpi": 300,
+      "png": "e-a4-deu-twocol10.png",
+      "pdf": "e-a4-deu-twocol10.pdf",
+      "text": "bench/corpus/text/e-a4-deu-twocol10.txt",
+      "chars": 2900,
+      "notes": "deu two columns, sans 10 pt; reading order column 1 then column 2"
+    },
+    {
+      "id": "e-a5-eng-serif10",
+      "set": "eval",
+      "seed": 1,
+      "lang": "eng",
+      "doc": "a5-text",
+      "sizeMm": [
+        148,
+        210
+      ],
+      "font": "Liberation Serif 10 pt",
+      "dpi": 300,
+      "png": "e-a5-eng-serif10.png",
+      "pdf": "e-a5-eng-serif10.pdf",
+      "text": "bench/corpus/text/e-a5-eng-serif10.txt",
+      "chars": 1656,
+      "notes": "eng serif 10 pt, 14 mm margin"
+    },
+    {
+      "id": "e-a4-eng-fine7",
+      "set": "eval",
+      "seed": 1,
+      "lang": "eng",
+      "doc": "a4-text",
+      "sizeMm": [
+        210,
+        297
+      ],
+      "font": "Liberation Sans 7 pt",
+      "dpi": 300,
+      "png": "e-a4-eng-fine7.png",
+      "pdf": "e-a4-eng-fine7.pdf",
+      "text": "bench/corpus/text/e-a4-eng-fine7.txt",
+      "chars": 6204,
+      "notes": "eng fine print 7 pt, two columns (Stage 3 hard case)"
+    },
+    {
+      "id": "e-a4-deu-fine7",
+      "set": "eval",
+      "seed": 1,
+      "lang": "deu",
+      "doc": "a4-text",
+      "sizeMm": [
+        210,
+        297
+      ],
+      "font": "Liberation Sans 7 pt",
+      "dpi": 300,
+      "png": "e-a4-deu-fine7.png",
+      "pdf": "e-a4-deu-fine7.pdf",
+      "text": "bench/corpus/text/e-a4-deu-fine7.txt",
+      "chars": 6036,
+      "notes": "deu fine print 7 pt, two columns (Stage 3 hard case)"
+    },
+    {
+      "id": "e-a4-deu-sparse",
+      "set": "eval",
+      "seed": 1,
+      "lang": "deu",
+      "doc": "a4-text",
+      "sizeMm": [
+        210,
+        297
+      ],
+      "font": "Liberation Serif 12 pt",
+      "dpi": 300,
+      "png": "e-a4-deu-sparse.png",
+      "pdf": "e-a4-deu-sparse.pdf",
+      "text": "bench/corpus/text/e-a4-deu-sparse.txt",
+      "chars": 180,
+      "notes": "three lines only — orientation probe hard case (needs ≥ 20 confident characters)"
+    },
+    {
+      "id": "e-a4-deu-invoice",
+      "set": "eval",
+      "seed": 1,
+      "lang": "deu",
+      "doc": "invoice",
+      "sizeMm": [
+        210,
+        297
+      ],
+      "font": "Liberation Sans 10 pt",
+      "dpi": 300,
+      "png": "e-a4-deu-invoice.png",
+      "pdf": "e-a4-deu-invoice.pdf",
+      "text": "bench/corpus/text/e-a4-deu-invoice.txt",
+      "chars": 625,
+      "notes": "fictional invoice (Musterfirma GmbH), table with amounts"
+    },
+    {
+      "id": "e-receipt-1",
+      "set": "eval",
+      "seed": 1,
+      "lang": "deu",
+      "doc": "receipt",
+      "sizeMm": [
+        80,
+        85
+      ],
+      "font": "Liberation Mono 9 pt",
+      "dpi": 300,
+      "png": "e-receipt-1.png",
+      "pdf": "e-receipt-1.pdf",
+      "text": "bench/corpus/text/e-receipt-1.txt",
+      "chars": 268,
+      "notes": "thermal-receipt layout, monospace; print at ~60 % grey on 80 g paper, cut to 80 mm, curl around a pen"
+    },
+    {
+      "id": "e-receipt-2",
+      "set": "eval",
+      "seed": 1,
+      "lang": "deu",
+      "doc": "receipt",
+      "sizeMm": [
+        80,
+        97
+      ],
+      "font": "Liberation Mono 9 pt",
+      "dpi": 300,
+      "png": "e-receipt-2.png",
+      "pdf": "e-receipt-2.pdf",
+      "text": "bench/corpus/text/e-receipt-2.txt",
+      "chars": 325,
+      "notes": "thermal-receipt layout, monospace; print at ~60 % grey on 80 g paper, cut to 80 mm, curl around a pen"
+    },
+    {
+      "id": "e-receipt-3",
+      "set": "eval",
+      "seed": 1,
+      "lang": "deu",
+      "doc": "receipt",
+      "sizeMm": [
+        80,
+        81
+      ],
+      "font": "Liberation Mono 9 pt",
+      "dpi": 300,
+      "png": "e-receipt-3.png",
+      "pdf": "e-receipt-3.pdf",
+      "text": "bench/corpus/text/e-receipt-3.txt",
+      "chars": 262,
+      "notes": "thermal-receipt layout, monospace; print at ~60 % grey on 80 g paper, cut to 80 mm, curl around a pen"
+    },
+    {
+      "id": "e-receipt-4",
+      "set": "eval",
+      "seed": 1,
+      "lang": "deu",
+      "doc": "receipt",
+      "sizeMm": [
+        80,
+        81
+      ],
+      "font": "Liberation Mono 9 pt",
+      "dpi": 300,
+      "png": "e-receipt-4.png",
+      "pdf": "e-receipt-4.pdf",
+      "text": "bench/corpus/text/e-receipt-4.txt",
+      "chars": 267,
+      "notes": "thermal-receipt layout, monospace; print at ~60 % grey on 80 g paper, cut to 80 mm, curl around a pen"
+    },
+    {
+      "id": "e-card",
+      "set": "eval",
+      "seed": 1,
+      "lang": "deu",
+      "doc": "business-card",
+      "sizeMm": [
+        85,
+        55
+      ],
+      "font": "Liberation Sans 9 pt",
+      "dpi": 300,
+      "png": "e-card.png",
+      "pdf": "e-card.pdf",
+      "text": "bench/corpus/text/e-card.txt",
+      "chars": 89,
+      "notes": "fictional business card; print on card stock"
+    }
+  ]
+}
