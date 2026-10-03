@@ -8,6 +8,7 @@ import {
   VaultError,
   checkRecoveryKeyInput,
   createVault,
+  forgetVault,
   refreshVault,
   replaceRecoveryKey,
   unlockVault,
@@ -16,6 +17,8 @@ import { RecoveryKeyDialog } from './RecoveryKeyDialog';
 import { ScanPairingCode } from './ScanPairingCode';
 import { ShowPairingCode } from './ShowPairingCode';
 import { ManagePasskeys, UnlockWithPasskey, suggestPasskey } from './PasskeySettings';
+import { SyncProblems } from './SyncProblems';
+import { RemoveSyncedDocuments } from './RemoveSyncedDocuments';
 import { useSyncStatus } from '@/hooks/useSyncStatus';
 import { requestSync } from '@/lib/sync';
 
@@ -201,6 +204,7 @@ function SyncOn({ email }: { email: string }) {
     <div className="px-4 py-3">
       <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Sync is on for this device</p>
       <SyncStatusLine />
+      <SyncProblems />
       <div className="mt-1 flex flex-wrap gap-x-5">
         <button onClick={() => setScanning(true)} className={linkButtonClass}>
           Add a device
@@ -237,6 +241,8 @@ export function SyncSettings({ email }: { email: string }) {
       {vault.status === 'no-vault' && <TurnOnSync email={email} />}
       {vault.status === 'locked' && <UnlockSync />}
       {vault.status === 'unlocked' && <SyncOn email={email} />}
+      {vault.status === 'unlocked' && <RemoveSyncedDocuments beforeRemove={forgetVault} />}
+      {vault.status === 'locked' && <RemoveSyncedDocuments />}
       {vault.status === 'error' && (
         <div className="flex items-center justify-between gap-4 px-4 py-3">
           <p role="alert" className="text-xs text-red-600 dark:text-red-400">

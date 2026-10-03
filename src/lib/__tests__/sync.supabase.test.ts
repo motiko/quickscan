@@ -7,14 +7,15 @@ vi.mock('@/lib/image-processing', () => ({ createThumbnail: vi.fn(async () => ne
 vi.mock('@/lib/annotations/flatten', () => ({ getRenderedBlob: vi.fn(async () => new Blob(['rendered'])) }));
 
 import { db } from '@/lib/db';
-import { createDocument, deleteDocument, renameDocument } from '@/hooks/useDocuments';
+import { createDocument, deleteDocument, renameDocument, updatePage } from '@/hooks/useDocuments';
 import { createFolder } from '@/lib/folders';
 import { updateSettings } from '@/lib/settings';
 import { getDeviceId, readOutbox } from '@/lib/outbox';
 import { generateVaultKey, type VaultKey } from '@/lib/crypto';
 import { createSupabaseBackend, type SupabaseLike } from '@/lib/sync/backend';
 import { runSync } from '@/lib/sync/engine';
-import { RetryTracker } from '@/lib/sync/state';
+import { getFileRef, RetryTracker } from '@/lib/sync/state';
+import { cleanupOrphanedFiles, ORPHAN_GRACE_MS } from '@/lib/sync/cleanup';
 
 /*
  * Two simulated devices syncing through a real local Supabase: the upsert_records RPC, RLS,
@@ -138,5 +139,46 @@ describe.skipIf(!enabled)('sync through local Supabase', () => {
     await sync();
     expect(await db.documents.get(doc.id)).toBeUndefined();
     expect(await db.pages.where('documentId').equals(doc.id).count()).toBe(0);
+  });
+
+  it('removes orphaned files from Storage after the grace period, never referenced ones', async () => {
+    await use(devices.phone);
+    const docId = await createDocument('Orphans', new Blob(['one'], { type: 'image/jpeg' }));
+    await sync();
+    const [page] = await db.pages.where('documentId').equals(docId).toArray();
+    const firstPath = `${userId}/${(await getFileRef('page', page.id))!.fileId}`;
+    await updatePage(page.id, { processedBlob: new Blob(['two'], { type: 'image/jpeg' }) });
+    await sync();
+    const currentPath = `${userId}/${(await getFileRef('page', page.id))!.fileId}`;
+    expect(currentPath).not.toBe(firstPath);
+
+    const backend = createSupabaseBackend(client as unknown as SupabaseLike);
+    const objects = async () => {
+      const { data, error } = await client.storage.from('vault').list(userId, { limit: 1000 });
+      if (error) throw error;
+      return data.map((o) => `${userId}/${o.name}`);
+    };
+    expect(await objects()).toContain(firstPath);
+
+    // Storage's created_at is real time: pretend it's later on this device's clock
+    const later = Date.now() + 2 * 60 * 60_000;
+    expect(await cleanupOrphanedFiles(backend, userId, later, { force: true })).toMatchObject({ deleted: 0 });
+    const second = await cleanupOrphanedFiles(backend, userId, later + ORPHAN_GRACE_MS, { force: true });
+    // The replaced image, plus the image of the document deleted in the previous test
+    expect(second.deleted).toBeGreaterThanOrEqual(1);
+
+    const remaining = await objects();
+    expect(remaining).not.toContain(firstPath);
+    expect(remaining).toContain(currentPath);
+    // Exactly what live records reference is left
+    const { data: rows } = await client.from('records').select('files').eq('deleted', false);
+    expect(remaining.sort()).toEqual(rows!.flatMap((r) => r.files as string[]).sort());
+
+    // The other device still reads everything
+    await use(devices.laptop);
+    const report = await sync();
+    expect(report.issues).toEqual([]);
+    const [laptopPage] = await db.pages.where('documentId').equals(docId).toArray();
+    expect(await laptopPage.processedBlob!.text()).toBe('two');
   });
 });

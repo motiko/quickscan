@@ -19,7 +19,9 @@ import {
   type SettingsPayload,
   type SignaturePayload,
 } from './payload';
+import { cleanupOrphanedFiles, REUSE_WINDOW_MS, type CleanupResult } from './cleanup';
 import {
+  badRowsKey,
   deleteFileRef,
   digestBlob,
   getCursor,
@@ -32,6 +34,7 @@ import {
   RetryTracker,
   cursorKey,
   fileKey,
+  type BadRow,
   type FileRef,
 } from './state';
 
@@ -60,6 +63,10 @@ export interface SyncContext {
   retry: RetryTracker;
   /** Thumbnail for a document's first page; omitted in tests (no canvas). */
   makeThumbnail?: (page: Page) => Promise<Blob>;
+  /** Pull again the rows that couldn't be read last time (the user pressed Retry). */
+  retryBadRows?: boolean;
+  /** Run the orphaned-file cleanup even if it ran within the last day. */
+  forceCleanup?: boolean;
 }
 
 export type SyncStage = 'account' | 'upload' | 'push' | 'pull' | 'download';
@@ -82,6 +89,10 @@ export interface SyncReport {
   /** Pulled rows a newer pending local change beat. */
   skipped: number;
   downloads: number;
+  /** Pulled files this device still has to download. */
+  pendingDownloads: number;
+  /** The orphaned-file cleanup, when it ran without error. */
+  cleanup?: CleanupResult;
   issues: SyncIssue[];
 }
 
@@ -121,6 +132,7 @@ export async function runSync(ctx: SyncContext): Promise<SyncReport> {
     applied: 0,
     skipped: 0,
     downloads: 0,
+    pendingDownloads: 0,
     issues: [],
   };
 
@@ -133,6 +145,17 @@ export async function runSync(ctx: SyncContext): Promise<SyncReport> {
   // The merge is complete once one full pull has been applied
   if (merge) await db.syncMeta.delete(mergeKey(ctx.userId));
   await downloadFiles(ctx, report);
+  // Only after a successful push and pull (both throw otherwise), and not during a merge,
+  // which re-uploads everything
+  if (!merge) {
+    try {
+      report.cleanup = await cleanupOrphanedFiles(ctx.backend, ctx.userId, ctx.now(), { force: ctx.forceCleanup });
+    } catch (err) {
+      // Best effort: tried again next run
+      console.warn('Sync: orphaned file cleanup failed', err);
+    }
+  }
+  report.pendingDownloads = (await listFileRefs()).filter((r) => !r.downloaded && r.userId === ctx.userId).length;
   return report;
 }
 
@@ -208,7 +231,7 @@ async function checkVaultKey(ctx: SyncContext): Promise<void> {
   }
   throw new SyncError(
     'key-mismatch',
-    'This device’s encryption key doesn’t match your account. Unlock sync again in Settings.'
+    'This device’s encryption key doesn’t match your account. Unlock sync again with your recovery key.'
   );
 }
 
@@ -216,6 +239,7 @@ async function checkVaultKey(ctx: SyncContext): Promise<void> {
 
 async function push(ctx: SyncContext, report: SyncReport): Promise<void> {
   const entries = await readOutbox();
+  ctx.retry.retain('push:', new Set(entries.map((e) => `push:${e.kind}:${e.id}`)));
   for (let i = 0; i < entries.length; i += SYNC_BATCH_SIZE) {
     const rows: PushRow[] = [];
     const sent: OutboxEntry[] = [];
@@ -228,18 +252,40 @@ async function push(ctx: SyncContext, report: SyncReport): Promise<void> {
         ctx.retry.succeeded(key);
       } catch (err) {
         if (isNetworkFailure(err)) throw err;
-        ctx.retry.failed(key, ctx.now());
-        report.issues.push({ stage: 'upload', kind: entry.kind, id: entry.id, message: message(err) });
+        const issue = { stage: 'upload' as const, kind: entry.kind, id: entry.id, message: message(err) };
+        ctx.retry.failed(key, ctx.now(), issue);
+        report.issues.push(issue);
       }
     }
     if (rows.length === 0) continue;
     const rejected = await ctx.backend.upsertRecords(rows);
     report.pushed += rows.length - rejected.length;
     report.rejected += rejected.length;
+    await confirmPushedFiles(ctx, rows, rejected);
     // Rejected rows are acknowledged too: the server keeps its newer version and the pull
     // below brings it here.
     await ackOutbox(sent);
   }
+}
+
+/** The server now references these files: they're safe to reference again for a while. */
+async function confirmPushedFiles(ctx: SyncContext, rows: PushRow[], rejected: { kind: string; id: string }[]) {
+  const lost = new Set(rejected.map((r) => `${r.kind}:${r.id}`));
+  const keys: string[] = [];
+  const fileIds: string[] = [];
+  for (const row of rows) {
+    if (row.deleted || !FILE_KINDS.has(row.kind) || row.files.length === 0 || lost.has(`${row.kind}:${row.id}`)) continue;
+    keys.push(fileKey(row.kind, row.id));
+    fileIds.push(row.files[0].slice(row.files[0].indexOf('/') + 1));
+  }
+  if (keys.length === 0) return;
+  const now = ctx.now();
+  const current = await db.syncMeta.bulkGet(keys);
+  const updates = current.flatMap((row, i) => {
+    const ref = row?.value as FileRef | undefined;
+    return ref && ref.fileId === fileIds[i] ? [{ key: keys[i], value: { ...ref, confirmedAt: now } }] : [];
+  });
+  await db.syncMeta.bulkPut(updates);
 }
 
 async function buildRow(ctx: SyncContext, entry: OutboxEntry, report: SyncReport): Promise<PushRow> {
@@ -319,16 +365,19 @@ async function syncFile(
   const current = stored?.userId === ctx.userId ? stored : undefined;
   // No local bytes: either nothing to sync or a pulled file that hasn't downloaded yet
   if (!blob) return current;
-  if (current && !changed) return current;
+  // Referencing an existing object again is only safe while we know it's there: orphan
+  // cleanup elsewhere may have removed one this device hasn't seen referenced for a while
+  const fresh = current?.confirmedAt !== undefined && ctx.now() - current.confirmedAt < REUSE_WINDOW_MS;
+  if (current && fresh && !changed) return current;
 
   const sha256 = await digestBlob(blob);
-  if (current?.sha256 === sha256) return current;
+  if (fresh && current?.sha256 === sha256) return current;
 
   const fileId = nanoid();
   const type = blob.type || (kind === 'signature' ? 'image/png' : 'image/jpeg');
   const sealed = await encryptFile(ctx.vault.key, { userId: ctx.userId, fileId }, blob);
   await ctx.backend.uploadFile(filePath({ userId: ctx.userId, fileId }), sealed);
-  const ref: FileRef = { kind, id, userId: ctx.userId, fileId, type, sha256, downloaded: true };
+  const ref: FileRef = { kind, id, userId: ctx.userId, fileId, type, sha256, downloaded: true, confirmedAt: ctx.now() };
   await putFileRef(ref);
   report.uploads++;
   return ref;
@@ -349,6 +398,12 @@ interface Touched {
 async function pull(ctx: SyncContext, report: SyncReport, merge: boolean): Promise<void> {
   const touched: Touched = { documents: new Set(), pages: new Set() };
   let cursor = await getCursor(ctx.userId);
+  if (ctx.retryBadRows) {
+    // Read the unreadable rows again: rewind to just before the oldest. Re-applying rows
+    // already applied is harmless (same last-write-wins outcome).
+    const bad = (await getMeta<BadRow[]>(badRowsKey(ctx.userId))) ?? [];
+    if (bad.length > 0) cursor = Math.min(cursor, Math.min(...bad.map((b) => b.seq)) - 1);
+  }
 
   for (;;) {
     const rows = await ctx.backend.pullRecords(ctx.userId, cursor, SYNC_BATCH_SIZE);
@@ -357,6 +412,7 @@ async function pull(ctx: SyncContext, report: SyncReport, merge: boolean): Promi
 
     // Decrypt first: a transaction can't wait on WebCrypto without committing early
     const decoded: Decoded[] = [];
+    const bad: BadRow[] = [];
     for (const row of rows) {
       if (row.deleted) {
         decoded.push({ row });
@@ -370,17 +426,20 @@ async function pull(ctx: SyncContext, report: SyncReport, merge: boolean): Promi
       } catch (err) {
         // Recorded and skipped; the cursor still moves past it so one bad row can't stall sync
         report.issues.push({ stage: 'pull', kind: row.kind, id: row.id, message: message(err) });
+        bad.push({ kind: row.kind, id: row.id, seq: row.seq, message: message(err) });
       }
     }
 
     const lastSeq = rows[rows.length - 1].seq;
-    await applyBatch(ctx, decoded, merge, touched, report, lastSeq);
+    await applyBatch(ctx, decoded, bad, merge, touched, report, lastSeq);
     cursor = lastSeq;
     if (rows.length < SYNC_BATCH_SIZE) break;
   }
 
   await normalizeDocuments(ctx, touched);
 }
+
+const MAX_BAD_ROWS = 200;
 
 /** Pending changes to one table during a batch: id -> new value, or null for a delete. */
 class Working<T> {
@@ -431,6 +490,7 @@ interface BatchState {
 async function applyBatch(
   ctx: SyncContext,
   decoded: Decoded[],
+  bad: BadRow[],
   merge: boolean,
   touched: Touched,
   report: SyncReport,
@@ -485,6 +545,16 @@ async function applyBatch(
     await db.syncMeta.bulkPut(state.refs.puts().map((ref) => ({ key: fileKey(ref.kind, ref.id), value: ref })));
     await db.syncMeta.bulkDelete(state.refs.deletes());
     await db.outbox.bulkPut(state.outbox);
+    // Unreadable rows: newly failing ones are added, ones that now read fine (or were replaced
+    // by a readable version) drop out
+    const badKey = badRowsKey(ctx.userId);
+    const readable = new Set(decoded.map((d) => `${d.row.kind}:${d.row.id}`));
+    const failing = new Set(bad.map((b) => `${b.kind}:${b.id}`));
+    const previous = ((await db.syncMeta.get(badKey))?.value as BadRow[] | undefined) ?? [];
+    const kept = previous.filter((b) => !readable.has(`${b.kind}:${b.id}`) && !failing.has(`${b.kind}:${b.id}`));
+    const nextBad = [...kept, ...bad].slice(-MAX_BAD_ROWS);
+    if (nextBad.length > 0) await db.syncMeta.put({ key: badKey, value: nextBad });
+    else if (previous.length > 0) await db.syncMeta.delete(badKey);
     await db.syncMeta.put({ key: cursorKey(ctx.userId), value: lastSeq });
   });
 }
@@ -609,13 +679,15 @@ function trackRemoteFile(
     if (ref) state.refs.delete(key);
     return;
   }
+  // The server references this file right now
+  const confirmedAt = ctx.now();
   if (ref && ref.userId === ctx.userId && ref.fileId === file.id) {
-    if (pendingSignature && !ref.downloaded) state.refs.set(key, { ...ref, pendingSignature });
+    state.refs.set(key, pendingSignature && !ref.downloaded ? { ...ref, pendingSignature, confirmedAt } : { ...ref, confirmedAt });
     return;
   }
   state.refs.set(
     key,
-    defined({ kind, id, userId: ctx.userId, fileId: file.id, type: file.type, downloaded: false, pendingSignature })
+    defined({ kind, id, userId: ctx.userId, fileId: file.id, type: file.type, downloaded: false, pendingSignature, confirmedAt })
   );
 }
 
@@ -751,6 +823,7 @@ async function refreshThumbnail(ctx: SyncContext, page: Page): Promise<void> {
  */
 async function downloadFiles(ctx: SyncContext, report: SyncReport): Promise<void> {
   const due = (await listFileRefs()).filter((r) => !r.downloaded && r.userId === ctx.userId);
+  ctx.retry.retain('download:', new Set(due.map((r) => `download:${r.kind}:${r.id}:${r.fileId}`)));
   for (const ref of due) {
     const key = `download:${ref.kind}:${ref.id}:${ref.fileId}`;
     if (!ctx.retry.ready(key, ctx.now())) continue;
@@ -767,8 +840,9 @@ async function downloadFiles(ctx: SyncContext, report: SyncReport): Promise<void
       }
     } catch (err) {
       if (isNetworkFailure(err)) throw err;
-      ctx.retry.failed(key, ctx.now());
-      report.issues.push({ stage: 'download', kind: ref.kind, id: ref.id, message: message(err) });
+      const issue = { stage: 'download' as const, kind: ref.kind, id: ref.id, message: message(err) };
+      ctx.retry.failed(key, ctx.now(), issue);
+      report.issues.push(issue);
     }
   }
 }
