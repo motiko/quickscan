@@ -17,6 +17,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Run single test: `npx vitest run path/to/test.ts`
 - Live LLM Tests: `npm run test:live` — `*.live.test.ts` files against real providers; keys from gitignored `.env.test.local` (template: `.env.example`) or the `CUSTOM_LLM_KEY` CI secret; never put keys in `NEXT_PUBLIC_*` vars
 - E2E Tests (Playwright): `npm run e2e`
+- DB Tests (pgTAP, Docker): `npx supabase start` then `npx supabase test db`
 - E2E Tests UI: `npm run e2e:ui`
 - E2E Tests Headed: `npm run e2e:headed`
 - iOS Simulator Helper: `npm run sim`
@@ -54,6 +55,7 @@ QuickScan is a mobile-first Progressive Web App (PWA) built with Next.js 16 (App
     - `dialogs.ts`: `confirmDialog` / `alertDialog` / `promptDialog`, rendered by `DialogHost` in the root layout.
     - `supabase.ts` / `auth.ts`: Optional Supabase client (lazy, only when `NEXT_PUBLIC_SUPABASE_URL`/`_PUBLISHABLE_KEY` are set) and the auth store read via `useAuth` — passwordless sign-in with an emailed one-time code; the Account section in `/settings`.
 - `src/hooks/`: Shared React hooks for camera, database, and document state.
+- `supabase/`: CLI config, `migrations/` (applied to production on merge to `main`) and pgTAP tests in `tests/` (`npx supabase start`, then `npx supabase test db`; CI workflow `supabase.yml`). Sync schema: `records` (encrypted, LWW via `upsert_records`, pulled by `seq`), `vault_keys`, `pairing_requests`, private Storage bucket `vault`.
 
 ### Key Technical Decisions
 - **Local-First**: All data is stored in IndexedDB via Dexie.js and the app works fully without an account. The only server code is `/api/llm`, a stateless pass-through for LLM providers without CORS support (allowlisted in `PROXIED_HOSTS`). Supabase (Auth now, sync later) is optional and talked to directly from the client; authorization lives in row-level security, and only the publishable key may ship to the client.
