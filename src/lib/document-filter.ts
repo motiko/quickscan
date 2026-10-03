@@ -79,3 +79,18 @@ export function countByFolder(
   }
   return counts;
 }
+
+/**
+ * Whether the gallery offers an "Unfiled" filter chip. It only adds something when there are
+ * folders and at least one document is filed (otherwise it shows the same documents as "All"),
+ * but the active filter is never hidden.
+ */
+export function showUnfiledFilter(opts: {
+  hasFolders: boolean;
+  unfiledCount: number;
+  totalCount: number;
+  folder: FolderFilter;
+}): boolean {
+  if (opts.folder.kind === 'unfiled') return true;
+  return opts.hasFolders && opts.unfiledCount !== opts.totalCount;
+}

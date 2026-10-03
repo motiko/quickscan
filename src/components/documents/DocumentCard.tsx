@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { ScannedDocument } from '@/types';
 import { useBlobUrl } from '@/hooks/useBlobUrl';
@@ -10,6 +10,7 @@ import { getRenderedBlob } from '@/lib/annotations/flatten';
 import { hasPageImage } from '@/lib/page-image';
 import { collectDocumentText } from '@/lib/ocr-text';
 import { alertDialog } from '@/lib/dialogs';
+import { documentSnippet, isDefaultDocumentName } from '@/lib/document-name';
 
 // 36px square tap targets for touch.
 const actionButtonClass =
@@ -59,10 +60,8 @@ export function DocumentCard({ document, onDelete, isProcessing = false }: Docum
   const [isSharing, setIsSharing] = useState(false);
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'empty'>('idle');
 
-  const handleCopyText = async (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-
+  // The action buttons sit outside the card's link, so their clicks never navigate.
+  const handleCopyText = async () => {
     try {
       const pages = await db.pages.where('documentId').equals(document.id).sortBy('pageNumber');
       const text = collectDocumentText(pages);
@@ -76,15 +75,11 @@ export function DocumentCard({ document, onDelete, isProcessing = false }: Docum
     }
   };
 
-  const handleDelete = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const handleDelete = () => {
     onDelete(document.id);
   };
 
-  const handleShare = async (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const handleShare = async () => {
     if (isSharing) return;
 
     setIsSharing(true);
@@ -107,22 +102,30 @@ export function DocumentCard({ document, onDelete, isProcessing = false }: Docum
   };
 
   const relativeTime = useMemo(() => getRelativeTime(document.updatedAt), [document.updatedAt]);
+  const updatedAt = useMemo(() => new Date(document.updatedAt), [document.updatedAt]);
+  // A generated "Scan 2026-…" name says nothing in a date-sorted grid; show some text instead
+  const snippet = isDefaultDocumentName(document.name) ? documentSnippet(document) : '';
 
   return (
-    <Link href={`/doc/${document.id}`} className="block w-full">
-      <div className="relative group rounded-xl overflow-hidden bg-white dark:bg-neutral-900 border border-gray-200 dark:border-neutral-800 shadow-sm hover:shadow-md transition-shadow">
-        {/* Thumbnail area */}
+    <div className="relative group flex h-full flex-col rounded-xl overflow-hidden bg-white dark:bg-neutral-900 border border-gray-200 dark:border-neutral-800 shadow-sm hover:shadow-md transition-shadow">
+      {/* The link covers thumbnail and info only; the actions below are its siblings, not inside it */}
+      <Link
+        href={`/doc/${document.id}`}
+        className="flex flex-1 flex-col rounded-t-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500"
+      >
+        {/* Thumbnail area; the inset ring keeps dark thumbnails apart from a dark card */}
         <div className="aspect-[3/4] bg-gray-100 dark:bg-neutral-800 flex items-center justify-center overflow-hidden relative">
           {thumbnailUrl ? (
+            /* Decorative: the title below already names the link */
             /* eslint-disable-next-line @next/next/no-img-element */
             <img
               src={thumbnailUrl}
-              alt={document.name}
+              alt=""
               className="w-full h-full object-cover"
             />
           ) : (
             <div className="flex flex-col items-center text-gray-400 dark:text-gray-500">
-              <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
                 <polyline points="14 2 14 8 20 8"></polyline>
                 <line x1="16" y1="13" x2="8" y2="13"></line>
@@ -132,6 +135,8 @@ export function DocumentCard({ document, onDelete, isProcessing = false }: Docum
             </div>
           )}
 
+          <div className="pointer-events-none absolute inset-0 ring-1 ring-inset ring-black/5 dark:ring-white/10" aria-hidden="true" />
+
           {isProcessing && (
             <div className="absolute bottom-2 left-2 flex items-center gap-1.5 rounded-full bg-black/60 px-2 py-1 text-[0.6875rem] font-medium text-white backdrop-blur-sm">
               <div className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
@@ -140,75 +145,86 @@ export function DocumentCard({ document, onDelete, isProcessing = false }: Docum
           )}
         </div>
 
-        {/* Document info */}
+        {/* Document info; the title always reserves two lines so cards in a row line up */}
         <div className="p-3">
-          <h3 className="font-semibold text-gray-900 dark:text-gray-100 text-sm line-clamp-1" title={document.name}>
+          <h3 className="min-h-[2.5rem] font-semibold text-gray-900 dark:text-gray-100 text-sm leading-5 line-clamp-2 break-words" title={document.name}>
             {document.name}
           </h3>
-          <div className="flex justify-between items-center mt-1 text-xs text-gray-500 dark:text-gray-400">
-            <span>{document.pageCount} page{document.pageCount !== 1 ? 's' : ''}</span>
-            <span>{relativeTime}</span>
+          {snippet && (
+            <p className="mt-0.5 truncate text-xs text-gray-500 dark:text-gray-400">
+              {snippet}
+            </p>
+          )}
+          <div className="flex justify-between items-center gap-2 mt-1 text-xs text-gray-500 dark:text-gray-400">
+            <span className="shrink-0">{document.pageCount} page{document.pageCount !== 1 ? 's' : ''}</span>
+            <time
+              dateTime={updatedAt.toISOString()}
+              title={updatedAt.toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' })}
+              className="truncate"
+            >
+              {relativeTime}
+            </time>
           </div>
         </div>
+      </Link>
 
-        {/* Always-visible action bar (mobile first: no hover-only controls) */}
-        <div className="flex items-center gap-1 border-t border-gray-100 dark:border-neutral-800 px-1.5 py-1">
-          <button
-            onClick={handleCopyText}
-            className={`${actionButtonClass} hover:bg-blue-50 dark:hover:bg-blue-950 hover:text-blue-600 dark:hover:text-blue-400`}
-            aria-label="Copy text"
-            title="Copy text"
-          >
-            {copyState === 'copied' ? (
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-green-600 dark:text-green-400">
-                <polyline points="20 6 9 17 4 12"></polyline>
-              </svg>
-            ) : (
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-              </svg>
-            )}
-          </button>
-
-          <button
-            onClick={handleShare}
-            disabled={isSharing}
-            className={`${actionButtonClass} hover:bg-blue-50 dark:hover:bg-blue-950 hover:text-blue-600 dark:hover:text-blue-400`}
-            aria-label="Share document"
-            title="Share as PDF"
-          >
-            {isSharing ? (
-              <div className="h-[18px] w-[18px] animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
-            ) : (
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="18" cy="5" r="3"></circle>
-                <circle cx="6" cy="12" r="3"></circle>
-                <circle cx="18" cy="19" r="3"></circle>
-                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
-                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
-              </svg>
-            )}
-          </button>
-
-          <span role="status" className="flex-1 truncate text-center text-[0.6875rem] font-medium text-gray-500 dark:text-gray-400">
-            {copyState === 'copied' ? 'Copied' : copyState === 'empty' ? 'No text yet' : ''}
-          </span>
-
-          {/* Delete sits at the far end, apart from the quick actions to avoid mis-taps */}
-          <button
-            onClick={handleDelete}
-            className={`${actionButtonClass} hover:bg-red-50 dark:hover:bg-red-950 hover:text-red-600 dark:hover:text-red-400`}
-            aria-label="Delete document"
-            title="Delete"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="3 6 5 6 21 6"></polyline>
-              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+      {/* Always-visible action bar (mobile first: no hover-only controls) */}
+      <div className="flex items-center gap-1 border-t border-gray-100 dark:border-neutral-800 px-1.5 py-1">
+        <button
+          onClick={handleCopyText}
+          className={`${actionButtonClass} hover:bg-blue-50 dark:hover:bg-blue-950 hover:text-blue-600 dark:hover:text-blue-400`}
+          aria-label="Copy text"
+          title="Copy text"
+        >
+          {copyState === 'copied' ? (
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-green-600 dark:text-green-400">
+              <polyline points="20 6 9 17 4 12"></polyline>
             </svg>
-          </button>
-        </div>
+          ) : (
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+          )}
+        </button>
+
+        <button
+          onClick={handleShare}
+          disabled={isSharing}
+          className={`${actionButtonClass} hover:bg-blue-50 dark:hover:bg-blue-950 hover:text-blue-600 dark:hover:text-blue-400`}
+          aria-label="Share document"
+          title="Share as PDF"
+        >
+          {isSharing ? (
+            <div className="h-[18px] w-[18px] animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+          ) : (
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="18" cy="5" r="3"></circle>
+              <circle cx="6" cy="12" r="3"></circle>
+              <circle cx="18" cy="19" r="3"></circle>
+              <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+              <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+            </svg>
+          )}
+        </button>
+
+        <span role="status" className="flex-1 truncate text-center text-[0.6875rem] font-medium text-gray-500 dark:text-gray-400">
+          {copyState === 'copied' ? 'Copied' : copyState === 'empty' ? 'No text yet' : ''}
+        </span>
+
+        {/* Delete sits at the far end, apart from the quick actions to avoid mis-taps */}
+        <button
+          onClick={handleDelete}
+          className={`${actionButtonClass} hover:bg-red-50 dark:hover:bg-red-950 hover:text-red-600 dark:hover:text-red-400`}
+          aria-label="Delete document"
+          title="Delete"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+          </svg>
+        </button>
       </div>
-    </Link>
+    </div>
   );
 }
