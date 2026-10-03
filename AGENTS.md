@@ -235,12 +235,13 @@ const constraints = {
 - **No `beforeinstallprompt`** — show manual "Add to Home Screen" instructions
 - **7-day IndexedDB eviction** — mitigated when installed as PWA; call `navigator.storage.persist()`
 - **`<video>` must have `playsinline` attribute** — or iOS will open fullscreen player
+- **Frozen background tabs never close their IndexedDB connection** (Chrome for iOS keeps every tab; the home-screen app too), so a new `db.version()` can wait forever for an old tab. `lib/db-status.ts` + `<DatabaseGate/>` show blocked/failed opens with Reload instead of "Loading..." forever; the app continues by itself once the other tab lets go. Anything awaited at start-up or sign-out that touches IndexedDB, the network or a Web Lock gets a timeout (`withTimeout` in `lib/timeout.ts`) and an error state with Retry; the sync lock times out too (`lib/sync/lock.ts`). Sign-out must always complete: `forgetVault` revokes the key at once and deletes it with a timeout (retried on next start).
 
 ## Testing
 
 - **Unit tests:** Vitest for utilities in `lib/`
 - **Component tests:** React Testing Library
-- **E2E (Playwright):** `e2e/`; camera flows use Chromium's fake camera. `npm run e2e` starts `next dev`; `E2E_SERVER=prod` serves the existing `npm run build` output instead (as CI does), and `E2E_BASE_URL` picks the port. Navigate and check URLs relative to the base URL, never a hardcoded host. Before a full `page.goto`, wait for the UI to show a write has landed — a reload aborts in-flight IndexedDB transactions. `e2e/pairing.spec.ts` and `e2e/passkeys.spec.ts` (CDP virtual authenticator) are opt-in (local Supabase stack, see their header comments)
+- **E2E (Playwright):** `e2e/`; camera flows use Chromium's fake camera. `npm run e2e` starts `next dev`; `E2E_SERVER=prod` serves the existing `npm run build` output instead (as CI does), and `E2E_BASE_URL` picks the port. Navigate and check URLs relative to the base URL, never a hardcoded host. Before a full `page.goto`, wait for the UI to show a write has landed — a reload aborts in-flight IndexedDB transactions. `e2e/pairing.spec.ts` and `e2e/passkeys.spec.ts` (CDP virtual authenticator) are opt-in (local Supabase stack, see their header comments). `e2e/upgrade.spec.ts` covers upgrading an older schema with data, a blocked upgrade and missing/stuck Web Locks in Chromium and WebKit; extend it whenever `db.ts` gets a new version
 
 ## Commit Messages
 

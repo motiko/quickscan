@@ -13,6 +13,7 @@ import {
 import { getAuthState, subscribeAuth, type AuthState, type AuthUser } from '@/lib/auth';
 import { getSupabase } from '@/lib/supabase';
 import { fromBytea, toBytea } from '@/lib/bytea';
+import { withTimeout } from '@/lib/timeout';
 
 /*
  * Whether this device holds the sync vault key, as a small store for useSyncExternalStore
@@ -52,7 +53,8 @@ export type VaultErrorCode =
   | 'no-vault'
   | 'locked'
   | 'unsupported'
-  | 'network';
+  | 'network'
+  | 'storage';
 
 const MESSAGES: Record<VaultErrorCode, string> = {
   'signed-out': 'Sign in first.',
@@ -63,7 +65,55 @@ const MESSAGES: Record<VaultErrorCode, string> = {
   locked: 'Unlock sync on this device first.',
   unsupported: 'Your sync key was saved by a newer version of QuickScan. Update the app and try again.',
   network: "Couldn't reach the server. Check your connection and try again.",
+  storage: "Couldn't read this device's storage. Close other QuickScan tabs and try again.",
 };
+
+/** The status check never shows "Checking sync…" for longer than these. */
+export const LOCAL_CHECK_TIMEOUT_MS = 10_000;
+export const SERVER_CHECK_TIMEOUT_MS = 15_000;
+
+/**
+ * Set (in memory and in localStorage, which doesn't depend on IndexedDB) the moment the key is
+ * to be forgotten, and cleared once it's gone from `syncMeta`. While set, the stored key counts
+ * as absent: no sync run may use it, and the next start retries deleting it. That keeps
+ * sign-out instant even if IndexedDB doesn't answer.
+ */
+const FORGET_PENDING_KEY = 'quickscan:forget-vault-key';
+let forgetPending = false;
+
+function readForgetMarker(): boolean {
+  try {
+    return typeof localStorage !== 'undefined' && localStorage.getItem(FORGET_PENDING_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function setForgetPending(pending: boolean) {
+  forgetPending = pending;
+  try {
+    if (typeof localStorage === 'undefined') return;
+    if (pending) localStorage.setItem(FORGET_PENDING_KEY, '1');
+    else localStorage.removeItem(FORGET_PENDING_KEY);
+  } catch {
+    // Storage unavailable (private mode): the in-memory flag still covers this session
+  }
+}
+
+/** True while a forgotten vault key may still be stored: treat it as gone. */
+export function isVaultKeyRevoked(): boolean {
+  return forgetPending || readForgetMarker();
+}
+
+/** At start: finish deleting a key whose deletion didn't complete (e.g. sign-out while storage hung). */
+export async function retryPendingVaultForget(): Promise<void> {
+  if (!isVaultKeyRevoked()) return;
+  try {
+    await withTimeout(forgetLocalKey(), LOCAL_CHECK_TIMEOUT_MS, 'Forgetting the vault key');
+  } catch (err) {
+    console.warn('Sync: could not remove the forgotten vault key yet', err);
+  }
+}
 
 export class VaultError extends Error {
   readonly code: VaultErrorCode;
@@ -114,13 +164,24 @@ function onAuthChange(auth: AuthState) {
 async function check(user: AuthUser) {
   const gen = ++generation;
   setState({ status: 'checking' });
+  let local: boolean;
   try {
-    if (await hasLocalKeyFor(user.id)) {
-      if (gen === generation) setState({ status: 'unlocked' });
-      return;
-    }
-    const supabase = await getSupabase();
-    const { data, error } = await supabase.from('vault_keys').select('id').limit(1);
+    local = await withTimeout(hasLocalKeyFor(user.id), LOCAL_CHECK_TIMEOUT_MS, 'Reading the vault key');
+  } catch (err) {
+    console.warn('Sync: checking the local vault key failed', err);
+    if (gen === generation) setState({ status: 'error', message: MESSAGES.storage });
+    return;
+  }
+  if (local) {
+    if (gen === generation) setState({ status: 'unlocked' });
+    return;
+  }
+  try {
+    const { data, error } = await withTimeout(
+      getSupabase().then((supabase) => supabase.from('vault_keys').select('id').limit(1)),
+      SERVER_CHECK_TIMEOUT_MS,
+      'Checking the vault on the server'
+    );
     if (error) throw error;
     if (gen === generation) setState({ status: data.length > 0 ? 'locked' : 'no-vault' });
   } catch {
@@ -130,6 +191,10 @@ async function check(user: AuthUser) {
 
 /** A key stored for another account (a sign-out that never ran) is dropped, never used. */
 async function hasLocalKeyFor(userId: string): Promise<boolean> {
+  if (isVaultKeyRevoked()) {
+    await forgetLocalKey();
+    return false;
+  }
   const stored = await loadVaultKey();
   if (!stored) return false;
   const owner = (await db.syncMeta.get(VAULT_OWNER_META))?.value;
@@ -141,12 +206,15 @@ async function hasLocalKeyFor(userId: string): Promise<boolean> {
 async function forgetLocalKey() {
   await clearVaultKey();
   await db.syncMeta.delete(VAULT_OWNER_META);
+  setForgetPending(false);
 }
 
 /** Keep the (transient, extractable) vault key on this device as the given account's. */
 async function keepLocally(transientKey: CryptoKey, userId: string) {
   await db.syncMeta.put({ key: VAULT_OWNER_META, value: userId });
   await storeVaultKey(transientKey);
+  // The new key replaced any forgotten one
+  setForgetPending(false);
 }
 
 /** For useSyncExternalStore; the first subscriber starts following the auth state. */
@@ -154,6 +222,7 @@ export function subscribeVault(listener: () => void): () => void {
   subscribers.add(listener);
   if (!started) {
     started = true;
+    if (isVaultKeyRevoked()) forgetPending = true;
     subscribeAuth(() => onAuthChange(getAuthState()));
     onAuthChange(getAuthState());
   }
@@ -301,12 +370,27 @@ export async function replaceRecoveryKey(recoveryKey: string): Promise<void> {
   if (error) throw new VaultError('network', { cause: error });
 }
 
+/** How long sign-out waits for the key to be deleted before carrying on without it. */
+export const FORGET_TIMEOUT_MS = 3_000;
+
 /**
  * Forget the vault key on this device (sign-out), so another account signing in here can't
  * use it. Documents stay. The server copy is untouched.
+ *
+ * The key stops counting the moment this is called (`isVaultKeyRevoked`), so no sync run can
+ * start with it; deleting it from IndexedDB is then waited for at most `timeoutMs`. Resolves to
+ * whether it's deleted already; if not, the next start deletes it. Never hangs, never throws.
  */
-export async function forgetVault(): Promise<void> {
-  await forgetLocalKey();
+export async function forgetVault({ timeoutMs = FORGET_TIMEOUT_MS }: { timeoutMs?: number } = {}): Promise<boolean> {
+  setForgetPending(true);
+  generation++;
+  let forgotten = false;
+  try {
+    await withTimeout(forgetLocalKey(), timeoutMs, 'Forgetting the vault key');
+    forgotten = true;
+  } catch (err) {
+    console.warn('Sync: the vault key will be removed from this device next time', err);
+  }
   generation++;
   currentUserId = null;
   const auth = getAuthState();
@@ -317,6 +401,7 @@ export async function forgetVault(): Promise<void> {
     onAuthChange(auth);
   }
   announce();
+  return forgotten;
 }
 
 // ---------------------------------------------------------------------------

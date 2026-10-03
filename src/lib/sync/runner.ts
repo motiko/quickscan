@@ -4,11 +4,12 @@ import { getDeviceId } from '@/lib/outbox';
 import { getAuthState, subscribeAuth, type AuthState } from '@/lib/auth';
 import { getSupabase, isSupabaseConfigured } from '@/lib/supabase';
 import { loadVaultKey, type VaultKey } from '@/lib/crypto';
-import { VAULT_CHANGED_EVENT } from '@/lib/vault-session';
+import { isVaultKeyRevoked, retryPendingVaultForget, VAULT_CHANGED_EVENT } from '@/lib/vault-session';
 import type { Page } from '@/types';
 import { createSupabaseBackend, type SupabaseLike, type SyncBackend } from './backend';
 import { runSync, type SyncReport } from './engine';
 import { withSyncLock, type LockManagerLike } from './lock';
+import { withTimeout } from '@/lib/timeout';
 import { RetryTracker } from './state';
 import { classifyMessage, classifySyncError, SYNC_ERROR_TEXT } from './errors';
 import { getSyncStatus, setSyncStatus, type SyncProblem } from './status';
@@ -25,6 +26,7 @@ export { VAULT_CHANGED_EVENT };
 export const LOCAL_CHANGE_DELAY_MS = 5_000;
 export const PERIODIC_SYNC_MS = 5 * 60_000;
 const FOCUS_MIN_INTERVAL_MS = 10_000;
+const LOAD_KEY_TIMEOUT_MS = 10_000;
 
 export interface SyncEnvironment {
   isConfigured(): boolean;
@@ -50,6 +52,8 @@ async function defaultThumbnail(page: Page): Promise<Blob> {
 
 /** The stored vault key if `vaultOwner` (set by vault-session.ts) says it's this account's. */
 async function loadOwnVaultKey(userId: string): Promise<VaultKey | null> {
+  // Being forgotten (sign-out) but maybe not deleted yet: never use it
+  if (isVaultKeyRevoked()) return null;
   const owner = (await db.syncMeta.get('vaultOwner'))?.value;
   return owner === userId ? loadVaultKey() : null;
 }
@@ -161,7 +165,17 @@ export async function syncOnce(): Promise<SyncReport | null> {
     setSyncStatus({ state: 'offline', code: 'offline', message: 'Offline. Changes sync when you’re back online.' });
     return null;
   }
-  const vault = await env.loadKey(auth.user.id);
+  let vault: VaultKey | null;
+  try {
+    // A blocked or hung database must not leave this run (and every later one) pending forever
+    vault = await withTimeout(env.loadKey(auth.user.id), LOAD_KEY_TIMEOUT_MS, 'Loading the vault key');
+  } catch (err) {
+    console.warn('Sync: could not load the vault key', err);
+    runFailures++;
+    runRetryAt = env.now() + Math.min(5 * 60_000, 5_000 * 2 ** (runFailures - 1));
+    setSyncStatus({ state: 'error', code: 'unknown', message: SYNC_ERROR_TEXT.unknown });
+    return null;
+  }
   if (!vault) {
     setSyncStatus({ state: 'locked', message: 'Set up sync in Settings to back up your documents.' });
     return null;
@@ -231,6 +245,8 @@ let schedulerActive = false;
 export function startSyncScheduler(): () => void {
   if (!env.isConfigured() || typeof window === 'undefined') return () => {};
   schedulerActive = true;
+  // A sign-out that couldn't delete the vault key left it for now
+  void retryPendingVaultForget();
   const cleanups: (() => void)[] = [];
   const trigger = () => void requestSync();
 

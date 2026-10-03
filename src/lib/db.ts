@@ -2,6 +2,7 @@ import Dexie, { type EntityTable, type Table } from 'dexie';
 import type { ScannedDocument, Page, Signature, Folder } from '@/types';
 import { LEGACY_LLM_KEYS, migrateLegacyLlmSettings } from './llm-settings-migration';
 import { SYNCED_SETTING_KEYS, syncTrackingMiddleware, type OutboxEntry } from './sync-tracking';
+import { trackDatabase } from './db-status';
 
 export interface SettingRow {
   key: string;
@@ -20,6 +21,10 @@ const db = new Dexie('QuickScanDB') as Dexie & {
 
 // Records local changes of synced tables in the outbox (see sync-tracking.ts)
 db.use(syncTrackingMiddleware);
+
+// Blocked upgrades, newer versions in other tabs and open errors become a status the UI
+// shows (db-status.ts, <DatabaseGate/>) instead of an endless "Loading..."
+trackDatabase(db);
 
 db.version(1).stores({
   documents: 'id, name, createdAt, updatedAt',

@@ -4,6 +4,9 @@ import { useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { alertDialog, confirmDialog } from '@/lib/dialogs';
 import { previewRemoval, removeSyncedFromDevice, type RemovalPlan } from '@/lib/sync/remove-local';
+import { withTimeout } from '@/lib/timeout';
+
+const PREVIEW_TIMEOUT_MS = 3_000;
 
 const linkButtonClass = 'min-h-11 text-sm font-semibold text-blue-600 dark:text-blue-400 disabled:opacity-50';
 
@@ -52,7 +55,8 @@ async function reportKept(plan: RemovalPlan): Promise<void> {
  * removal (call it after signing out, so no sync runs in between), or null to keep everything.
  */
 export async function askRemoveOnSignOut(userId: string): Promise<(() => Promise<void>) | null> {
-  const plan = await previewRemoval(userId).catch(() => null);
+  // Never let a slow or blocked database hold up the sign-out itself
+  const plan = await withTimeout(previewRemoval(userId), PREVIEW_TIMEOUT_MS, 'Previewing removal').catch(() => null);
   if (!plan?.synced || removableCount(plan) === 0) return null;
   const remove = await confirmDialog({
     title: 'Also remove synced documents from this device?',
