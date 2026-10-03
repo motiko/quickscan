@@ -7,6 +7,18 @@ export interface OcrResult {
   confidence: number;
 }
 
+/**
+ * Worker script and WASM cores are served from our origin (copied by
+ * scripts/copy-tesseract.mjs), not Tesseract's default jsDelivr URLs, so script-src stays
+ * 'self'. A plain worker URL (no blob: wrapper) gives the worker its own CSP from next.config.
+ * Language data still comes from jsDelivr: it's data, not code, and cached in IndexedDB.
+ */
+export const TESSERACT_PATHS = {
+  workerPath: '/tesseract/worker.min.js',
+  corePath: '/tesseract',
+  workerBlobURL: false,
+};
+
 let worker: TesseractWorker | null = null;
 let workerLangs = '';
 let workerPromise: Promise<TesseractWorker> | null = null;
@@ -22,7 +34,7 @@ async function getWorker(langs: string[]): Promise<TesseractWorker> {
       await worker.reinitialize(key);
       return worker;
     }
-    worker = await createWorker(key);
+    worker = await createWorker(key, undefined, TESSERACT_PATHS);
     return worker;
   })();
 
