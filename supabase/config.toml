@@ -1,3 +1,8 @@
+# This file is pushed to the production project by the Supabase GitHub integration on merge to
+# main. Before changing anything here, run
+#   npx supabase@2.119.0 config diff --project-ref lxkumtbutolgbjwnavih
+# and make sure the only differences are the intended ones.
+#
 # For detailed configuration reference documentation, visit:
 # https://supabase.com/docs/guides/local-development/cli/config
 # A string used to distinguish different Supabase projects on the same host. Defaults to the
@@ -51,9 +56,9 @@ port = 54329
 # Configure one of the supported pooler modes: `transaction`, `session`.
 pool_mode = "transaction"
 # How many server connections to allow per user/database pair.
-default_pool_size = 20
+default_pool_size = 15
 # Maximum number of client connections allowed.
-max_client_conn = 100
+max_client_conn = 200
 
 # [db.vault]
 # secret_key = "env(SECRET_VALUE)"
@@ -137,7 +142,7 @@ enabled = true
 # Store analytical data in S3 for running ETL jobs over Iceberg Catalog
 # This feature is only available on the hosted platform.
 [storage.analytics]
-enabled = false
+enabled = true
 max_namespaces = 5
 max_tables = 10
 max_catalogs = 2
@@ -234,7 +239,7 @@ secure_password_change = false
 # Controls the minimum amount of time that must pass before sending another signup confirmation or password reset email.
 max_frequency = "60s"
 # Number of characters used in the email OTP. Must match Dashboard → Auth → Email provider.
-otp_length = 6
+otp_length = 8
 # Number of seconds before the email OTP expires (defaults to 1 hour). Must match Dashboard → Auth →
 # Email provider.
 otp_expiry = 3600
@@ -309,8 +314,8 @@ max_enrolled_factors = 10
 
 # Control MFA via App Authenticator (TOTP)
 [auth.mfa.totp]
-enroll_enabled = false
-verify_enabled = false
+enroll_enabled = true
+verify_enabled = true
 
 # Configure MFA via Phone Messaging
 [auth.mfa.phone]
