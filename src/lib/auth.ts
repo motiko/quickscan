@@ -95,8 +95,13 @@ export async function verifySignInCode(email: string, code: string): Promise<voi
   if (error) throw new AuthError(describeAuthError(error));
 }
 
-/** Sign out on this device only; documents stay on the device. */
+/**
+ * Sign out on this device only; documents stay on the device. The sync vault key is
+ * forgotten first, so an account signing in next can't use it.
+ */
 export async function signOut(): Promise<void> {
+  const { forgetVault } = await import('./vault-session');
+  await forgetVault();
   const supabase = await getSupabase();
   const { error } = await supabase.auth.signOut({ scope: 'local' });
   if (error) throw new AuthError(describeAuthError(error));
