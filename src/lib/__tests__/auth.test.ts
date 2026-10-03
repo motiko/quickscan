@@ -20,6 +20,9 @@ vi.mock('@/lib/supabase', () => ({
   getSupabase: async () => ({ auth }),
 }));
 
+const { forgetVault } = vi.hoisted(() => ({ forgetVault: vi.fn(async () => {}) }));
+vi.mock('@/lib/vault-session', () => ({ forgetVault }));
+
 import {
   AuthError,
   describeAuthError,
@@ -134,8 +137,10 @@ describe('sign-in actions', () => {
     await expect(verifySignInCode('me@example.com', '123456')).rejects.toThrow(/expired/);
   });
 
-  it('signs out on this device only', async () => {
+  it('signs out on this device only, forgetting the vault key first', async () => {
     await signOut();
+    expect(forgetVault).toHaveBeenCalledTimes(1);
     expect(auth.signOut).toHaveBeenCalledWith({ scope: 'local' });
+    expect(forgetVault.mock.invocationCallOrder[0]).toBeLessThan(auth.signOut.mock.invocationCallOrder[0]);
   });
 });
