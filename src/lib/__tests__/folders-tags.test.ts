@@ -177,6 +177,33 @@ describe('tags on documents', () => {
     await expect(renameTag('Home', ' ')).rejects.toThrow();
   });
 
+  it('lists tags without a unique-direction cursor (WebKit cannot open one on a multi-entry index)', async () => {
+    type OpenCursor = (this: IDBIndex, range?: IDBValidKey | IDBKeyRange | null, direction?: IDBCursorDirection) => IDBRequest;
+    const proto = IDBIndex.prototype;
+    const original: Record<'openCursor' | 'openKeyCursor', OpenCursor> = {
+      openCursor: proto.openCursor,
+      openKeyCursor: proto.openKeyCursor,
+    };
+    const refuseUnique = (method: 'openCursor' | 'openKeyCursor'): OpenCursor =>
+      function (this: IDBIndex, range, direction) {
+        if (direction === 'nextunique' || direction === 'prevunique') {
+          throw new DOMException('Unable to open cursor', 'UnknownError');
+        }
+        return original[method].call(this, range, direction);
+      };
+    proto.openCursor = refuseUnique('openCursor') as typeof proto.openCursor;
+    proto.openKeyCursor = refuseUnique('openKeyCursor') as typeof proto.openKeyCursor;
+    try {
+      await addDoc('d1', { tags: ['Work', 'Tax'] });
+      await addDoc('d2', { tags: ['tax', 'Home'] });
+      await addDoc('d3');
+      expect(await getAllTags()).toEqual(['Home', 'Tax', 'Work']);
+    } finally {
+      proto.openCursor = original.openCursor as typeof proto.openCursor;
+      proto.openKeyCursor = original.openKeyCursor as typeof proto.openKeyCursor;
+    }
+  });
+
   it('deletes a tag everywhere and keeps the documents', async () => {
     await addDoc('d1', { tags: ['Tax', 'Work'] });
     await addDoc('d2', { tags: ['tax'] });

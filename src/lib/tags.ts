@@ -83,9 +83,13 @@ export function suggestTags(
   return [...prefix, ...infix].slice(0, limit);
 }
 
-/** All tags in use, sorted. */
+/**
+ * All tags in use, sorted. Read with `keys()`, not `uniqueKeys()`: WebKit can't open a
+ * unique-direction cursor on a multi-entry index ("UnknownError: Unable to open cursor"), and
+ * the error took down every page that lists tags in Safari. `cleanTags` drops the duplicates.
+ */
 export async function getAllTags(): Promise<string[]> {
-  const keys = (await db.documents.orderBy('tags').uniqueKeys()) as string[];
+  const keys = (await db.documents.orderBy('tags').keys()) as string[];
   return cleanTags(keys);
 }
 
