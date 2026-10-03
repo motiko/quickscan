@@ -41,7 +41,7 @@ const gt = (a: StoredRow | WireLike, b: StoredRow | WireLike) =>
 
 type WireLike = { updatedAt: number; deviceId: string };
 
-export class FakeSupabase implements SupabaseLike {
+export class FakeSupabase {
   rows = new Map<string, StoredRow>();
   objects = new Map<string, Blob>();
   seq = 0;
@@ -147,7 +147,7 @@ export class FakeSupabase implements SupabaseLike {
       gt: (c: string, v: number) => (filters.gt.push([c, v]), builder),
       order: () => builder,
       limit: (n: number) => ((filters.limit = n), builder),
-      then: <T>(resolve: (v: ReturnType<typeof run>) => T, reject?: (e: unknown) => T) =>
+      then: (resolve?: (v: ReturnType<typeof run>) => unknown, reject?: (e: unknown) => unknown) =>
         Promise.resolve().then(run).then(resolve, reject),
     };
     if (table !== 'records') throw new Error(`unexpected table ${table}`);
@@ -178,6 +178,11 @@ export class FakeSupabase implements SupabaseLike {
       };
     },
   };
+
+  /** This fake as the client the sync backend expects. */
+  asClient(): SupabaseLike {
+    return this as unknown as SupabaseLike;
+  }
 
   get(kind: SyncKind, id: string, userId = this.userId): StoredRow | undefined {
     return this.rows.get(this.key(userId, kind, id));

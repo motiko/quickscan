@@ -30,7 +30,8 @@ import {
   mergeKey,
   putFileRef,
   RetryTracker,
-  setCursor,
+  cursorKey,
+  fileKey,
   type FileRef,
 } from './state';
 
@@ -373,10 +374,7 @@ async function pull(ctx: SyncContext, report: SyncReport, merge: boolean): Promi
     }
 
     const lastSeq = rows[rows.length - 1].seq;
-    await applyUntracked(async () => {
-      for (const item of decoded) await applyRow(ctx, item, merge, touched, report);
-      await setCursor(ctx.userId, lastSeq);
-    });
+    await applyBatch(ctx, decoded, merge, touched, report, lastSeq);
     cursor = lastSeq;
     if (rows.length < SYNC_BATCH_SIZE) break;
   }
@@ -384,73 +382,191 @@ async function pull(ctx: SyncContext, report: SyncReport, merge: boolean): Promi
   await normalizeDocuments(ctx, touched);
 }
 
-/** Runs inside applyUntracked: Dexie calls only. */
-async function applyRow(ctx: SyncContext, { row, value }: Decoded, merge: boolean, touched: Touched, report: SyncReport) {
-  const pending = await db.outbox.get([row.kind, row.id]);
+/** Pending changes to one table during a batch: id -> new value, or null for a delete. */
+class Working<T> {
+  private values = new Map<string, T | null>();
+  private dirty = new Set<string>();
+
+  load(entries: [string, T | undefined][]) {
+    for (const [id, value] of entries) if (value !== undefined && !this.values.has(id)) this.values.set(id, value);
+  }
+  get(id: string): T | undefined {
+    return this.values.get(id) ?? undefined;
+  }
+  set(id: string, value: T) {
+    this.values.set(id, value);
+    this.dirty.add(id);
+  }
+  delete(id: string) {
+    this.values.set(id, null);
+    this.dirty.add(id);
+  }
+  all(): T[] {
+    return [...this.values.values()].filter((v): v is T => v != null);
+  }
+  puts(): T[] {
+    return [...this.dirty].map((id) => this.values.get(id)).filter((v): v is T => v != null);
+  }
+  deletes(): string[] {
+    return [...this.dirty].filter((id) => this.values.get(id) === null);
+  }
+}
+
+interface BatchState {
+  documents: Working<ScannedDocument>;
+  pages: Working<Page>;
+  folders: Working<Folder>;
+  signatures: Working<Signature>;
+  settings: Working<{ key: string; value: unknown }>;
+  /** File refs by syncMeta key. */
+  refs: Working<FileRef>;
+  outbox: OutboxEntry[];
+}
+
+/**
+ * Apply one pulled batch in one untracked transaction: read what the rows touch, work out the
+ * result in memory, write it, save the cursor. Only direct Dexie calls inside the transaction:
+ * awaiting nested native async helpers can drop Dexie's transaction zone and commit it early.
+ */
+async function applyBatch(
+  ctx: SyncContext,
+  decoded: Decoded[],
+  merge: boolean,
+  touched: Touched,
+  report: SyncReport,
+  lastSeq: number
+): Promise<void> {
+  const idsOf = (kind: SyncKind) => decoded.filter((d) => d.row.kind === kind).map((d) => d.row.id);
+  const docIds = idsOf('document');
+  const pageIds = idsOf('page');
+  const folderIds = idsOf('folder');
+  const signatureIds = idsOf('signature');
+  const settingKeys = idsOf('settings');
+  const deletedDocIds = decoded.filter((d) => d.row.kind === 'document' && d.row.deleted).map((d) => d.row.id);
+  const pair = <T,>(ids: string[], values: (T | undefined)[]) => ids.map((id, i) => [id, values[i]] as [string, T | undefined]);
+  const refValue = (row: { value: unknown } | undefined) => row?.value as FileRef | undefined;
+
+  await applyUntracked(async () => {
+    const pending = await db.outbox.bulkGet(decoded.map((d) => [d.row.kind, d.row.id] as [SyncKind, string]));
+    const state: BatchState = {
+      documents: new Working(),
+      pages: new Working(),
+      folders: new Working(),
+      signatures: new Working(),
+      settings: new Working(),
+      refs: new Working(),
+      outbox: [],
+    };
+    state.documents.load(pair(docIds, await db.documents.bulkGet(docIds)));
+    state.pages.load(pair(pageIds, await db.pages.bulkGet(pageIds)));
+    const cascade = deletedDocIds.length > 0 ? await db.pages.where('documentId').anyOf(deletedDocIds).toArray() : [];
+    state.pages.load(cascade.map((p) => [p.id, p]));
+    state.folders.load(pair(folderIds, await db.folders.bulkGet(folderIds)));
+    state.signatures.load(pair(signatureIds, await db.signatures.bulkGet(signatureIds)));
+    state.settings.load(pair(settingKeys, await db.settings.bulkGet(settingKeys)));
+    const refKeys = [
+      ...[...pageIds, ...cascade.map((p) => p.id)].map((id) => fileKey('page', id)),
+      ...signatureIds.map((id) => fileKey('signature', id)),
+    ];
+    state.refs.load(pair(refKeys, (await db.syncMeta.bulkGet(refKeys)).map(refValue)));
+
+    decoded.forEach((item, i) => applyRow(ctx, item, pending[i], merge, state, touched, report));
+
+    await db.documents.bulkPut(state.documents.puts());
+    await db.documents.bulkDelete(state.documents.deletes());
+    await db.pages.bulkPut(state.pages.puts());
+    await db.pages.bulkDelete(state.pages.deletes());
+    await db.folders.bulkPut(state.folders.puts());
+    await db.folders.bulkDelete(state.folders.deletes());
+    await db.signatures.bulkPut(state.signatures.puts());
+    await db.signatures.bulkDelete(state.signatures.deletes());
+    await db.settings.bulkPut(state.settings.puts());
+    await db.settings.bulkDelete(state.settings.deletes());
+    await db.syncMeta.bulkPut(state.refs.puts().map((ref) => ({ key: fileKey(ref.kind, ref.id), value: ref })));
+    await db.syncMeta.bulkDelete(state.refs.deletes());
+    await db.outbox.bulkPut(state.outbox);
+    await db.syncMeta.put({ key: cursorKey(ctx.userId), value: lastSeq });
+  });
+}
+
+/** Last-write-wins for one pulled row against this device's pending change. Synchronous. */
+function applyRow(
+  ctx: SyncContext,
+  { row, value }: Decoded,
+  pending: OutboxEntry | undefined,
+  merge: boolean,
+  state: BatchState,
+  touched: Touched,
+  report: SyncReport
+) {
   if (pending && compareClock(pending.updatedAt, ctx.deviceId, row.updatedAt, row.deviceId) >= 0) {
     report.skipped++;
     return;
   }
   if (row.deleted) {
-    await applyTombstone(ctx, row, merge, touched, pending);
+    applyTombstone(ctx, row, merge, state, touched, pending);
   } else if (value) {
-    await applyUpsert(ctx, row, value, touched);
+    applyUpsert(ctx, row, value, state, touched);
   }
   report.applied++;
 }
 
-async function applyUpsert(ctx: SyncContext, row: RemoteRow, value: RecordPayload, touched: Touched) {
+function applyUpsert(ctx: SyncContext, row: RemoteRow, value: RecordPayload, state: BatchState, touched: Touched) {
   const { id } = row;
   switch (row.kind) {
     case 'document': {
       const p = value as DocumentPayload;
-      const existing = await db.documents.get(id);
-      const doc: ScannedDocument = defined({
+      const existing = state.documents.get(id);
+      state.documents.set(
         id,
-        name: p.name,
-        nameSource: p.nameSource,
-        folderId: p.folderId,
-        tags: p.tags,
-        summary: p.summary,
-        createdAt: p.createdAt,
-        updatedAt: p.updatedAt,
-        // Local-only and derived fields stay; derived ones are recomputed after the pull
-        pageCount: existing?.pageCount ?? 0,
-        searchText: existing?.searchText,
-        thumbnailBlob: existing?.thumbnailBlob,
-      });
-      await db.documents.put(doc);
+        defined({
+          id,
+          name: p.name,
+          nameSource: p.nameSource,
+          folderId: p.folderId,
+          tags: p.tags,
+          summary: p.summary,
+          createdAt: p.createdAt,
+          updatedAt: p.updatedAt,
+          // Local-only and derived fields stay; derived ones are recomputed after the pull
+          pageCount: existing?.pageCount ?? 0,
+          searchText: existing?.searchText,
+          thumbnailBlob: existing?.thumbnailBlob,
+        })
+      );
       touched.documents.add(id);
       return;
     }
     case 'page': {
       const p = value as PagePayload;
-      const existing = await db.pages.get(id);
-      await trackRemoteFile(ctx, 'page', id, p.file);
+      const existing = state.pages.get(id);
+      trackRemoteFile(ctx, state, 'page', id, p.file);
       const hasOcr = p.ocrText !== undefined || p.ocrInfo !== undefined;
-      const page: Page = defined({
+      state.pages.set(
         id,
-        documentId: p.documentId,
-        pageNumber: p.pageNumber,
-        corners: p.corners,
-        filter: p.filter,
-        rotation: p.rotation,
-        ocrText: p.ocrText,
-        ocrWords: p.ocrWords,
-        ocrLang: p.ocrLang,
-        ocrInfo: p.ocrInfo,
-        annotations: p.annotations,
-        createdAt: p.createdAt,
-        updatedAt: new Date(row.updatedAt),
-        // The original never syncs; it exists only on the device that captured the page.
-        // Until a changed image downloads, the previous one keeps showing.
-        originalBlob: existing?.originalBlob,
-        processedBlob: existing?.processedBlob,
-        // Pulled text is final; without any, leave local recognition as it was (the device that
-        // owns the image recognizes it and syncs the text)
-        ocrStatus: hasOcr ? 'done' : existing?.ocrStatus === 'done' ? undefined : existing?.ocrStatus,
-      });
-      await db.pages.put(page);
+        defined({
+          id,
+          documentId: p.documentId,
+          pageNumber: p.pageNumber,
+          corners: p.corners,
+          filter: p.filter,
+          rotation: p.rotation,
+          ocrText: p.ocrText,
+          ocrWords: p.ocrWords,
+          ocrLang: p.ocrLang,
+          ocrInfo: p.ocrInfo,
+          annotations: p.annotations,
+          createdAt: p.createdAt,
+          updatedAt: new Date(row.updatedAt),
+          // The original never syncs; it exists only on the device that captured the page.
+          // Until a changed image downloads, the previous one keeps showing.
+          originalBlob: existing?.originalBlob,
+          processedBlob: existing?.processedBlob,
+          // Pulled text is final; without any, leave local recognition as it was (the device
+          // that has the image recognizes it and syncs the text)
+          ocrStatus: hasOcr ? 'done' : existing?.ocrStatus === 'done' ? undefined : existing?.ocrStatus,
+        })
+      );
       if (existing && existing.documentId !== p.documentId) touched.documents.add(existing.documentId);
       touched.documents.add(p.documentId);
       touched.pages.add(id);
@@ -458,79 +574,87 @@ async function applyUpsert(ctx: SyncContext, row: RemoteRow, value: RecordPayloa
     }
     case 'folder': {
       const p = value as FolderPayload;
-      const folder: Folder = { id, name: p.name, createdAt: p.createdAt, updatedAt: new Date(row.updatedAt) };
-      await db.folders.put(folder);
+      state.folders.set(id, { id, name: p.name, createdAt: p.createdAt, updatedAt: new Date(row.updatedAt) });
       return;
     }
     case 'signature': {
       const p = value as SignaturePayload;
       const meta = { width: p.width, height: p.height, createdAt: p.createdAt };
-      const existing = await db.signatures.get(id);
-      if (existing) await db.signatures.put({ ...existing, ...meta });
+      const existing = state.signatures.get(id);
+      if (existing) state.signatures.set(id, { ...existing, ...meta });
       // A signature can't exist without its image: a new one waits in its file ref
-      await trackRemoteFile(ctx, 'signature', id, p.file, existing ? undefined : meta);
+      trackRemoteFile(ctx, state, 'signature', id, p.file, existing ? undefined : meta);
       return;
     }
     case 'settings': {
       if (!SYNCED_SETTING_KEYS.includes(id)) return;
-      await db.settings.put({ key: id, value: (value as SettingsPayload).value });
+      state.settings.set(id, { key: id, value: (value as SettingsPayload).value });
       return;
     }
   }
 }
 
 /** Point the record's file ref at the pulled file; a new file id means a download is due. */
-async function trackRemoteFile(
+function trackRemoteFile(
   ctx: SyncContext,
+  state: BatchState,
   kind: FileRef['kind'],
   id: string,
   file: FileRefPayload | undefined,
   pendingSignature?: FileRef['pendingSignature']
 ) {
-  const ref = await getFileRef(kind, id);
+  const key = fileKey(kind, id);
+  const ref = state.refs.get(key);
   if (!file) {
-    if (ref) await deleteFileRef(kind, id);
+    if (ref) state.refs.delete(key);
     return;
   }
   if (ref && ref.userId === ctx.userId && ref.fileId === file.id) {
-    if (pendingSignature && !ref.downloaded) await putFileRef({ ...ref, pendingSignature });
+    if (pendingSignature && !ref.downloaded) state.refs.set(key, { ...ref, pendingSignature });
     return;
   }
-  await putFileRef(
+  state.refs.set(
+    key,
     defined({ kind, id, userId: ctx.userId, fileId: file.id, type: file.type, downloaded: false, pendingSignature })
   );
 }
 
-async function localExists(kind: SyncKind, id: string): Promise<boolean> {
+function localRecord(state: BatchState, kind: SyncKind, id: string): unknown {
   switch (kind) {
     case 'document':
-      return (await db.documents.get(id)) !== undefined;
+      return state.documents.get(id);
     case 'page':
-      return (await db.pages.get(id)) !== undefined;
+      return state.pages.get(id);
     case 'folder':
-      return (await db.folders.get(id)) !== undefined;
+      return state.folders.get(id);
     case 'signature':
-      return (await db.signatures.get(id)) !== undefined;
+      return state.signatures.get(id);
     case 'settings':
-      return (await db.settings.get(id)) !== undefined;
+      return state.settings.get(id);
     default:
-      return false;
+      return undefined;
   }
 }
 
-async function applyTombstone(
+function dropRef(state: BatchState, kind: FileRef['kind'], id: string) {
+  const key = fileKey(kind, id);
+  if (state.refs.get(key)) state.refs.delete(key);
+}
+
+function applyTombstone(
   ctx: SyncContext,
   row: RemoteRow,
   merge: boolean,
+  state: BatchState,
   touched: Touched,
   pending: OutboxEntry | undefined
 ) {
   const { kind, id } = row;
-  if (merge && (await localExists(kind, id))) {
+  if (merge && localRecord(state, kind, id) !== undefined) {
     // First sync with this account deletes nothing: keep the local record and queue it with
     // a clock newer than the tombstone, which brings it back on the server too.
-    const hasFile = kind === 'page' ? (await db.pages.get(id))?.processedBlob != null : kind === 'signature';
-    await db.outbox.put({
+    const hasFile = kind === 'page' ? state.pages.get(id)?.processedBlob != null : kind === 'signature';
+    state.outbox.push({
       kind,
       id,
       op: 'upsert',
@@ -544,29 +668,30 @@ async function applyTombstone(
   switch (kind) {
     case 'document': {
       // Cascade like deleteDocument: the document's pages go with it
-      const pageIds = (await db.pages.where('documentId').equals(id).primaryKeys()) as string[];
-      await db.pages.bulkDelete(pageIds);
-      for (const pageId of pageIds) await deleteFileRef('page', pageId);
-      await db.documents.delete(id);
+      state.documents.delete(id);
+      for (const page of state.pages.all().filter((p) => p.documentId === id)) {
+        state.pages.delete(page.id);
+        dropRef(state, 'page', page.id);
+      }
       return;
     }
     case 'page': {
-      const page = await db.pages.get(id);
-      await db.pages.delete(id);
-      await deleteFileRef('page', id);
+      const page = state.pages.get(id);
+      state.pages.delete(id);
+      dropRef(state, 'page', id);
       if (page) touched.documents.add(page.documentId);
       return;
     }
     case 'folder':
       // Documents still pointing at it count as unfiled; the deleting device unfiles them too
-      await db.folders.delete(id);
+      state.folders.delete(id);
       return;
     case 'signature':
-      await db.signatures.delete(id);
-      await deleteFileRef('signature', id);
+      state.signatures.delete(id);
+      dropRef(state, 'signature', id);
       return;
     case 'settings':
-      if (SYNCED_SETTING_KEYS.includes(id)) await db.settings.delete(id);
+      if (SYNCED_SETTING_KEYS.includes(id)) state.settings.delete(id);
       return;
   }
 }
@@ -648,9 +773,13 @@ async function downloadFiles(ctx: SyncContext, report: SyncReport): Promise<void
   }
 }
 
-/** Runs inside applyUntracked. Returns the page that got its image, if any. */
+/**
+ * Runs inside applyUntracked. Returns the page that got its image, if any. Direct Dexie calls
+ * only (see applyBatch).
+ */
 async function storeDownloadedFile(ref: FileRef, blob: Blob, sha256: string): Promise<Page | null> {
-  const current = await getFileRef(ref.kind, ref.id);
+  const key = fileKey(ref.kind, ref.id);
+  const current = (await db.syncMeta.get(key))?.value as FileRef | undefined;
   // Replaced or removed while downloading: the newer ref gets its own download
   if (!current || current.fileId !== ref.fileId || current.userId !== ref.userId) return null;
   const done: FileRef = { ...current, downloaded: true, sha256 };
@@ -659,11 +788,11 @@ async function storeDownloadedFile(ref: FileRef, blob: Blob, sha256: string): Pr
   if (ref.kind === 'page') {
     const page = await db.pages.get(ref.id);
     if (!page) {
-      await deleteFileRef('page', ref.id);
+      await db.syncMeta.delete(key);
       return null;
     }
     await db.pages.update(ref.id, { processedBlob: blob });
-    await putFileRef(done);
+    await db.syncMeta.put({ key, value: done });
     return { ...page, processedBlob: blob };
   }
 
@@ -674,10 +803,10 @@ async function storeDownloadedFile(ref: FileRef, blob: Blob, sha256: string): Pr
     const sig: Signature = { id: ref.id, blob, ...current.pendingSignature };
     await db.signatures.add(sig);
   } else {
-    await deleteFileRef('signature', ref.id);
+    await db.syncMeta.delete(key);
     return null;
   }
-  await putFileRef(done);
+  await db.syncMeta.put({ key, value: done });
   return null;
 }
 

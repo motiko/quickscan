@@ -1,4 +1,5 @@
-import { fromBase64, toBase64 } from '@/lib/crypto/encoding';
+import { toBase64 } from '@/lib/crypto/encoding';
+import { fromBytea } from '@/lib/bytea';
 import type { SyncKind } from '@/lib/outbox';
 
 /*
@@ -137,15 +138,9 @@ export function parseTimestamp(text: string): number {
   return ms;
 }
 
-/** PostgREST returns bytea as `\x` + hex. */
+/** PostgREST returns bytea as `\x` + hex (see lib/bytea.ts). */
 export function parseBytea(text: string | null | undefined): Uint8Array | null {
-  if (text == null) return null;
-  if (!text.startsWith('\\x')) return fromBase64(text);
-  const hex = text.slice(2);
-  if (hex.length % 2 !== 0 || /[^0-9a-f]/i.test(hex)) throw new SyncBackendError('Invalid bytea from server');
-  const out = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  return out;
+  return text == null ? null : fromBytea(text);
 }
 
 export function toWireRow(row: PushRow): Record<string, unknown> {

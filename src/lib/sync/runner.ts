@@ -4,6 +4,7 @@ import { getDeviceId } from '@/lib/outbox';
 import { getAuthState, subscribeAuth, type AuthState } from '@/lib/auth';
 import { getSupabase, isSupabaseConfigured } from '@/lib/supabase';
 import { loadVaultKey, type VaultKey } from '@/lib/crypto';
+import { VAULT_CHANGED_EVENT } from '@/lib/vault-session';
 import type { Page } from '@/types';
 import { createSupabaseBackend, SyncBackendError, type SupabaseLike, type SyncBackend } from './backend';
 import { runSync, SyncError, type SyncReport } from './engine';
@@ -19,7 +20,7 @@ import { getSyncStatus, setSyncStatus } from './status';
  * device; otherwise the status says why and nothing is sent.
  */
 
-export const VAULT_CHANGED_EVENT = 'quickscan:vault-changed';
+export { VAULT_CHANGED_EVENT };
 export const LOCAL_CHANGE_DELAY_MS = 5_000;
 export const PERIODIC_SYNC_MS = 5 * 60_000;
 const FOCUS_MIN_INTERVAL_MS = 10_000;
@@ -29,7 +30,8 @@ export interface SyncEnvironment {
   getAuth(): AuthState;
   subscribeAuth(listener: () => void): () => void;
   getBackend(): Promise<SyncBackend>;
-  loadKey(): Promise<VaultKey | null>;
+  /** The vault key, only if it belongs to this account. */
+  loadKey(userId: string): Promise<VaultKey | null>;
   getDeviceId(): Promise<string>;
   now(): number;
   isOnline(): boolean;
@@ -45,12 +47,18 @@ async function defaultThumbnail(page: Page): Promise<Blob> {
   return createThumbnail(await getRenderedBlob(page));
 }
 
+/** The stored vault key if `vaultOwner` (set by vault-session.ts) says it's this account's. */
+async function loadOwnVaultKey(userId: string): Promise<VaultKey | null> {
+  const owner = (await db.syncMeta.get('vaultOwner'))?.value;
+  return owner === userId ? loadVaultKey() : null;
+}
+
 const defaultEnvironment: SyncEnvironment = {
   isConfigured: isSupabaseConfigured,
   getAuth: getAuthState,
   subscribeAuth,
   getBackend: async () => createSupabaseBackend((await getSupabase()) as unknown as SupabaseLike),
-  loadKey: loadVaultKey,
+  loadKey: loadOwnVaultKey,
   getDeviceId,
   now: () => Date.now(),
   isOnline: () => typeof navigator === 'undefined' || navigator.onLine !== false,
@@ -118,7 +126,7 @@ export async function syncOnce(): Promise<SyncReport | null> {
     setSyncStatus({ state: 'offline', message: 'Offline. Changes sync when you’re back online.' });
     return null;
   }
-  const vault = await env.loadKey();
+  const vault = await env.loadKey(auth.user.id);
   if (!vault) {
     setSyncStatus({ state: 'locked', message: 'Set up sync in Settings to back up your documents.' });
     return null;

@@ -48,13 +48,13 @@ All changes must go through the Pull Request flow:
 
 ## Project Overview
 
-QuickScan is a **mobile-first PWA** for scanning documents using the phone camera. It is built with **Next.js 16 (App Router)** and is **local-first** — all document storage uses **IndexedDB** via Dexie.js and the app is fully usable without an account or network. The only backend is **Supabase** (Auth now; Postgres + Storage for sync later), and it is optional: builds without Supabase env vars hide every account feature.
+QuickScan is a **mobile-first PWA** for scanning documents using the phone camera. It is built with **Next.js 16 (App Router)** and is **local-first** — all document storage uses **IndexedDB** via Dexie.js and the app is fully usable without an account or network. The only backend is **Supabase** (Auth, plus Postgres + Storage as an end-to-end-encrypted sync replica), and it is optional: builds without Supabase env vars hide every account feature.
 
 ## Architecture Principles
 
 ### Client-Side First
 - **No server-side state in Next.js.** Everything runs in the browser. Pages are static or client-rendered. The only route handler is the stateless `/api/llm` proxy; don't add Next.js API routes for app data — talk to Supabase from the client instead.
-- **IndexedDB is the database.** Use Dexie.js for all persistent storage. Store binary data as `Blob` objects, never as Base64 strings. Supabase (when it arrives for sync) is a replica, never the source the UI reads from.
+- **IndexedDB is the database.** Use Dexie.js for all persistent storage. Store binary data as `Blob` objects, never as Base64 strings. Supabase is a sync replica, never the source the UI reads from.
 
 ### Accounts & Supabase
 - **Optional, always.** Check `isSupabaseConfigured()` / `useAuth().status === 'disabled'` and render nothing account-related when it's off. Scanning, OCR, export and everything local must never require signing in.
@@ -67,6 +67,7 @@ QuickScan is a **mobile-first PWA** for scanning documents using the phone camer
 - **End-to-end encrypted:** all synced payloads and files are encrypted on the device with `src/lib/crypto` before they leave it. Never send plaintext user content, keys or the recovery key to Supabase (or log them), never derive keys from the emailed sign-in code, and never roll your own primitives beyond WebCrypto.
 - **Vault state:** read it with `useVault()` / `getVaultStatus()` from `src/lib/vault-session.ts`, and listen for the `quickscan:vault-changed` window event (dispatched on every unlock, creation and clear) rather than polling. The recovery key lives only in component state while its dialog is open. Sign-out (`signOut` in `auth.ts`) forgets the vault key on the device; documents stay.
 - **`bytea` via PostgREST** is `'\x' + hex` both ways — use `toBytea`/`fromBytea` from `src/lib/bytea.ts`. Plain hex or a `Uint8Array` is silently stored as the wrong bytes.
+- **Sync engine (`src/lib/sync/`):** Dexie is the source of truth; the server is an encrypted replica. Local code never talks to sync directly — it writes Dexie and the outbox records the change. Everything the engine writes locally (pulled records, downloaded images, renumbering, derived fields) goes through `applyUntracked`, inside which only direct Dexie calls may be awaited (nested native async helpers lose Dexie's transaction zone). Payloads go through `encryptRecord` and files through `encryptFile` — never plaintext. Last write wins per record by `(updatedAt, deviceId)`; a tombstone is a write. Original images never leave the device, so pages from another device have no `originalBlob` and, until it downloads, no `processedBlob` either: use `pageImage`/`requirePageImage` from `lib/page-image.ts` instead of `page.processedBlob || page.originalBlob`. To make a run happen call `requestSync()`; never block the UI on it.
 - **Sync-friendly data:** new Dexie records use client-generated string IDs and `createdAt`/`updatedAt`, so they can be replicated later without migrations. Local changes to synced tables are recorded in the `outbox` automatically (see Data Model); a new synced table or local-only field goes in `TRACKED_TABLES` in `lib/sync-tracking.ts`.
 - **Web Workers for heavy computation.** All OpenCV.js / image processing runs in Web Workers to keep the UI thread responsive.
 
@@ -169,9 +170,9 @@ Folders are flat. Deleting a folder keeps its documents and unfiles them.
 }
 ```
 
-### Sync bookkeeping (no network yet)
+### Sync bookkeeping
 - `outbox` — one pending change per synced record, keyed `[kind+id]` (`kind`: document, page, folder, signature, settings): `op` `'upsert' | 'delete'`, `updatedAt` (epoch ms of the latest local write — the last-write-wins clock), `fileChanged`, `rev`. A `'delete'` entry is the tombstone. Filled by the `syncTrackingMiddleware` in `lib/sync-tracking.ts` for **every** write in any read-write transaction — don't enqueue by hand. Writes that only touch local-only fields (thumbnails, `originalBlob`, `ocrStatus`) and settings other than `ocrLanguages` aren't recorded.
-- `syncMeta` — device-local sync state (device id); never syncs.
+- `syncMeta` — device-local sync state, never synced: device id, vault key and owner, and the engine's `sync:*` keys (last account, pull cursor per account, merge flag, record → remote file id / MIME / SHA-256 mappings).
 - `lib/outbox.ts` is the API for the sync engine: `readOutbox`, `getOutboxEntry`, `ackOutbox`, `applyUntracked` (writes pulled remote changes without re-queueing them), `getDeviceId`.
 
 > **Important:** Always store images as `Blob` objects in IndexedDB, never as Base64 strings. Base64 adds 33% size overhead and causes GC spikes on mobile.
