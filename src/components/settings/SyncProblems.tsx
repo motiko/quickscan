@@ -80,7 +80,7 @@ export function SyncProblems() {
     const confirmed = await confirmDialog({
       title: 'Unlock sync again?',
       message:
-        'This device stops syncing until you unlock it with your recovery key or a code from another device. Your documents stay on this device.',
+        'This device stops syncing until you unlock it again with your recovery key, a passkey or a code from another device. Your documents stay on this device.',
       confirmLabel: 'Unlock again',
     });
     if (confirmed) await forgetVault();
@@ -92,7 +92,7 @@ export function SyncProblems() {
     <div className="mt-1 space-y-1" aria-live="polite">
       {status.code === 'key-mismatch' && (
         <button onClick={() => void unlockAgain()} className={linkButtonClass}>
-          Unlock with recovery key
+          Unlock sync again
         </button>
       )}
       {problems.length > 0 && (
