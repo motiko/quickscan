@@ -1,6 +1,6 @@
 'use client';
 
-import { useId, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { getSettings, updateSettings } from '@/lib/settings';
 import { resolveLlmConfig } from '@/lib/llm/client';
 import { resolveModel } from '@/lib/llm/models';
@@ -178,7 +178,8 @@ async function updateEndpoint(changes: Partial<CustomLlmEndpoint>) {
 
 type Detection =
   | { state: 'idle' }
-  | { state: 'detecting' }
+  /** `models` is the previous list, kept in the picker while the endpoint is asked again. */
+  | { state: 'detecting'; models: string[] }
   | { state: 'found'; schema: LlmApiSchema; models: string[] }
   | { state: 'failed' };
 
@@ -188,16 +189,18 @@ async function detectAndSaveEndpoint(): Promise<Detection> {
   if (!endpoint.baseUrl.trim()) return { state: 'idle' };
   const detected = await detectEndpoint(endpoint.baseUrl, endpoint.apiKey);
   if (!detected) {
-    await updateEndpoint({ schema: guessSchema(endpoint.baseUrl) });
+    const schema = guessSchema(endpoint.baseUrl);
+    if (schema !== endpoint.schema) await updateEndpoint({ schema });
     return { state: 'failed' };
   }
   // Re-read in case a model was typed while detecting
   const { llmCustomEndpoint: current } = await getSettings();
-  await updateEndpoint({
-    baseUrl: detected.baseUrl,
-    schema: detected.schema,
-    ...(!current.model.trim() && detected.models.length > 0 ? { model: detected.models[0] } : {}),
-  });
+  const changes: Partial<CustomLlmEndpoint> = {};
+  if (detected.baseUrl !== current.baseUrl) changes.baseUrl = detected.baseUrl;
+  if (detected.schema !== current.schema) changes.schema = detected.schema;
+  if (!current.model.trim() && detected.models.length > 0) changes.model = detected.models[0];
+  // Only write what changed: this also runs when Settings opens, which must not touch the outbox
+  if (Object.keys(changes).length > 0) await updateEndpoint(changes);
   return { state: 'found', schema: detected.schema, models: detected.models };
 }
 
@@ -229,6 +232,11 @@ function HostedProviderFields({ provider, settings }: { provider: (typeof HOSTED
   );
 }
 
+/** The models to offer in the picker: the listed ones, or the previous list while re-detecting. */
+function detectedModels(detection: Detection): string[] {
+  return detection.state === 'found' || detection.state === 'detecting' ? detection.models : [];
+}
+
 function CustomEndpointFields({
   endpoint,
   detection,
@@ -236,8 +244,12 @@ function CustomEndpointFields({
 }: {
   endpoint: CustomLlmEndpoint;
   detection: Detection;
-  onDetect: () => Promise<unknown>;
+  /** Lists the endpoint's models again; `keepModels` leaves the current list in place meanwhile. */
+  onDetect: (options?: { keepModels?: boolean }) => Promise<unknown>;
 }) {
+  const models = detectedModels(detection);
+  const refreshable = endpoint.baseUrl.trim() !== '' && detection.state !== 'detecting';
+
   return (
     <>
       <DraftTextField
@@ -253,10 +265,22 @@ function CustomEndpointFields({
       />
       {detection.state !== 'idle' && (
         <p className="-mt-1 text-xs text-gray-500 dark:text-gray-400">
-          {detection.state === 'detecting' && 'Detecting API…'}
+          {detection.state === 'detecting' && (detection.models.length > 0 ? 'Refreshing models…' : 'Detecting API…')}
           {detection.state === 'found' &&
             `${SCHEMA_LABELS[detection.schema]} API · ${detection.models.length} model${detection.models.length === 1 ? '' : 's'}`}
           {detection.state === 'failed' && 'Could not list models. Check the URL and API key, or enter a model.'}
+          {refreshable && (
+            <>
+              {' · '}
+              <button
+                type="button"
+                onClick={() => void onDetect({ keepModels: true })}
+                className="font-medium text-blue-600 dark:text-blue-400"
+              >
+                Refresh
+              </button>
+            </>
+          )}
         </p>
       )}
       <DraftTextField
@@ -266,11 +290,11 @@ function CustomEndpointFields({
         placeholder="Not needed for local Ollama"
         onSave={async (v) => {
           await updateEndpoint({ apiKey: v });
-          void onDetect();
+          void onDetect({ keepModels: true });
         }}
       />
-      {detection.state === 'found' && detection.models.length > 0 ? (
-        <ModelSelect value={endpoint.model} models={detection.models} onSave={(v) => updateEndpoint({ model: v })} />
+      {models.length > 0 ? (
+        <ModelSelect value={endpoint.model} models={models} onSave={(v) => updateEndpoint({ model: v })} />
       ) : (
         <DraftTextField
           label="Model"
@@ -326,13 +350,30 @@ export function AiProviderSettings({ settings }: { settings: AppSettings }) {
     void updateSettings(changes);
   };
 
-  const detect = async () => {
+  const detect = async ({ keepModels = false }: { keepModels?: boolean } = {}) => {
     setTestResult(null);
-    setDetection({ state: 'detecting' });
+    setDetection((previous) => ({ state: 'detecting', models: keepModels ? detectedModels(previous) : [] }));
     const result = await detectAndSaveEndpoint();
     setDetection(result);
     return result;
   };
+
+  // List the saved endpoint's models when Settings opens, so the picker isn't only there
+  // right after the URL was typed. Until the list arrives the model shows in a text field.
+  const customSelected = settings.llmProvider === 'custom';
+  const savedBaseUrl = settings.llmCustomEndpoint.baseUrl.trim();
+  useEffect(() => {
+    if (!customSelected || !savedBaseUrl) return;
+    let cancelled = false;
+    void detectAndSaveEndpoint().then((result) => {
+      if (!cancelled) setDetection(result);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // Re-run only when the custom option is picked; URL and key edits trigger `detect` themselves
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customSelected]);
 
   const handleTestConnection = async () => {
     // Let a focused field save its value first
