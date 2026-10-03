@@ -39,6 +39,15 @@ test.describe('Document naming', () => {
     await expect(page.getByText('OpenAI Chat Completions API · 2 models')).toBeVisible();
     await expect(page.getByLabel('Endpoint URL', { exact: true })).toHaveValue('https://llm.example.test/v1');
     await expect(page.getByLabel('Model', { exact: true })).toHaveValue('test/model');
+    // Models are listed in a picker, and listed again when Settings is opened later
+    await expect(page.getByRole('combobox', { name: 'Model', exact: true }).locator('option')).toContainText(['test/model', 'other/model', 'Other…']);
+    await page.reload();
+    await expect(page.getByText('OpenAI Chat Completions API · 2 models')).toBeVisible();
+    await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveValue('test/model');
+    await page.getByRole('combobox', { name: 'Model', exact: true }).selectOption('other/model');
+    // The provider row shows the saved model
+    await expect(page.getByRole('radio', { name: 'Custom endpoint other/model' })).toBeChecked();
+    await page.getByRole('combobox', { name: 'Model', exact: true }).selectOption('test/model');
     await page.getByRole('button', { name: 'Test connection' }).click();
     await expect(page.getByRole('status')).toContainText('Works with test/model! Sample title: “Rechnung ACME September 2026”');
     expect(requestBody!.model).toBe('test/model');
