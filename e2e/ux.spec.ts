@@ -106,6 +106,97 @@ async function lowContrastText(page: Page) {
   });
 }
 
+/** UX-008: 12 × Tab and 12 × Shift+Tab never move focus out of `layer`. */
+async function expectFocusTrapped(page: Page, layer: Locator) {
+  const escaped: string[] = [];
+  for (const key of [...Array<string>(12).fill('Tab'), ...Array<string>(12).fill('Shift+Tab')]) {
+    await page.keyboard.press(key);
+    const outside = await layer.evaluate((s) => {
+      const el = document.activeElement;
+      if (!el || el === document.body || s.contains(el)) return null;
+      return el.getAttribute('aria-label') || (el as HTMLElement).innerText?.trim().slice(0, 30) || el.tagName;
+    });
+    if (outside) escaped.push(`${key}: ${outside}`);
+  }
+  expect(escaped, 'focus never leaves the layer').toEqual([]);
+}
+
+/**
+ * UX-008: opening `layer` from `opener` with the keyboard moves focus into it, it's modal,
+ * Tab and Shift+Tab never reach what's underneath, and closing it (Escape by default) gives focus
+ * back: to the opener, or to `returnsTo` when the opener goes away.
+ */
+async function expectModalFocus(
+  page: Page,
+  opener: Locator,
+  layer: Locator,
+  { close, returnsTo = opener }: { close?: () => Promise<void>; returnsTo?: Locator } = {}
+) {
+  await opener.focus();
+  await page.keyboard.press('Enter');
+  await expect(layer).toBeVisible();
+  await expect(layer).toHaveAttribute('aria-modal', 'true');
+  expect(await layer.evaluate((s) => s.contains(document.activeElement)), 'focus moves into the layer').toBe(true);
+  await expectFocusTrapped(page, layer);
+  await (close ? close() : page.keyboard.press('Escape'));
+  await expect(layer).not.toBeVisible();
+  await expect(returnsTo).toBeFocused();
+}
+
+test.describe('Gallery', () => {
+  test.beforeEach(async ({ page, browserName }) => {
+    test.skip(browserName === 'webkit', "Playwright's WebKit can't store Blobs in IndexedDB");
+    await hideDevOverlay(page);
+    await resetDatabase(page);
+  });
+
+  test('UX-008: the "Folders & tags" sheet takes focus, keeps it, and gives it back when it closes', async ({ page }) => {
+    await seedPages(page, { pages: 1, text: 'Invoice', tags: ['insurance'] });
+    await page.goto('/');
+    await page.addStyleTag({ content: '*,*::before,*::after{transition:none!important;animation:none!important}' });
+    await expectModalFocus(
+      page,
+      page.getByRole('button', { name: 'Manage folders and tags' }),
+      page.getByRole('dialog', { name: 'Folders & tags' })
+    );
+  });
+
+  test('UX-008: a rename dialog over the "Folders & tags" sheet is modal and gives focus back to Rename', async ({ page }) => {
+    await seedPages(page, { pages: 1, text: 'Invoice', tags: ['insurance', 'receipts'] });
+    await page.goto('/');
+    await page.addStyleTag({ content: '*,*::before,*::after{transition:none!important;animation:none!important}' });
+    await page.getByRole('button', { name: 'Manage folders and tags' }).click();
+    const sheet = page.getByRole('dialog', { name: 'Folders & tags' });
+    await expectModalFocus(
+      page,
+      sheet.getByRole('button', { name: 'Rename tag insurance' }),
+      page.getByRole('dialog', { name: 'Rename tag' })
+    );
+    // Closing the dialog leaves the sheet modal
+    await expectFocusTrapped(page, sheet);
+  });
+
+  test('UX-008: after a delete confirm, focus moves to what took the deleted row’s place', async ({ page }) => {
+    await seedPages(page, { pages: 1, text: 'Invoice', tags: ['insurance', 'receipts'] });
+    await page.goto('/');
+    await page.addStyleTag({ content: '*,*::before,*::after{transition:none!important;animation:none!important}' });
+    await page.getByRole('button', { name: 'Manage folders and tags' }).click();
+    const sheet = page.getByRole('dialog', { name: 'Folders & tags' });
+    const confirmFirst = page.getByRole('alertdialog', { name: /insurance/ });
+    await expectModalFocus(page, sheet.getByRole('button', { name: 'Delete tag insurance' }), confirmFirst, {
+      close: () => confirmFirst.getByRole('button', { name: 'Delete' }).click(),
+      returnsTo: sheet.getByRole('button', { name: 'Delete tag receipts' }),
+    });
+    // The last tag: its list is gone, so focus stays in the sheet instead of falling to the page
+    const confirmLast = page.getByRole('alertdialog', { name: /receipts/ });
+    await expectModalFocus(page, sheet.getByRole('button', { name: 'Delete tag receipts' }), confirmLast, {
+      close: () => confirmLast.getByRole('button', { name: 'Delete' }).click(),
+      returnsTo: sheet.getByRole('button', { name: 'New folder' }),
+    });
+    await expectFocusTrapped(page, sheet);
+  });
+});
+
 test.describe('Document page', () => {
   test.beforeEach(async ({ page, browserName }) => {
     test.skip(browserName === 'webkit', "Playwright's WebKit can't store Blobs in IndexedDB");
@@ -177,6 +268,32 @@ test.describe('Document page', () => {
     await page.keyboard.press('Escape');
     await expect(viewer).not.toBeVisible();
     await expect(thumbnail).toBeFocused();
+  });
+
+  for (const sheetCase of [
+    { name: 'document', opener: 'Show text of all pages' },
+    { name: 'page', opener: 'Show page text' },
+  ] as const) {
+    test(`UX-008: the ${sheetCase.name} Text sheet takes focus, keeps it, and gives it back when it closes`, async ({ page }) => {
+      await seedPages(page, { pages: 2, text: 'Invoice' });
+      await openDocument(page);
+      if (sheetCase.name === 'page') await page.getByRole('button', { name: 'Open page 1' }).click();
+      await expectModalFocus(
+        page,
+        page.getByRole('button', { name: sheetCase.opener }),
+        page.getByRole('dialog', { name: 'Recognized text' })
+      );
+    });
+  }
+
+  test('UX-008: the "Move to folder" sheet takes focus, keeps it, and gives it back when it closes', async ({ page }) => {
+    await seedPages(page, { pages: 1, text: 'Invoice' });
+    await openDocument(page);
+    await expectModalFocus(
+      page,
+      page.getByRole('button', { name: /^Folder: Unfiled/ }),
+      page.getByRole('dialog', { name: 'Move to folder' })
+    );
   });
 
   test('UX-009: header and toolbar actions show a text label', async ({ page }) => {

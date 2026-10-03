@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
   useDocument,
@@ -24,6 +24,7 @@ import { SummaryCard } from '@/components/documents/SummaryCard';
 import { DocumentOrganizer } from '@/components/documents/DocumentOrganizer';
 import { resolveLlmConfig } from '@/lib/llm/client';
 import { LiveTextIcon } from '@/components/ui/LiveTextIcon';
+import { ModalFocus } from '@/components/ui/ModalFocus';
 import { collectDocumentText } from '@/lib/ocr-text';
 import { getImageSize, getRenderedBlob } from '@/lib/annotations/flatten';
 import { rotateAnnotations90 } from '@/lib/annotations/geometry';
@@ -138,20 +139,20 @@ export default function DocumentViewer() {
 
   const selectedIndex = selectedPageId ? pages.findIndex((p) => p.id === selectedPageId) : -1;
   const selectedPage = selectedIndex >= 0 ? pages[selectedIndex] : null;
-  const viewerOpen = !!selectedPage;
 
-  // The viewer is a modal layer: focus moves into it, and back to the page's thumbnail when it closes
-  useEffect(() => {
-    if (viewerOpen) {
-      viewerCloseRef.current?.focus();
-    } else if (lastViewedPageId.current) {
-      window.document.querySelector<HTMLButtonElement>(`button[data-page-id="${lastViewedPageId.current}"]`)?.focus();
-      lastViewedPageId.current = null;
-    }
-  }, [viewerOpen]);
+  // The viewer is a modal layer (UX-008, <ModalFocus> inside it): focus moves into it, and back to
+  // the thumbnail of the page last shown when it closes
+  const viewerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (selectedPageId) lastViewedPageId.current = selectedPageId;
   }, [selectedPageId]);
+  const viewerReturnFocus = useCallback(
+    () =>
+      lastViewedPageId.current
+        ? window.document.querySelector<HTMLButtonElement>(`button[data-page-id="${lastViewedPageId.current}"]`)
+        : null,
+    []
+  );
   const selectedPageUrl = useRenderedPageUrl(selectedPage);
   const hasPrevPage = selectedIndex > 0;
   const hasNextPage = selectedIndex >= 0 && selectedIndex < pages.length - 1;
@@ -384,9 +385,6 @@ export default function DocumentViewer() {
 
   const ocrSettled = pages.length > 0 && pages.every((p) => p.ocrStatus === 'done' && hasPageImage(p));
   const showNoText = ocrSettled && !collectDocumentText(pages);
-  // While the viewer is open, everything under it is out of reach for focus and screen readers
-  const behindViewer = viewerOpen;
-
   const pageHasNoText =
     !!selectedPage && selectedPage.ocrStatus === 'done' && !selectedPage.ocrText?.trim() && hasPageImage(selectedPage);
   const viewerAction =
@@ -402,7 +400,6 @@ export default function DocumentViewer() {
     <div className="flex min-h-dvh flex-col bg-gray-50 dark:bg-neutral-950">
       {/* Top Header */}
       <header
-        inert={behindViewer}
         className="@container sticky top-0 z-30 bg-white dark:bg-neutral-900 pl-safe pr-safe pt-safe shadow-xs dark:shadow-none dark:border-b dark:border-neutral-800"
       >
         <div className="flex min-h-16 flex-wrap items-center gap-2 px-4 py-2">
@@ -476,7 +473,7 @@ export default function DocumentViewer() {
       </header>
 
       {/* Pages Grid */}
-      <main inert={behindViewer} className="mx-auto w-full max-w-2xl flex-1 py-4 px-safe-offset-4">
+      <main className="mx-auto w-full max-w-2xl flex-1 py-4 px-safe-offset-4">
         {isAddingPages && (
           <div
             className="mb-4 flex items-center gap-3 rounded-xl bg-blue-50 dark:bg-blue-950/60 px-4 py-3 text-sm font-medium text-blue-900 dark:text-blue-100"
@@ -505,7 +502,6 @@ export default function DocumentViewer() {
 
       {/* Bottom action bar: sticky at the end of the column, so the last page scrolls clear of it */}
       <div
-        inert={behindViewer}
         className="@container sticky bottom-0 z-20 border-t border-gray-200 dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-md px-safe-offset-3 pt-2 pb-safe-offset-2 shadow-lg"
       >
         <div role="group" aria-label="Document actions" className="mx-auto flex max-w-2xl items-stretch gap-1">
@@ -569,11 +565,13 @@ export default function DocumentViewer() {
       {/* Full Screen Page Viewer Modal */}
       {selectedPage && (
         <div
+          ref={viewerRef}
           role="dialog"
           aria-modal="true"
           aria-labelledby="page-viewer-title"
           className="fixed inset-0 z-50 flex flex-col bg-black/95 backdrop-blur-md select-none"
         >
+          <ModalFocus layer={viewerRef} initial={viewerCloseRef} returnFocus={viewerReturnFocus} />
           {/* Top modal header */}
           <div className="flex items-center justify-between px-safe-offset-4 pb-3 pt-safe-offset-3 bg-black/50">
             <h2 id="page-viewer-title" className="text-white text-sm font-semibold">
