@@ -6,7 +6,7 @@ Please report security issues privately to the repository owner ([@motiko](https
 
 ## Reviews
 
-- [Phase 5 pentest, October 2026](docs/security/pentest-2026-10.md) — RLS and Storage policies, `upsert_records`, auth, the E2EE layer, the web/CSP layer, dependencies, pairing and passkeys. No high/medium findings; one low-severity `/api/llm` proxy hardening fixed. Regression tests: `supabase/tests/pentest_test.sql`, `src/lib/__tests__/pentest-crypto.test.ts`, `src/lib/__tests__/llm-proxy-route.test.ts`.
+- [Phase 5 pentest, October 2026](docs/security/pentest-2026-10.md) — RLS and Storage policies, `upsert_records`, auth, the E2EE layer (including record payload v2, replay/downgrade refusal and conflicts), the web/CSP layer, dependencies, pairing and passkeys. No high findings. One medium finding, the unauthenticated tombstone noted below, is confirmed and needs a migration plus a phased rollout (design in the report); one low-severity `/api/llm` proxy issue was fixed. Regression tests: `supabase/tests/pentest_test.sql`, `src/lib/__tests__/pentest-crypto.test.ts`, `src/lib/__tests__/llm-proxy-route.test.ts`.
 
 ## Threat model
 
