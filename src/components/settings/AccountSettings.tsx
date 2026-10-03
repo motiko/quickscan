@@ -136,7 +136,10 @@ export function AccountSettings() {
     const removeSynced = await askRemoveOnSignOut(userId);
     setError(null);
     try {
-      await signOut();
+      const { keyForgotten } = await signOut();
+      if (!keyForgotten) {
+        setError('Signed out. This device’s sync key couldn’t be deleted yet; it’s unusable and will be deleted the next time QuickScan opens.');
+      }
     } catch (err) {
       setError(errorText(err));
       return;

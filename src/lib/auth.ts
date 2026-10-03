@@ -1,5 +1,9 @@
 import type { Session } from '@supabase/supabase-js';
 import { getSupabase, isSupabaseConfigured } from './supabase';
+import { withTimeout } from './timeout';
+
+/** Telling the server can hang on a bad connection; the user then gets an error instead. */
+const SIGN_OUT_TIMEOUT_MS = 15_000;
 
 export interface AuthUser {
   id: string;
@@ -120,12 +124,22 @@ export async function verifySignInCode(email: string, code: string): Promise<voi
 
 /**
  * Sign out on this device only; documents stay on the device. The sync vault key is
- * forgotten first, so an account signing in next can't use it.
+ * forgotten first, so an account signing in next can't use it: it stops counting at once and
+ * its deletion is waited for only briefly (`forgetVault`), so local storage that doesn't answer
+ * can't stop the sign-out. Resolves to whether the key is already deleted; if not, it is
+ * deleted on the next start, and no sync uses it meanwhile.
  */
-export async function signOut(): Promise<void> {
+export async function signOut(): Promise<{ keyForgotten: boolean }> {
   const { forgetVault } = await import('./vault-session');
-  await forgetVault();
+  const keyForgotten = await forgetVault();
   const supabase = await getSupabase();
-  const { error } = await supabase.auth.signOut({ scope: 'local' });
-  if (error) throw new AuthError(describeAuthError(error));
+  const { error } = await withTimeout(supabase.auth.signOut({ scope: 'local' }), SIGN_OUT_TIMEOUT_MS, 'Signing out');
+  if (error) {
+    // supabase-js drops the local session even when telling the server fails (offline); that
+    // is a completed sign-out on this device. Only a session that's still there is a failure.
+    const { data } = await supabase.auth.getSession();
+    if (data.session) throw new AuthError(describeAuthError(error));
+    console.warn('Signed out on this device; the server was not told', error);
+  }
+  return { keyForgotten };
 }
