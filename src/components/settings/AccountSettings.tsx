@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { AuthError, sendSignInCode, signOut, verifySignInCode } from '@/lib/auth';
 import { confirmDialog } from '@/lib/dialogs';
+import { SyncSettings } from './SyncSettings';
 
 const inputClass =
   'w-full rounded-lg border border-gray-300 dark:border-neutral-700 bg-white dark:bg-neutral-950 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none focus:border-blue-500';
@@ -124,7 +125,7 @@ export function AccountSettings() {
   const handleSignOut = async () => {
     const confirmed = await confirmDialog({
       title: 'Sign out on this device?',
-      message: 'Your documents stay on this device.',
+      message: 'Your documents stay on this device. To sync here again, you’ll need your recovery key.',
       confirmLabel: 'Sign out',
     });
     if (!confirmed) return;
@@ -161,6 +162,7 @@ export function AccountSettings() {
           </button>
         </div>
       )}
+      {auth.status === 'signed-in' && <SyncSettings email={auth.user.email} />}
       {error && <p role="alert" className="px-4 pb-3 text-xs text-red-600 dark:text-red-400">{error}</p>}
     </section>
   );

@@ -54,6 +54,7 @@ QuickScan is a mobile-first Progressive Web App (PWA) built with Next.js 16 (App
     - `document-filter.ts`: Pure gallery filtering by folder, tags (all must match) and search text.
     - `dialogs.ts`: `confirmDialog` / `alertDialog` / `promptDialog`, rendered by `DialogHost` in the root layout.
     - `supabase.ts` / `auth.ts`: Optional Supabase client (lazy, only when `NEXT_PUBLIC_SUPABASE_URL`/`_PUBLISHABLE_KEY` are set) and the auth store read via `useAuth` — passwordless sign-in with an emailed one-time code; the Account section in `/settings`.
+    - `vault-session.ts`: Whether this device holds the sync vault key (`useVault`: `disabled | signed-out | checking | no-vault | locked | unlocked | error`) and the vault flows behind the Sync area in `/settings` — turn on sync (recovery key shown once, `vault_keys` row 'recovery'), unlock with the recovery key, replace the recovery key. Every unlock/creation/clear dispatches `quickscan:vault-changed` on `window`; sign-out forgets the key. `bytea.ts`: `\x`-hex encoding for `bytea` columns via PostgREST.
 - `src/hooks/`: Shared React hooks for camera, database, and document state.
 - `supabase/`: CLI config, `migrations/` (applied to production on merge to `main`) and pgTAP tests in `tests/` (`npx supabase start`, then `npx supabase test db`; CI workflow `supabase.yml`). Sync schema: `records` (encrypted, LWW via `upsert_records`, pulled by `seq`), `vault_keys`, `pairing_requests`, private Storage bucket `vault`.
 
