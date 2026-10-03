@@ -90,6 +90,7 @@ QuickScan is a **mobile-first PWA** for scanning documents using the phone camer
 - **Design for phones first.** Touch targets ≥ 44px. Bottom-sheet patterns for actions. Thumb-zone-friendly layouts.
 - **Performance budgets matter.** Every KB counts on mobile. Lazy-load heavy dependencies (OpenCV.js, pdf-lib). Use dynamic imports.
 - **Test on real devices.** Chrome DevTools mobile emulation misses real camera, touch, and performance behaviors.
+- **Follow `docs/ux-rules.md`** for any UI change: UX and accessibility rules, each tied to the check that enforces it. The `ux-reviewer` agent audits UI, fixes issues and adds a rule with each fix.
 
 ### Progressive Enhancement
 - **Core flow works offline.** Scanning, saving, and exporting PDFs must work without network.
