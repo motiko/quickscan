@@ -160,10 +160,12 @@ src/
   - [x] User accounts — passwordless email-code sign-in via Supabase Auth (optional, invite-only)
   - [x] Cloud sync — end-to-end encrypted on the device; records in Supabase Postgres (row-level security per user, last-write-wins per record, tombstones for deletes) and images in Supabase Storage, with orphaned-file cleanup, sync problems in Settings and "remove synced documents from this device"
 - [x] **Phase 4:** OCR/text extraction, AI document naming, annotation
-- [ ] **Phase 5:** Security & robustness
-  - [ ] End-to-end encryption — documents and images encrypted on the device before upload; key recovery story
-  - [ ] Data consistency & conflict resolution — offline edits on several devices, tombstones for deletes, conflict UI where last-write-wins isn't enough
-  - [ ] Security hardening & pentesting — RLS/storage policy audit, CSP and headers, auth abuse (enumeration, rate limits), dependency audit, external penetration test
+- [x] **Phase 5:** Security & robustness
+  - [x] End-to-end encryption — documents and images encrypted on the device before upload; vault unlocked by recovery key, QR pairing or passkey
+  - [x] Data consistency & conflict resolution — conflicted-copy pages, replay protection, skew-tolerant clocks, account-switch prompt
+  - [x] Security hardening & pentesting — nonce CSP and headers, auth abuse review, dependency audit, internal pentest ([report](docs/security/pentest-2026-10.md))
+  - [x] Authenticated tombstones (the medium pentest finding): deletions are verified, unverified ones need your OK — done, pending the migration deploy
+  - [ ] Follow-ups: vault-key rotation, external penetration test
 
 ## 🤝 Contributing
 
