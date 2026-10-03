@@ -1,16 +1,15 @@
 import type Dexie from 'dexie';
 
 /*
- * Whether the local database could be opened, as a small store for useSyncExternalStore (read
- * it with `useDatabaseStatus()`; `<DatabaseGate/>` in the root layout shows anything but
- * 'opening'/'ready' full screen).
+ * Whether the local database could be opened, as a small store for useSyncExternalStore
+ * (`<DatabaseGate/>` in the root layout shows anything but 'opening'/'ready' full screen).
  *
  * Why this exists: a schema upgrade (db.version(n+1)) can only run once every other open
  * connection to the database has closed. Dexie closes its connection when another tab asks
- * (the `versionchange` event), but a tab that is suspended can't run that handler — iOS
- * freezes background tabs (Chrome for iOS keeps every tab around) and home-screen apps — so
- * the upgrade waits forever and every query in the new version waits with it: the gallery
- * showed "Loading..." and Settings "Checking sync…" indefinitely. Now:
+ * (the `versionchange` event), but a tab that is frozen may not run that handler — iOS
+ * suspends background tabs (Chrome for iOS keeps every tab around) and home-screen apps — and
+ * then the upgrade waits forever and every query in the new version waits with it: the gallery
+ * shows "Loading..." and Settings "Checking sync…" indefinitely. Now:
  *
  * - 'blocked': the upgrade waits for other tabs; the gate asks to close them, and the app
  *   carries on by itself as soon as they release the database.
@@ -18,9 +17,6 @@ import type Dexie from 'dexie';
  * - 'outdated': this tab runs an older version than another tab that just upgraded the
  *   database; it has let go of the database and must reload.
  * - 'error': opening failed; the gate shows the error with Reload instead of a spinner.
- *
- * And so that this tab never blocks a later upgrade itself, it closes its connection while
- * hidden (a hidden tab may be frozen at any moment) and Dexie reopens it on the next query.
  */
 
 export type DatabaseStatus =
@@ -98,32 +94,6 @@ export function openDatabase(db: Dexie, slowAfterMs = SLOW_OPEN_MS): Promise<voi
       openPromise = null;
     });
   return openPromise;
-}
-
-/**
- * Close the connection while the page is hidden or put in the back/forward cache, and open it
- * again when it's shown. Dexie reopens on demand anyway (close keeps auto-open on), and
- * transactions already running finish normally. Returns a cleanup function.
- */
-export function releaseWhileHidden(db: Dexie, doc: Document = document, win: Window = window): () => void {
-  const release = () => {
-    if (db.isOpen()) db.close({ disableAutoOpen: false });
-  };
-  const onVisibility = () => {
-    if (doc.visibilityState === 'hidden') release();
-    else void openDatabase(db);
-  };
-  const onPageShow = () => {
-    if (doc.visibilityState !== 'hidden') void openDatabase(db);
-  };
-  doc.addEventListener('visibilitychange', onVisibility);
-  win.addEventListener('pagehide', release);
-  win.addEventListener('pageshow', onPageShow);
-  return () => {
-    doc.removeEventListener('visibilitychange', onVisibility);
-    win.removeEventListener('pagehide', release);
-    win.removeEventListener('pageshow', onPageShow);
-  };
 }
 
 /** Tests: start over. */

@@ -51,6 +51,7 @@ QuickScan is a mobile-first Progressive Web App (PWA) built with Next.js 16 (App
     - `llm/`: Shared LLM client (`client.ts`: OpenAI, Anthropic, Google, or custom Chat Completions / Anthropic Messages endpoints; text and image input), endpoint detection, image downscaling for vision input, and the naming prompt.
     - `naming/`: Document naming from OCR text — on-device heuristics, or the configured LLM via `llm/naming.ts`.
     - `annotations/`: Annotation geometry, canvas rendering and flattening onto page images.
+    - `db-status.ts`: Whether IndexedDB opened (blocked upgrade, newer version in another tab, error), shown full screen by `DatabaseGate` in the root layout instead of an endless "Loading...".
     - `settings.ts`: App settings stored in the Dexie `settings` table.
     - `folders.ts` / `tags.ts`: Flat folders (Dexie `folders` table, referenced by `document.folderId`) and free-form tags stored on each document (`document.tags`); deleting a folder unfiles its documents, renaming/deleting a tag rewrites every document carrying it.
     - `document-filter.ts`: Pure gallery filtering by folder, tags (all must match) and search text.

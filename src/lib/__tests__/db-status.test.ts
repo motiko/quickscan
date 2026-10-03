@@ -5,7 +5,7 @@ import type Dexie from 'dexie';
 /*
  * The iOS start-up hang: a schema upgrade waits for every other connection to close, and a
  * frozen tab never closes its own. The app must say so (and carry on once it can) instead of
- * showing "Loading..." forever, and must not hold a connection while hidden.
+ * showing "Loading..." forever.
  *
  * The tests share one database and run in order.
  */
@@ -55,43 +55,6 @@ describe('database status', () => {
     expect(db.verno).toBe(7);
     expect((await db.documents.get('d1'))?.name).toBe('Old document');
     expect(await db.outbox.count()).toBe(1);
-  });
-
-  it('lets go of the database while hidden, so it never blocks a later upgrade, and reopens when shown', async () => {
-    const { db } = await import('@/lib/db');
-    const status = await import('@/lib/db-status');
-    const doc = Object.assign(new EventTarget(), { visibilityState: 'visible' as DocumentVisibilityState });
-    const win = new EventTarget();
-    const stop = status.releaseWhileHidden(db, doc as unknown as Document, win as unknown as Window);
-
-    doc.visibilityState = 'hidden';
-    doc.dispatchEvent(new Event('visibilitychange'));
-    expect(db.isOpen()).toBe(false);
-
-    // A later version's upgrade can start without this connection being asked to close
-    // (aborted here, so the database stays at this version)
-    const versionchange = vi.fn();
-    db.on('versionchange', versionchange);
-    const upgrade = await new Promise<string>((resolve) => {
-      const req = indexedDB.open('QuickScanDB', 75);
-      req.onblocked = () => resolve('blocked');
-      req.onupgradeneeded = () => req.transaction!.abort();
-      req.onerror = () => resolve('upgrade started');
-    });
-    expect(upgrade).toBe('upgrade started');
-
-    doc.visibilityState = 'visible';
-    doc.dispatchEvent(new Event('visibilitychange'));
-    await vi.waitFor(() => expect(db.isOpen()).toBe(true));
-    expect(await db.documents.count()).toBe(1);
-
-    // pagehide (back/forward cache) releases it too, and queries reopen on demand
-    win.dispatchEvent(new Event('pagehide'));
-    expect(db.isOpen()).toBe(false);
-    expect(await db.documents.count()).toBe(1);
-    expect(versionchange).not.toHaveBeenCalled();
-    db.on('versionchange').unsubscribe(versionchange);
-    stop();
   });
 
   it('marks this tab outdated when a newer version upgrades the database, without blocking it', async () => {

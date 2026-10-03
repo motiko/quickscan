@@ -2,13 +2,7 @@
 
 import { useEffect, useSyncExternalStore } from 'react';
 import { db } from '@/lib/db';
-import {
-  getDatabaseStatus,
-  openDatabase,
-  releaseWhileHidden,
-  subscribeDatabaseStatus,
-  type DatabaseStatus,
-} from '@/lib/db-status';
+import { getDatabaseStatus, openDatabase, subscribeDatabaseStatus, type DatabaseStatus } from '@/lib/db-status';
 
 const SERVER_STATUS: DatabaseStatus = { state: 'opening' };
 
@@ -43,7 +37,6 @@ export function DatabaseGate() {
 
   useEffect(() => {
     void openDatabase(db);
-    return releaseWhileHidden(db);
   }, []);
 
   if (status.state === 'opening' || status.state === 'ready') return null;
