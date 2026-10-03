@@ -13,52 +13,69 @@ Evidence beats opinion. No change to detection, capture, warp, filters, encoding
 bench/
   corpus/
     manifest.json          # every case (schema below), sorted by id
-    frames/<id>.jpg|png    # committed stills (≤ 5 MB each, no PII)
+    frames/<id>.jpg|png    # committed stills (≤ 5 MB each, no PII); frames/private/ is gitignored
+    previews/<id>.png      # committed 320 px wide previews of every non-private case (what live detection sees)
     text/<id>.txt          # OCR ground truth, UTF-8, reading order
     clips/<id>.json        # per-clip frame list + per-frame quads, for M4/M5
+    remote/                # gitignored: media fetched by fetch-corpus.mjs
+    README.md              # licences, provenance, what is private, how to regenerate
+  pages/                   # printable test pages (bench:pages); PDFs/PNGs regenerable, gitignored
+  backgrounds/             # photographed / procedural backgrounds for synth.mjs (committed, small)
   results/
     <YYYY-MM-DD>-<sha7>.json   # one run; never edited after commit
     latest.md                  # human summary of the newest run
   tools/
     run.mjs                # node bench/tools/run.mjs [--filter <glob>] [--only M1,M8] [--compare <results.json>] [--ci]
     metrics.mjs            # pure functions: quadIoU, cornerError, cer, wer, laplacianVariance …
-    validate-manifest.mjs
-    fetch-corpus.mjs       # downloads large/private media listed in the manifest with `remote`
+    validate-manifest.mjs  # schema v2, sorted ids, media present, quads in range, licences
+    fetch-corpus.mjs       # downloads `remote` media and samples public datasets (SmartDoc, CORD, MIDV)
     label.html             # click-four-corners labeller, exports manifest entries
-    synth.mjs              # synthetic case generator (seeded)
+    pages.mjs              # seeded printable test pages with exact OCR ground truth (bucket C)
+    synth.mjs              # seeded synthetic compositor: pages × backgrounds × homography × degradations (bucket D)
+    extract-frames.mjs     # ffmpeg stills + clip records from the owner's MOVs (HLG tone-mapped, auto-rotated)
+    autolabel.mjs          # quad proposals + overlays for private frames; proposals until confirmed in label.html
 ```
 
 `npm run bench` runs `node bench/tools/run.mjs`; add the script to `package.json` when creating the harness. The harness runs in **Node**, like Vitest does in this repo (no jsdom): decode with the `canvas` package (already a dependency), import app code through the same `@/` alias `vitest.config.mts` uses, and call `detectDocumentQuadAsync`, `warpPerspective`/`applyFilter` and the Tesseract worker directly. Where a function needs a browser-only API (`OffscreenCanvas`, `createImageBitmap`, `URL.createObjectURL`), add the smallest shim in `bench/tools/shims.mjs` and record it in the run's `environment` field. A shim is never a reason to change app code. ffmpeg is required for clips; fail with a clear message when it is missing.
 
 ## Manifest schema
 
+Version 2. Entries are sorted by `id`; the corpus itself is described in `docs/scanner-data-plan.md` and `bench/corpus/README.md`.
+
 ```jsonc
 {
-  "version": 1,
+  "version": 2,
   "cases": [{
     "id": "smartdoc-bg01-0007",              // stable, never renamed
-    "file": "frames/smartdoc-bg01-0007.jpg", // or "remote": { "url", "sha256" } plus a gitignored local path
-    "private": false,                        // true → skipped on CI, read from tests/fixtures/camera/private
-    "width": 1920, "height": 1080,
+    "file": "frames/smartdoc-bg01-0007.jpg", // committed still (≤ 5 MB), or
+    "remote": { "url": "…", "sha256": "…", "path": "remote/smartdoc/…" }, // fetched by fetch-corpus.mjs, gitignored, or
+    "private": true,                         // read from tests/fixtures/camera/private (gitignored, skipped on CI)
+    "preview": "previews/smartdoc-bg01-0007.png", // committed 320 px wide PNG; detection sees nothing larger, so CI covers M1–M6 from previews alone
+    "width": 1920, "height": 1080,           // of `file`/`remote`/private media, after EXIF/rotation metadata is applied
     "quad": [[0.21,0.18],[0.79,0.17],[0.81,0.84],[0.19,0.86]], // TL,TR,BR,BL normalised 0..1; null = negative
     "text": "text/smartdoc-bg01-0007.txt",   // optional OCR ground truth
     "docMm": [210, 297],                     // physical size when known, for M10
+    "split": "eval",                         // always "eval" here; training data lives outside bench/corpus (bench/train/, gitignored)
+    "capture": { "kind": "video-frame | photo | synthetic | dataset", "codec": "hevc", "hdr": true, "t": 1.5 }, // provenance; `hdr` true = HLG source tone-mapped at extraction
+    "label": { "method": "synthetic | dataset | manual | auto-refined", "verified": true }, // auto-refined quads are proposals until a human confirms them in label.html; never commit an unverified case
     "conditions": {
-      "doc": "a4-text | receipt | business-card | id-card | book-curved | whiteboard | photo | handwritten | none",
+      "doc": "a4-text | a5-text | receipt | business-card | id-card | book-curved | whiteboard | photo | handwritten | invoice | none",
       "background": "plain-contrast | plain-similar | cluttered | textured | dark",
       "lighting": "even | low | harsh-shadow | glare | mixed-colour",
       "skew": "none | mild | strong | extreme",
       "distance": "fills | normal | far | partial",
       "blur": "none | mild | motion | focus",
       "occlusion": "none | hand | object",
-      "device": "iphone-15 | pixel-7a | synthetic | dataset:<name>",
-      "orientation": 0
+      "device": "iphone-14-pro | iphone-15 | pixel-7a | synthetic | dataset:<name>",
+      "orientation": 0                        // 0 | 90 | 180 | 270, how far the page content is turned from upright
     },
-    "source": { "name": "SmartDoc 2015", "url": "…", "licence": "…" },
+    "source": { "name": "SmartDoc 2015", "url": "…", "licence": "CC BY 4.0", "citation": "…" },
     "notes": ""
   }]
 }
 ```
+
+Exactly one of `file` or `remote` names the full-resolution media. `private: true` marks a `file` that is ignored by version control (read from the owner's machine, skipped on CI). `generated: true` marks media a tool recreates deterministically and that is therefore not committed: synthetic cases (`npm run bench:synth`) and dataset samples that may not be redistributed in the repository, such as the MIDV frames with specimen portraits (`npm run bench:fetch -- --sample midv`). `preview` is required for every non-private case. `conditions.device` for synthetic cases is `synthetic`, for public data `dataset:<name>`. A case from a share-alike source (MIDV, CC BY-SA 2.5) lives in a folder that carries the licence text and the attribution file next to the images.
 
 Clips (`clips/<id>.json`) list frames with timestamps and quads so M4 (jitter, frames to stable) and M5 (time to auto-capture) can replay the tracker and auto-capture rules exactly as `CameraView.tsx` and `document-tracker.ts` apply them, at the live cadence (120 ms) and preview width (320 px). Read those constants from the source; do not copy them into the harness.
 

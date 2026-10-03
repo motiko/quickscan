@@ -52,3 +52,21 @@ next-env.d.ts
 
 # Tesseract worker and cores, copied from node_modules by scripts/copy-tesseract.mjs
 /public/tesseract/
+
+# Scanner benchmark: large or private media stays out of git (see docs/scanner-data-plan.md)
+tests/output/
+tests/fixtures/camera/*.MOV
+/bench/corpus/remote/
+/bench/corpus/frames/private/
+/bench/train/
+/bench/pages/*.pdf
+/bench/pages/*.png
+
+# MIDV-500 samples: the specimen cards carry a portrait, so the frames are fetched locally (npm run bench:fetch -- --sample midv), never committed
+/bench/corpus/frames/midv/*.jpg
+/bench/corpus/previews/midv/*.png
+/bench/corpus/overlays/
+
+# Synthetic cases are regenerated from the seed by npm run bench:synth
+/bench/corpus/frames/synth/
+/bench/corpus/previews/synth/
