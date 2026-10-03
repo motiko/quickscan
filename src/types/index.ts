@@ -102,8 +102,8 @@ export interface Page {
   id: string;
   documentId: string;
   pageNumber: number;
-  originalBlob: Blob;
-  processedBlob?: Blob;
+  originalBlob?: Blob; // raw capture; never syncs, so absent on pages pulled from another device
+  processedBlob?: Blob; // what's shown and exported; absent until a pulled page's image has downloaded
   corners?: Quad;
   filter: ImageFilter;
   rotation?: number; // 0, 90, 180, 270

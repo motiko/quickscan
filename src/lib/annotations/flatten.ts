@@ -1,5 +1,6 @@
 import { db } from '@/lib/db';
 import type { Annotation, Page } from '@/types';
+import { requirePageImage } from '@/lib/page-image';
 import { drawAnnotations, type SignatureImages } from './render';
 
 export async function loadSignatureImages(annotations: Annotation[]): Promise<SignatureImages> {
@@ -23,7 +24,7 @@ export async function getImageSize(blob: Blob): Promise<{ width: number; height:
 
 /** The page image with its annotations burned in, at the original resolution. */
 export async function getRenderedBlob(page: Page): Promise<Blob> {
-  const base = page.processedBlob || page.originalBlob;
+  const base = requirePageImage(page);
   if (!page.annotations || page.annotations.length === 0) return base;
 
   const [bitmap, signatures] = await Promise.all([

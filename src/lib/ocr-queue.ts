@@ -1,6 +1,7 @@
 import { db } from '@/lib/db';
 import { recognize } from '@/lib/ocr';
 import { getSettings } from '@/lib/settings';
+import { pageImage } from '@/lib/page-image';
 
 type PageOcrListener = (documentId: string, pageNumber: number) => void | Promise<void>;
 
@@ -57,7 +58,9 @@ export async function processPendingOcr(): Promise<void> {
         const current = await db.pages.get(page.id);
         if (!current || current.ocrStatus !== 'pending') continue;
 
-        const blob = current.processedBlob || current.originalBlob;
+        // A synced page whose image hasn't downloaded yet stays pending until it has
+        const blob = pageImage(current);
+        if (!blob) continue;
         await db.pages.update(page.id, { ocrStatus: 'processing' });
 
         try {

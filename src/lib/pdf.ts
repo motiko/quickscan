@@ -1,4 +1,5 @@
 import type { OcrWord, Page } from '@/types';
+import { requirePageImage } from '@/lib/page-image';
 
 export interface PdfPageInput {
   blob: Blob;
@@ -11,7 +12,7 @@ export interface PdfPageInput {
  */
 export async function pagesToPdfInput(
   pages: Page[],
-  render: (page: Page) => Promise<Blob> = async (p) => p.processedBlob || p.originalBlob
+  render: (page: Page) => Promise<Blob> = async (p) => requirePageImage(p)
 ): Promise<PdfPageInput[]> {
   return Promise.all(
     pages.map(async (p) => ({

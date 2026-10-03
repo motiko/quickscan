@@ -6,6 +6,7 @@ import { db } from '@/lib/db';
 import { createThumbnail } from '@/lib/image-processing';
 import { rebuildSearchText } from '@/lib/ocr-queue';
 import { getRenderedBlob } from '@/lib/annotations/flatten';
+import { hasPageImage } from '@/lib/page-image';
 import type { ScannedDocument, Page, ImageFilter, Annotation } from '@/types';
 
 export function useDocuments() {
@@ -140,7 +141,10 @@ export async function deletePage(pageId: string): Promise<void> {
           updatedAt: new Date(),
         };
         if (page.pageNumber === 1) {
-          updates.thumbnailBlob = await createThumbnail(await getRenderedBlob(newFirst));
+          // A synced page may not have its image yet; sync rebuilds the thumbnail when it arrives
+          updates.thumbnailBlob = hasPageImage(newFirst)
+            ? await createThumbnail(await getRenderedBlob(newFirst))
+            : undefined;
         }
         await db.documents.update(page.documentId, updates);
       }
@@ -156,7 +160,7 @@ export async function deletePage(pageId: string): Promise<void> {
 export async function savePageAnnotations(pageId: string, annotations: Annotation[]): Promise<void> {
   await db.pages.update(pageId, { annotations });
   const page = await db.pages.get(pageId);
-  if (page?.pageNumber === 1) {
+  if (page?.pageNumber === 1 && hasPageImage(page)) {
     const thumbnailBlob = await createThumbnail(await getRenderedBlob(page));
     await db.documents.update(page.documentId, { thumbnailBlob, updatedAt: new Date() });
   }

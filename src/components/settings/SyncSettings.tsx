@@ -13,6 +13,8 @@ import {
   unlockVault,
 } from '@/lib/vault-session';
 import { RecoveryKeyDialog } from './RecoveryKeyDialog';
+import { useSyncStatus } from '@/hooks/useSyncStatus';
+import { requestSync } from '@/lib/sync';
 
 const inputClass =
   'w-full rounded-lg border border-gray-300 dark:border-neutral-700 bg-white dark:bg-neutral-950 px-3 py-2 font-mono text-sm uppercase text-gray-900 dark:text-gray-100 outline-none focus:border-blue-500';
@@ -134,6 +136,33 @@ function UnlockSync() {
 }
 
 /** This device holds the vault key. */
+/** What the sync engine is doing, with a manual "Sync now". */
+function SyncStatusLine() {
+  const status = useSyncStatus();
+  const text =
+    status.state === 'syncing'
+      ? 'Syncing…'
+      : status.state === 'offline' || status.state === 'error'
+        ? (status.message ?? 'Sync failed')
+        : status.lastSyncedAt
+          ? `Last synced ${new Date(status.lastSyncedAt).toLocaleString()}`
+          : 'Not synced yet';
+  return (
+    <div className="mt-1 flex items-center justify-between gap-4">
+      <p role={status.state === 'error' ? 'alert' : undefined} className={status.state === 'error' ? 'text-xs text-red-600 dark:text-red-400' : hintClass}>
+        {text}
+      </p>
+      <button
+        onClick={() => void requestSync()}
+        disabled={status.state === 'syncing'}
+        className={`shrink-0 ${linkButtonClass}`}
+      >
+        Sync now
+      </button>
+    </div>
+  );
+}
+
 function SyncOn({ email }: { email: string }) {
   const [recoveryKey, setRecoveryKey] = useState<string | null>(null);
 
@@ -156,7 +185,7 @@ function SyncOn({ email }: { email: string }) {
   return (
     <div className="px-4 py-3">
       <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Sync is on for this device</p>
-      {/* Step 6: the sync engine's status (last synced, pending changes, errors) goes here. */}
+      <SyncStatusLine />
       <button onClick={() => void startReplace()} className={`mt-1 ${linkButtonClass}`}>
         Create a new recovery key
       </button>

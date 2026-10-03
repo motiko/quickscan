@@ -4,15 +4,16 @@ import { useEffect, useState } from 'react';
 import type { Page } from '@/types';
 import { getRenderedBlob } from '@/lib/annotations/flatten';
 import { useBlobUrl } from '@/hooks/useBlobUrl';
+import { pageImage } from '@/lib/page-image';
 
 /** Object URL of the page image with annotations composited on top. */
 export function useRenderedPageUrl(page: Page | null): string | null {
-  const base = page ? page.processedBlob || page.originalBlob : null;
+  const base = page ? (pageImage(page) ?? null) : null;
   const annotations = page?.annotations;
   const [rendered, setRendered] = useState<{ source: Page['annotations']; blob: Blob } | null>(null);
 
   useEffect(() => {
-    if (!page || !annotations?.length) return;
+    if (!page || !base || !annotations?.length) return;
     let cancelled = false;
     getRenderedBlob(page)
       .then((blob) => {
