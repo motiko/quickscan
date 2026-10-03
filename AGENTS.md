@@ -184,11 +184,12 @@ Folders are flat. Deleting a folder keeps its documents and unfiles them.
   createdAt: Date;
   updatedAt: Date;     // stamped automatically by the sync tracking on every synced change
   conflictOf?: string; // set on a "Conflicted copy": the page whose losing version it keeps (synced)
+  keepOrientation?: boolean; // OCR must not auto-orient it: turned by hand, re-queued, or image downloaded from another device (local only)
 }
 ```
 
 ### Sync bookkeeping
-- `outbox` — one pending change per synced record, keyed `[kind+id]` (`kind`: document, page, folder, signature, settings): `op` `'upsert' | 'delete'`, `updatedAt` (epoch ms of the latest local write, per `writeClock` — the last-write-wins clock), `fileChanged`, `rev`. A `'delete'` entry is the tombstone. Filled by the `syncTrackingMiddleware` in `lib/sync-tracking.ts` for **every** write in any read-write transaction — don't enqueue by hand. Writes that only touch local-only fields (thumbnails, `originalBlob`, `ocrStatus`) and settings other than `ocrLanguages` aren't recorded.
+- `outbox` — one pending change per synced record, keyed `[kind+id]` (`kind`: document, page, folder, signature, settings): `op` `'upsert' | 'delete'`, `updatedAt` (epoch ms of the latest local write, per `writeClock` — the last-write-wins clock), `fileChanged`, `rev`. A `'delete'` entry is the tombstone. Filled by the `syncTrackingMiddleware` in `lib/sync-tracking.ts` for **every** write in any read-write transaction — don't enqueue by hand. Writes that only touch local-only fields (thumbnails, the derived document `searchText`/`pageCount`, page `originalBlob`, `ocrStatus`, `keepOrientation`) and settings other than `ocrLanguages` aren't recorded.
 - `syncMeta` — device-local sync state, never synced: device id, vault key and owner, and the engine's `sync:*` keys (last account, pull cursor per account, merge flag, record → remote file id / MIME / SHA-256 mappings, per-record markers `sync:mark:<kind>:<id>` (`RecordMark`: newest version pulled, own last push, base fingerprint, v2 seen), the account-switch answer).
 - `lib/outbox.ts` is the API for the sync engine: `readOutbox`, `getOutboxEntry`, `ackOutbox`, `applyUntracked` (writes pulled remote changes without re-queueing them), `getDeviceId`.
 

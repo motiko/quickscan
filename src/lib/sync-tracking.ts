@@ -56,8 +56,10 @@ interface TrackedTable {
 }
 
 export const TRACKED_TABLES: Readonly<Record<string, TrackedTable>> = {
-  documents: { kind: 'document', localOnly: ['thumbnailBlob'] },
-  pages: { kind: 'page', localOnly: ['originalBlob', 'ocrStatus'], file: 'processedBlob' },
+  // searchText and pageCount are derived from the pages and recomputed on every device (after
+  // a pull too), so keeping them current must not queue the document or win it a newer clock
+  documents: { kind: 'document', localOnly: ['thumbnailBlob', 'searchText', 'pageCount'] },
+  pages: { kind: 'page', localOnly: ['originalBlob', 'ocrStatus', 'keepOrientation'], file: 'processedBlob' },
   folders: { kind: 'folder', localOnly: [] },
   signatures: { kind: 'signature', localOnly: [], file: 'blob' },
   settings: { kind: 'settings', localOnly: [] },

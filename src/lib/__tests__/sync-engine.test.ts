@@ -302,6 +302,29 @@ describe('files', () => {
     expect(await readOutbox()).toEqual([]);
   });
 
+  it('marks a downloaded image as keeping its orientation, and keeps that local flag on later pulls', async () => {
+    const server = new FakeSupabase(USER_A);
+    const docId = await createDocument('Doc', img('mine'));
+    const [page] = await db.pages.where('documentId').equals(docId).toArray();
+    const ctx = await context(server);
+    await runSync(ctx);
+    expect((await db.pages.get(page.id))!.keepOrientation).toBeUndefined();
+
+    const path = await server.remoteFile(vault.key, 'file-2', img('theirs'));
+    const value = { documentId: docId, pageNumber: 1, filter: 'original', createdAt: page.createdAt, file: { id: 'file-2', type: 'image/jpeg' } };
+    const at = server.get('page', page.id)!.updatedAt;
+    await server.remoteRecord(vault.key, { kind: 'page', id: page.id, updatedAt: at + 1000, value, files: [path] });
+    clock += 10_000;
+    await runSync(ctx);
+    expect(await db.pages.get(page.id)).toMatchObject({ keepOrientation: true });
+
+    await server.remoteRecord(vault.key, { kind: 'page', id: page.id, updatedAt: at + 2000, value: { ...value, filter: 'bw' }, files: [path] });
+    clock += 10_000;
+    await runSync(ctx);
+    expect(await db.pages.get(page.id)).toMatchObject({ filter: 'bw', keepOrientation: true });
+    expect(await readOutbox()).toEqual([]);
+  });
+
   it('creates a pulled signature only once its image has arrived', async () => {
     const server = new FakeSupabase(USER_A);
     const path = await server.remoteFile(vault.key, 'sig-file', img('png', 'image/png'));

@@ -13,33 +13,53 @@ type PageOcrListener = (documentId: string, pageNumber: number) => void | Promis
 const listeners = new Set<PageOcrListener>();
 let running = false;
 let rerunRequested = false;
-// Pages auto-orientation leaves as they are this session: turned by hand, or queued again
-// (retry, language change) after their first recognition was attempted
-const keepOrientation = new Set<string>();
 
-/** Call when the user rotates a page, so OCR doesn't turn it back. */
-export function keepPageOrientation(pageId: string): void {
-  keepOrientation.add(pageId);
+/**
+ * Call when the user rotates a page, so OCR doesn't turn it back. Remembered on the page
+ * (`keepOrientation`, local only), so it holds after a reload too; `updatePage` sets it as
+ * well whenever the image changes by hand.
+ */
+export async function keepPageOrientation(pageId: string): Promise<void> {
+  try {
+    await db.pages.update(pageId, { keepOrientation: true });
+  } catch (err) {
+    console.warn('Could not remember the page orientation:', err);
+  }
 }
 
 /**
- * Auto-orientation only runs on a page's first recognition, on the device that captured it
- * (which has its original): never on a pulled page, a retry or a re-run, where turning the
- * image would be an edit the user didn't make.
+ * Auto-orientation only runs on a page's first recognition, of the image this device
+ * captured (it has the original): never on a pulled page or an image downloaded from another
+ * device, a page turned by hand, a retry or a re-run (all marked `keepOrientation`), where
+ * turning the image would be an edit the user didn't make.
  */
 function mayAutoOrient(page: Page): boolean {
-  return page.originalBlob != null && page.ocrInfo === undefined && page.ocrText === undefined && !keepOrientation.has(page.id);
+  return page.originalBlob != null && !page.keepOrientation && page.ocrInfo === undefined && page.ocrText === undefined;
 }
 
 /**
- * What identifies the image a recognition ran on. Dexie hands out a new Blob on every read, so
- * identity can't be compared: a tracked image change bumps `updatedAt`, and an untracked one
- * (a sync download, which also resets a 'processing' page to 'pending') changes the blob.
+ * What identifies the image a recognition ran on, from the image alone (an annotation edit or
+ * renumbering mustn't throw a finished recognition away). Dexie hands out a new Blob on every
+ * read, so identity can't be compared: every image change while a page is 'processing' resets
+ * it to 'pending' (updatePage, sync downloads), this catches one that changes the size, type
+ * or source, and `sameImage` compares the bytes before the result is written.
  */
 function imageToken(page: Page): string {
   const image = pageImage(page);
   const source = page.processedBlob ? 'processed' : page.originalBlob ? 'original' : 'none';
-  return [source, image?.size ?? -1, image?.type ?? '', page.updatedAt instanceof Date ? page.updatedAt.getTime() : ''].join('|');
+  return [source, image?.size ?? -1, image?.type ?? ''].join('|');
+}
+
+/** Whether the page still shows exactly the image that was recognized. */
+async function sameImage(pageId: string, recognized: Blob): Promise<boolean> {
+  const page = await db.pages.get(pageId);
+  const image = page && pageImage(page);
+  if (!image || image.size !== recognized.size) return false;
+  const [a, b] = await Promise.all([image.arrayBuffer(), recognized.arrayBuffer()]);
+  const x = new Uint8Array(a);
+  const y = new Uint8Array(b);
+  for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return false;
+  return true;
 }
 
 /** Turn annotations with their image (clockwise, in 90° steps). Synchronous, for use in a transaction. */
@@ -136,6 +156,8 @@ export async function processPendingOcr(): Promise<void> {
             }
           }
           const { detectOcrLanguage } = await import('@/lib/language-detect');
+          // Swapped for another image of the same size during recognition: recognize that one
+          const unchanged = await sameImage(page.id, blob);
           const ocrFields = (r: OcrResult) => ({
             ocrStatus: 'done' as const,
             ocrText: r.text,
@@ -160,7 +182,7 @@ export async function processPendingOcr(): Promise<void> {
               if (after.ocrStatus === 'pending') rerunRequested = true;
               return undefined;
             }
-            if (imageToken(after) !== token) {
+            if (!unchanged || imageToken(after) !== token) {
               // Its image changed without a reset: recognize the new one on the next pass
               await db.pages.update(page.id, { ocrStatus: 'pending' });
               rerunRequested = true;
@@ -223,24 +245,21 @@ export async function resetStaleOcr(): Promise<void> {
   await db.pages.where('ocrStatus').equals('processing').modify({ ocrStatus: 'pending' });
 }
 
+// Re-queued pages keep their orientation: their first recognition was already attempted
+
 export async function retryOcr(pageId: string): Promise<void> {
-  keepOrientation.add(pageId);
-  await db.pages.update(pageId, { ocrStatus: 'pending' });
+  await db.pages.update(pageId, { ocrStatus: 'pending', keepOrientation: true });
   await processPendingOcr();
 }
 
 /** Re-run OCR on every page of one document. */
 export async function retryDocumentOcr(documentId: string): Promise<void> {
-  const ids = await db.pages.where('documentId').equals(documentId).primaryKeys();
-  for (const id of ids) keepOrientation.add(id);
-  await db.pages.where('documentId').equals(documentId).modify({ ocrStatus: 'pending' });
+  await db.pages.where('documentId').equals(documentId).modify({ ocrStatus: 'pending', keepOrientation: true });
   await processPendingOcr();
 }
 
 /** Re-queue every page, e.g. after the OCR language changes. */
 export async function requeueAllOcr(): Promise<void> {
-  const ids = await db.pages.toCollection().primaryKeys();
-  for (const id of ids) keepOrientation.add(id);
-  await db.pages.toCollection().modify({ ocrStatus: 'pending' });
+  await db.pages.toCollection().modify({ ocrStatus: 'pending', keepOrientation: true });
   await processPendingOcr();
 }

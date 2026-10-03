@@ -962,6 +962,7 @@ function keepLocalLoser(
       originalBlob: local.originalBlob,
       processedBlob: local.processedBlob,
       ocrStatus: local.ocrStatus === 'processing' ? 'pending' : local.ocrStatus,
+      keepOrientation: local.keepOrientation,
     }),
     ref?.userId === ctx.userId ? ref : undefined
   );
@@ -1102,6 +1103,7 @@ function applyUpsert(ctx: SyncContext, row: RemoteRow, value: RecordPayload, sta
           originalBlob: existing?.originalBlob,
           processedBlob: existing?.processedBlob,
           ocrStatus,
+          keepOrientation: existing?.keepOrientation,
         })
       );
       if (existing && existing.documentId !== p.documentId) touched.documents.add(existing.documentId);
@@ -1520,7 +1522,11 @@ async function storeDownloadedFile(ref: FileRef, blob: Blob, sha256: string): Pr
     // Text being recognized from the image this one replaces is stale: recognize the new one
     // instead (like updatePage), so the OCR queue doesn't write it, or a turn of it, back
     const reset = needsOcr || page.ocrStatus === 'processing';
-    await db.pages.update(ref.id, reset ? { processedBlob: blob, ocrStatus: 'pending' } : { processedBlob: blob });
+    // The image is another device's version, turned the way it was left there: OCR here must
+    // not auto-orient it, even on the device that captured the page (which still has its
+    // original and may not have recognized it yet)
+    const fields: Partial<Page> = { processedBlob: blob, keepOrientation: true };
+    await db.pages.update(ref.id, reset ? { ...fields, ocrStatus: 'pending' } : fields);
     await db.syncMeta.put({ key, value: done });
     return { ...page, processedBlob: blob };
   }
