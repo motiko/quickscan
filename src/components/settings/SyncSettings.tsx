@@ -19,6 +19,7 @@ import { ShowPairingCode } from './ShowPairingCode';
 import { ManagePasskeys, UnlockWithPasskey, suggestPasskey } from './PasskeySettings';
 import { SyncProblems } from './SyncProblems';
 import { RemoveSyncedDocuments } from './RemoveSyncedDocuments';
+import { AccountSwitchPrompt } from './AccountSwitchPrompt';
 import { useSyncStatus } from '@/hooks/useSyncStatus';
 import { requestSync } from '@/lib/sync';
 
@@ -157,7 +158,7 @@ function SyncStatusLine() {
   const text =
     status.state === 'syncing'
       ? 'Syncing…'
-      : status.state === 'offline' || status.state === 'error'
+      : status.state === 'offline' || status.state === 'error' || status.state === 'paused'
         ? (status.message ?? 'Sync failed')
         : status.lastSyncedAt
           ? `Last synced ${new Date(status.lastSyncedAt).toLocaleString()}`
@@ -204,6 +205,7 @@ function SyncOn({ email }: { email: string }) {
     <div className="px-4 py-3">
       <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Sync is on for this device</p>
       <SyncStatusLine />
+      <AccountSwitchPrompt email={email} />
       <SyncProblems />
       <div className="mt-1 flex flex-wrap gap-x-5">
         <button onClick={() => setScanning(true)} className={linkButtonClass}>

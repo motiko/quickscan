@@ -7,7 +7,7 @@ vi.mock('@/lib/image-processing', () => ({ createThumbnail: vi.fn(async () => ne
 vi.mock('@/lib/annotations/flatten', () => ({ getRenderedBlob: vi.fn(async () => new Blob(['rendered'])) }));
 
 import { db } from '@/lib/db';
-import { createDocument, deleteDocument, renameDocument, updatePage } from '@/hooks/useDocuments';
+import { createDocument, deleteDocument, renameDocument, savePageAnnotations, updatePage } from '@/hooks/useDocuments';
 import { createFolder } from '@/lib/folders';
 import { updateSettings } from '@/lib/settings';
 import { getDeviceId, readOutbox } from '@/lib/outbox';
@@ -180,5 +180,51 @@ describe.skipIf(!enabled)('sync through local Supabase', () => {
     expect(report.issues).toEqual([]);
     const [laptopPage] = await db.pages.where('documentId').equals(docId).toArray();
     expect(await laptopPage.processedBlob!.text()).toBe('two');
+  });
+
+  it('keeps the losing side of a concurrent annotation as a conflicted copy on both devices', async () => {
+    const rect = (id: string, x: number) => ({ id, type: 'rect' as const, x, y: 0, w: 0.2, h: 0.2, color: '#f00', width: 0.01 });
+    const pagesOf = async (docId: string) =>
+      (await db.pages.where('documentId').equals(docId).sortBy('pageNumber')).map((p) => ({
+        id: p.id,
+        annotations: p.annotations ?? [],
+        conflictOf: p.conflictOf ?? null,
+      }));
+
+    await use(devices.phone);
+    const docId = await createDocument('Contract', new Blob(['contract'], { type: 'image/jpeg' }));
+    const [page] = await db.pages.where('documentId').equals(docId).toArray();
+    await sync();
+    await use(devices.laptop);
+    await sync();
+    await use(devices.phone);
+    await sync();
+
+    // Both annotate offline; the laptop's edit is later but the phone syncs first
+    await savePageAnnotations(page.id, [rect('phone', 0.1)]);
+    await new Promise((r) => setTimeout(r, 20));
+    await use(devices.laptop);
+    await savePageAnnotations(page.id, [rect('laptop', 0.5)]);
+
+    await use(devices.phone);
+    await sync();
+    await use(devices.laptop);
+    const report = await sync();
+    expect(report.conflicts.filter((c) => c.kind === 'page')).toEqual([
+      expect.objectContaining({ id: page.id, loser: 'remote', copyId: expect.any(String) }),
+    ]);
+    await use(devices.phone);
+    await sync();
+
+    const onPhone = await pagesOf(docId);
+    await use(devices.laptop);
+    expect(await pagesOf(docId)).toEqual(onPhone);
+    expect(onPhone.map((p) => [p.annotations, p.conflictOf])).toEqual([
+      [[rect('laptop', 0.5)], null],
+      [[rect('phone', 0.1)], page.id],
+    ]);
+    // Clock-authenticated payloads (v2) on the server
+    const { data: rows } = await client.from('records').select('payload').eq('id', page.id);
+    expect(String(rows![0].payload).startsWith('\\x02')).toBe(true);
   });
 });

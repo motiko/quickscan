@@ -7,11 +7,14 @@
  * - syncing:  a run is in progress.
  * - offline:  no network; retried when it comes back.
  * - error:    the last run failed or skipped items; `message` says what.
+ * - paused:   another account's documents are on this device; nothing syncs until the user
+ *             chooses what to do with them (`accountSwitch`, see account-switch.ts).
  */
 
 import type { SyncErrorCode } from './errors';
+import type { AccountSwitchPending } from './engine';
 
-export type SyncState = 'disabled' | 'idle' | 'syncing' | 'offline' | 'locked' | 'error';
+export type SyncState = 'disabled' | 'idle' | 'syncing' | 'offline' | 'locked' | 'error' | 'paused';
 
 /** An item that keeps failing to upload or download; retried with backoff. */
 export interface SyncProblem {
@@ -36,6 +39,8 @@ export interface SyncStatus {
   problems?: SyncProblem[];
   /** Pulled files not downloaded yet (from the last completed run). */
   pendingDownloads?: number;
+  /** While paused: what's waiting for the account-switch choice. */
+  accountSwitch?: AccountSwitchPending;
 }
 
 export const DISABLED_STATUS: SyncStatus = { state: 'disabled' };

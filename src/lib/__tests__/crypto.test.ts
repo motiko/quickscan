@@ -8,6 +8,7 @@ import {
   decodePairingPublicKey,
   decryptFile,
   decryptRecord,
+  openRecord,
   encodePairingPublicKey,
   encryptFile,
   encryptRecord,
@@ -177,8 +178,31 @@ describe('records', () => {
       await expectCryptoError(decryptRecord(key, ctx, bad), 'auth-failed');
     }
     const badVersion = payload.slice();
-    badVersion[0] = 0x02;
+    badVersion[0] = 0x03;
     await expectCryptoError(decryptRecord(key, ctx, badVersion), 'unsupported-version');
+  });
+
+  it('v2 authenticates the clock, device id and deletion flag', async () => {
+    const key = await generateVaultKey();
+    const version = { updatedAt: 1_791_028_800_123, deviceId: 'device-1', deleted: false };
+    const payload = await encryptRecord(key, ctx, { a: 1 }, version);
+    expect(payload[0]).toBe(0x02);
+    const row = { deviceId: 'device-1', deleted: false };
+    expect(await openRecord(key, ctx, payload, row)).toEqual({ value: { a: 1 }, format: 2, updatedAt: version.updatedAt });
+    await expectCryptoError(decryptRecord(key, ctx, payload, { ...row, deviceId: 'device-2' }), 'auth-failed');
+    await expectCryptoError(decryptRecord(key, ctx, payload, { ...row, deleted: true }), 'auth-failed');
+    // Re-dating the payload (its clock header) breaks it
+    const redated = payload.slice();
+    redated[8] ^= 0x01;
+    await expectCryptoError(decryptRecord(key, ctx, redated, row), 'auth-failed');
+    // A v2 payload can't be checked without its row, nor presented as v1
+    await expectCryptoError(decryptRecord(key, ctx, payload), 'malformed');
+    const asV1 = payload.slice();
+    asV1[0] = 0x01;
+    await expectCryptoError(decryptRecord(key, ctx, asV1, row), 'auth-failed');
+    // v1 payloads still decrypt, with or without the row
+    const v1 = await encryptRecord(key, ctx, { old: true });
+    expect(await openRecord(key, ctx, v1, row)).toEqual({ value: { old: true }, format: 1 });
   });
 
   it('fails when the ciphertext is presented as another record', async () => {

@@ -28,6 +28,8 @@ function describe(status: SyncStatus, now: number): string {
       return status.message ?? 'Sync isn’t set up on this device';
     case 'error':
       return status.message ?? 'Sync failed';
+    case 'paused':
+      return 'Sync is paused: choose what to do with documents from another account (Settings)';
     default:
       return '';
   }
@@ -57,14 +59,18 @@ export function SyncIndicator() {
   const tone =
     status.state === 'error'
       ? 'text-red-600 dark:text-red-400'
-      : status.state === 'locked' || status.state === 'offline'
+      : status.state === 'paused'
+        ? 'text-amber-600 dark:text-amber-400'
+        : status.state === 'locked' || status.state === 'offline'
         ? 'text-gray-400 dark:text-gray-500'
         : 'text-gray-500 dark:text-gray-400';
 
   return (
     <button
       type="button"
-      onClick={() => (status.state === 'locked' ? router.push('/settings') : void requestSync())}
+      onClick={() =>
+        status.state === 'locked' || status.state === 'paused' ? router.push('/settings') : void requestSync()
+      }
       className={`flex h-11 w-11 items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-neutral-800 ${tone}`}
       aria-label={label}
       title={label}
@@ -84,6 +90,12 @@ export function SyncIndicator() {
           <>
             <rect x="10" y="14" width="5" height="4" rx="1" />
             <path d="M11 14v-1a1.5 1.5 0 0 1 3 0v1" />
+          </>
+        )}
+        {status.state === 'paused' && (
+          <>
+            <line x1="11" y1="13" x2="11" y2="17" />
+            <line x1="14" y1="13" x2="14" y2="17" />
           </>
         )}
         {status.state === 'error' && (

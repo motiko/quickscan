@@ -82,8 +82,16 @@ export class FakeSupabase {
     return true;
   }
 
-  rpc(fn: string, args: Record<string, unknown>) {
+  /** Runs before each `upsert_records` call: another device writing in between pull and push. */
+  beforeUpsert: (() => Promise<void> | void) | undefined;
+
+  async rpc(fn: string, args: Record<string, unknown>) {
     this.log.push(`rpc:${fn}`);
+    if (fn === 'upsert_records' && this.beforeUpsert) {
+      const hook = this.beforeUpsert;
+      this.beforeUpsert = undefined;
+      await hook();
+    }
     if (fn !== 'upsert_records') return Promise.resolve({ data: null, error: { message: `unknown function ${fn}` } });
     const input = args.rows as WireInput[];
     if (input.length > 500) return Promise.resolve({ data: null, error: { message: 'at most 500 rows per call' } });
@@ -229,16 +237,30 @@ export class FakeSupabase {
 
   async remoteRecord(
     key: CryptoKey,
-    opts: { kind: SyncKind; id: string; updatedAt: number; deviceId?: string; value?: unknown; deleted?: boolean; files?: string[] }
+    opts: {
+      kind: SyncKind;
+      id: string;
+      updatedAt: number;
+      deviceId?: string;
+      value?: unknown;
+      deleted?: boolean;
+      files?: string[];
+      /** Payload format; 2 (clock-authenticated) like the app writes, 1 for legacy rows. */
+      format?: 1 | 2;
+    }
   ): Promise<void> {
+    const deviceId = opts.deviceId ?? 'other-device';
+    const ctx = { userId: this.userId, kind: opts.kind, id: opts.id };
     const payload = opts.deleted
       ? null
-      : await encryptRecord(key, { userId: this.userId, kind: opts.kind, id: opts.id }, opts.value);
+      : opts.format === 1
+        ? await encryptRecord(key, ctx, opts.value)
+        : await encryptRecord(key, ctx, opts.value, { updatedAt: opts.updatedAt, deviceId, deleted: false });
     this.write({
       kind: opts.kind,
       id: opts.id,
       updatedAt: opts.updatedAt,
-      deviceId: opts.deviceId ?? 'other-device',
+      deviceId,
       deleted: opts.deleted ?? false,
       keyVersion: 1,
       payload,
