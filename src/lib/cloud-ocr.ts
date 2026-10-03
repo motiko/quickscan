@@ -10,6 +10,7 @@ import { resolveLlmConfig } from '@/lib/llm/client';
 import { prepareImageForLlm } from '@/lib/llm/image';
 import { transcribeWithLlm, TRANSCRIPTION_MAX_EDGE } from '@/lib/llm/transcription';
 import { notifyPageOcrDone, rebuildSearchText } from '@/lib/ocr-queue';
+import { requirePageImage } from '@/lib/page-image';
 import type { LlmProvider, Page } from '@/types';
 
 export type CloudOcrState = { status: 'running' } | { status: 'error'; message: string };
@@ -66,7 +67,7 @@ async function transcribePage(pageId: string): Promise<void> {
     throw new Error('Text recognition is still running for this page');
   }
 
-  const image = await prepareImageForLlm(before.processedBlob || before.originalBlob, TRANSCRIPTION_MAX_EDGE, 0.9);
+  const image = await prepareImageForLlm(requirePageImage(before), TRANSCRIPTION_MAX_EDGE, 0.9);
   const text = await transcribeWithLlm(image, config);
   const { detectOcrLanguage } = await import('@/lib/language-detect');
   const update = cloudOcrPageUpdate(

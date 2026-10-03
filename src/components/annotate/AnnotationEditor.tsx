@@ -17,6 +17,7 @@ import {
   TEXT_LINE_HEIGHT,
 } from '@/lib/annotations/geometry';
 import { loadSignatureImages } from '@/lib/annotations/flatten';
+import { pageImage } from '@/lib/page-image';
 import { AnnotationToolbar, INK_COLORS, HIGHLIGHT_COLORS, type Tool } from './AnnotationToolbar';
 import { SignaturePad } from './SignaturePad';
 
@@ -53,7 +54,7 @@ function annotationColor(a: Annotation): string | null {
 }
 
 export function AnnotationEditor({ page, onSave, onCancel }: AnnotationEditorProps) {
-  const baseUrl = useBlobUrl(page.processedBlob || page.originalBlob);
+  const baseUrl = useBlobUrl(pageImage(page));
   const history = useAnnotationHistory(page.annotations ?? []);
 
   const [tool, setTool] = useState<Tool>('pen');

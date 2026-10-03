@@ -7,7 +7,9 @@ import { useBlobUrl } from '@/hooks/useBlobUrl';
 import { db } from '@/lib/db';
 import { generatePdf, pagesToPdfInput, shareOrDownload } from '@/lib/pdf';
 import { getRenderedBlob } from '@/lib/annotations/flatten';
+import { hasPageImage } from '@/lib/page-image';
 import { collectDocumentText } from '@/lib/ocr-text';
+import { alertDialog } from '@/lib/dialogs';
 
 // 36px square tap targets for touch.
 const actionButtonClass =
@@ -88,7 +90,12 @@ export function DocumentCard({ document, onDelete, isProcessing = false }: Docum
     setIsSharing(true);
     try {
       const pages = await db.pages.where('documentId').equals(document.id).sortBy('pageNumber');
-      if (pages.length > 0) {
+      if (!pages.every(hasPageImage)) {
+        void alertDialog({
+          title: 'Some pages are still downloading',
+          message: 'Their images are synced from another device. Share once every page shows its image.',
+        });
+      } else if (pages.length > 0) {
         const pdfBlob = await generatePdf(await pagesToPdfInput(pages, getRenderedBlob));
         await shareOrDownload(pdfBlob, `${document.name}.pdf`, document.name);
       }

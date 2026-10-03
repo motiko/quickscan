@@ -27,6 +27,7 @@ import { collectDocumentText } from '@/lib/ocr-text';
 import { getImageSize, getRenderedBlob } from '@/lib/annotations/flatten';
 import { rotateAnnotations90 } from '@/lib/annotations/geometry';
 import { AnnotationEditor } from '@/components/annotate/AnnotationEditor';
+import { hasPageImage, requirePageImage } from '@/lib/page-image';
 import { Annotation, Page } from '@/types';
 
 function PageItem({
@@ -39,13 +40,24 @@ function PageItem({
   onClick: (page: Page) => void;
 }) {
   const url = useRenderedPageUrl(page);
+  // Synced from another device and its image hasn't downloaded yet
+  const missing = !hasPageImage(page);
 
   return (
     <div
-      className="relative aspect-[3/4] overflow-hidden rounded-xl bg-gray-200 dark:bg-neutral-800 shadow-sm hover:shadow-md cursor-pointer transition-shadow"
+      className={`relative aspect-[3/4] overflow-hidden rounded-xl bg-gray-200 dark:bg-neutral-800 shadow-sm transition-shadow ${missing ? '' : 'hover:shadow-md cursor-pointer'}`}
       onClick={() => url && onClick(page)}
     >
-      {url ? (
+      {missing ? (
+        <div className="flex h-full w-full flex-col items-center justify-center gap-2 p-3 text-center text-gray-500 dark:text-gray-400">
+          <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M20 16.6A5 5 0 0 0 18 7h-1.26A8 8 0 1 0 4 15.25"></path>
+            <polyline points="8 17 12 21 16 17"></polyline>
+            <line x1="12" y1="12" x2="12" y2="21"></line>
+          </svg>
+          <span className="text-xs font-medium">Image not downloaded yet</span>
+        </div>
+      ) : url ? (
         /* eslint-disable-next-line @next/next/no-img-element */
         <img
           src={url}
@@ -195,6 +207,13 @@ export default function DocumentViewer() {
 
   const handleExport = async (mode: 'share' | 'download') => {
     if (pages.length === 0 || isExporting) return;
+    if (!pages.every(hasPageImage)) {
+      void alertDialog({
+        title: 'Some pages are still downloading',
+        message: 'Their images are synced from another device. Export once every page shows its image.',
+      });
+      return;
+    }
     setIsExporting(true);
     try {
       const pdfBlob = await generatePdf(await pagesToPdfInput(pages, getRenderedBlob));
@@ -258,7 +277,7 @@ export default function DocumentViewer() {
     if (!selectedPage || isUpdatingPage) return;
     setIsUpdatingPage(true);
     try {
-      const currentBlob = selectedPage.processedBlob || selectedPage.originalBlob;
+      const currentBlob = requirePageImage(selectedPage);
       const [rotatedBlob, size] = await Promise.all([rotateImage(currentBlob, 90), getImageSize(currentBlob)]);
       await updatePage(selectedPage.id, { processedBlob: rotatedBlob });
       // Keep annotations aligned with the rotated image (also refreshes the thumbnail for page 1)

@@ -6,11 +6,25 @@ on:
     paths:
       - 'supabase/**'
       - '.github/workflows/supabase.yml'
+      - 'src/lib/sync/**'
+      - 'src/lib/crypto/**'
+      - 'src/lib/outbox.ts'
+      - 'src/lib/sync-tracking.ts'
+      - 'src/lib/db.ts'
+      - 'src/lib/__tests__/sync.supabase.test.ts'
+      - 'vitest.supabase.config.mts'
   pull_request:
     branches: [main]
     paths:
       - 'supabase/**'
       - '.github/workflows/supabase.yml'
+      - 'src/lib/sync/**'
+      - 'src/lib/crypto/**'
+      - 'src/lib/outbox.ts'
+      - 'src/lib/sync-tracking.ts'
+      - 'src/lib/db.ts'
+      - 'src/lib/__tests__/sync.supabase.test.ts'
+      - 'vitest.supabase.config.mts'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -38,6 +52,46 @@ jobs:
 
       - name: Run pgTAP tests
         run: supabase test db
+
+      - name: Stop local Supabase
+        if: always()
+        run: supabase stop --no-backup
+
+  sync-integration:
+    name: Sync integration (local Supabase)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.119.0
+
+      # Database, Auth, REST, Storage and the API gateway: what the sync engine talks to.
+      - name: Start local Supabase
+        run: supabase start -x realtime,imgproxy,mailpit,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
+
+      # The local stack's development keys (not secrets) for the test's own throwaway users
+      - name: Export local API settings
+        run: supabase status -o env | grep -E '^[A-Z_]+=' | sed 's/"//g' >> "$GITHUB_ENV"
+
+      - name: Two devices syncing through Supabase
+        run: npm run test:supabase
+        env:
+          REQUIRE_SUPABASE: '1'
 
       - name: Stop local Supabase
         if: always()
