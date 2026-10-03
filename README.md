@@ -91,6 +91,16 @@ Without Supabase variables the app runs fully local and shows no account UI. To 
    Both are under **Project Settings → API Keys → Publishable and secret API keys**. The publishable key is public by design and ends up in the client bundle. Never put a secret key (`sb_secret_…`) or the legacy `service_role` key in a `NEXT_PUBLIC_*` variable or anywhere in this app; the legacy `anon` key isn't used either.
 6. For production, configure a custom SMTP sender under **Authentication → Emails → SMTP** — Supabase's built-in sender is rate-limited to a few emails per hour.
 
+**Database migrations** live in `supabase/migrations/` and are applied to the production project by the GitHub integration when a PR is merged to `main` — review SQL before merging. pgTAP tests in `supabase/tests/` check the row-level security and sync functions; CI runs them on PRs touching `supabase/**`. Locally (needs Docker):
+
+```bash
+npx supabase start -x realtime,imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
+npx supabase test db
+npx supabase stop --no-backup
+```
+
+This only touches the local Docker stack; never `supabase link` or `db push` to the hosted project.
+
 ## 📁 Project Structure
 
 ```
