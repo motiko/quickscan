@@ -59,6 +59,11 @@ export class FakeSupabase {
   failPullAfter: number | undefined;
   /** Simulated server clock (epoch ms) for the +5 min clamp. */
   now = () => Date.now();
+  /**
+   * Behave like a server without the authenticated-tombstones migration: tombstones are
+   * stored without their payload, whatever was sent.
+   */
+  legacyTombstones = false;
 
   constructor(public userId: string) {}
 
@@ -70,13 +75,16 @@ export class FakeSupabase {
   write(input: Omit<StoredRow, 'seq' | 'userId'>, userId = this.userId): boolean {
     const k = this.key(userId, input.kind, input.id);
     const incoming = { ...input, updatedAt: Math.min(input.updatedAt, this.now() + 5 * 60_000) };
+    if (incoming.deleted && !this.legacyTombstones && incoming.payload && incoming.payload.length > 256) {
+      throw new Error('new row for relation "records" violates check constraint "records_tombstone"');
+    }
     const stored = this.rows.get(k);
     if (stored && !gt(incoming, stored)) return false;
     this.rows.set(k, {
       ...incoming,
       userId,
       seq: ++this.seq,
-      payload: incoming.deleted ? null : incoming.payload,
+      payload: incoming.deleted && this.legacyTombstones ? null : incoming.payload,
       files: incoming.deleted ? [] : incoming.files,
     });
     return true;
@@ -247,12 +255,16 @@ export class FakeSupabase {
       files?: string[];
       /** Payload format; 2 (clock-authenticated) like the app writes, 1 for legacy rows. */
       format?: 1 | 2;
+      /** A tombstone without a payload, as older clients write it (or a forger would). */
+      unverified?: boolean;
     }
   ): Promise<void> {
     const deviceId = opts.deviceId ?? 'other-device';
     const ctx = { userId: this.userId, kind: opts.kind, id: opts.id };
     const payload = opts.deleted
-      ? null
+      ? opts.unverified
+        ? null
+        : await encryptRecord(key, ctx, {}, { updatedAt: opts.updatedAt, deviceId, deleted: true })
       : opts.format === 1
         ? await encryptRecord(key, ctx, opts.value)
         : await encryptRecord(key, ctx, opts.value, { updatedAt: opts.updatedAt, deviceId, deleted: false });

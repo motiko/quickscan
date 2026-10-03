@@ -11,6 +11,7 @@ import type { SignaturePayload } from './payload';
  *   sync:file:<kind>:<id>     the record's current remote file (FileRef)
  *   sync:cleanup:<userId>     orphaned-file cleanup: last run, candidates, storage usage
  *   sync:bad:<userId>         pulled rows that couldn't be read (retried on demand)
+ *   sync:unverified:<userId>  pulled deletions without an authenticated payload, held for the user
  *   sync:mark:<kind>:<id>     the record's sync marker (RecordMark): newest version seen, base
  *   sync:marksReady:<userId>  base markers were initialised for records synced before they existed
  *   sync:accountSwitch        the user's answer to "upload this device's documents to the new account?"
@@ -61,6 +62,7 @@ const CURSOR_PREFIX = 'sync:cursor:';
 const MERGE_PREFIX = 'sync:merge:';
 const CLEANUP_PREFIX = 'sync:cleanup:';
 const BAD_ROWS_PREFIX = 'sync:bad:';
+const UNVERIFIED_PREFIX = 'sync:unverified:';
 export const FILE_PREFIX = 'sync:file:';
 
 /** Where a record's synced file lives remotely, and whether this device has its bytes. */
@@ -91,6 +93,7 @@ export const cursorKey = (userId: string) => `${CURSOR_PREFIX}${userId}`;
 export const mergeKey = (userId: string) => `${MERGE_PREFIX}${userId}`;
 export const cleanupKey = (userId: string) => `${CLEANUP_PREFIX}${userId}`;
 export const badRowsKey = (userId: string) => `${BAD_ROWS_PREFIX}${userId}`;
+export const unverifiedKey = (userId: string) => `${UNVERIFIED_PREFIX}${userId}`;
 export const marksReadyKey = (userId: string) => `sync:marksReady:${userId}`;
 
 /** A pulled row that couldn't be decrypted or had an unknown shape; the cursor moved past it. */
@@ -99,6 +102,22 @@ export interface BadRow {
   id: string;
   seq: number;
   message: string;
+}
+
+/**
+ * A pulled deletion that carries no authenticated payload (from a device that predates
+ * authenticated tombstones, or forged by someone with write access to the database) for a
+ * record this device has. It isn't applied: the record stays, and the user decides in
+ * Settings whether to apply the deletion or ignore it (which restores the record on the
+ * server). A newer version of the record pulled later settles it.
+ */
+export interface UnverifiedDeletion {
+  kind: SyncKind;
+  id: string;
+  seq: number;
+  /** The tombstone's clock (epoch ms) and device, as the server stored them. */
+  updatedAt: number;
+  deviceId: string;
 }
 
 /** Orphaned-file cleanup state per account (see cleanup.ts). */

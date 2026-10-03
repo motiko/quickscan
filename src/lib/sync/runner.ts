@@ -42,7 +42,7 @@ export interface SyncEnvironment {
   makeThumbnail?: (page: Page) => Promise<Blob>;
 }
 
-async function defaultThumbnail(page: Page): Promise<Blob> {
+export async function defaultThumbnail(page: Page): Promise<Blob> {
   const [{ createThumbnail }, { getRenderedBlob }] = await Promise.all([
     import('@/lib/image-processing'),
     import('@/lib/annotations/flatten'),
