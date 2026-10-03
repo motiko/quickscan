@@ -166,6 +166,11 @@ export async function savePageAnnotations(pageId: string, annotations: Annotatio
   }
 }
 
+/** Keep a conflicted copy as an ordinary page (drops its "Conflicted copy" label; syncs). */
+export async function keepConflictedCopy(pageId: string): Promise<void> {
+  await db.pages.update(pageId, { conflictOf: undefined });
+}
+
 export async function deleteDocument(documentId: string): Promise<void> {
   await db.transaction('rw', [db.documents, db.pages], async () => {
     await db.pages.where('documentId').equals(documentId).delete();

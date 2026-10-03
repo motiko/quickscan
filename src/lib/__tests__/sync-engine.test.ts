@@ -14,6 +14,7 @@ import { createSupabaseBackend } from '@/lib/sync/backend';
 import { compareClock, runSync, SyncError, type SyncContext } from '@/lib/sync/engine';
 import { withSyncLock, SYNC_LOCK_NAME } from '@/lib/sync/lock';
 import { getCursor, getFileRef, RetryTracker, cursorKey } from '@/lib/sync/state';
+import { chooseUploadToAccount } from '@/lib/sync/account-switch';
 import { FakeSupabase } from './fake-supabase';
 import type { Page } from '@/types';
 
@@ -40,7 +41,10 @@ async function context(server: FakeSupabase, overrides: Partial<SyncContext> = {
 
 async function decrypted<T = Record<string, unknown>>(server: FakeSupabase, kind: string, id: string): Promise<T> {
   const row = server.get(kind as never, id)!;
-  return decryptRecord<T>(vault.key, { userId: server.userId, kind, id }, row.payload!);
+  return decryptRecord<T>(vault.key, { userId: server.userId, kind, id }, row.payload!, {
+    deviceId: row.deviceId,
+    deleted: row.deleted,
+  });
 }
 
 beforeEach(async () => {
@@ -118,19 +122,25 @@ describe('push', () => {
     expect(await readOutbox()).toEqual([]);
   });
 
-  it('acks rejected rows and pulls the newer server version', async () => {
+  it('settles a push that loses to a version written after the pull', async () => {
     const server = new FakeSupabase(USER_A);
     const docId = await createDocument('Local name', img('x'));
+    const ctx = await context(server);
+    await runSync(ctx); // the first sync (a merge) is done
+    await renameDocument(docId, 'Local rename');
     const local = await db.documents.get(docId);
-    await server.remoteRecord(vault.key, {
-      kind: 'document',
-      id: docId,
-      updatedAt: Date.now() + 60_000,
-      value: { name: 'Remote name', createdAt: local!.createdAt, updatedAt: local!.updatedAt },
-    });
+    // Another device writes between this device's pull and its push
+    server.beforeUpsert = () =>
+      server.remoteRecord(vault.key, {
+        kind: 'document',
+        id: docId,
+        updatedAt: Date.now() + 60_000,
+        value: { name: 'Remote name', createdAt: local!.createdAt, updatedAt: local!.updatedAt },
+      });
 
     const report = await runSync(await context(server));
     expect(report.rejected).toBe(1);
+    expect(report.conflicts).toEqual([{ kind: 'document', id: docId, loser: 'local' }]);
     expect((await readOutbox()).find((e) => e.kind === 'document')).toBeUndefined();
     expect((await db.documents.get(docId))!.name).toBe('Remote name');
     expect(server.get('document', docId)!.deviceId).toBe('other-device');
@@ -443,11 +453,12 @@ describe('account switch', () => {
     const docId = await createDocument('Mine', img('pixels'));
     const [page] = await db.pages.where('documentId').equals(docId).toArray();
     await runSync(await context(serverA));
-    expect(await getCursor(USER_A)).toBeGreaterThan(0);
 
     // A local delete made before switching must not reach the new account
     const other = await createDocument('Deleted later', img('z'));
     await runSync(await context(serverA));
+    // (The first run pushed after an empty pull; this one pulled the echo of that push)
+    expect(await getCursor(USER_A)).toBeGreaterThan(0);
     await deleteDocument(other);
 
     const serverB = new FakeSupabase(USER_B);
@@ -455,6 +466,12 @@ describe('account switch', () => {
     const now = new Date();
     await serverB.remoteRecord(vault.key, { kind: 'document', id: 'b-doc', updatedAt: Date.now(), value: { name: 'B doc', createdAt: now, updatedAt: now } });
     await serverB.remoteRecord(vault.key, { kind: 'document', id: docId, updatedAt: Date.now() + 60_000, deleted: true });
+
+    // Nothing moves until the user agrees to upload A's documents to B
+    const paused = await runSync(await context(serverB));
+    expect(paused.accountSwitch).toMatchObject({ previousUserId: USER_A, documents: 1, removed: false });
+    expect(serverB.log).toEqual([]);
+    await chooseUploadToAccount(USER_B);
 
     const report = await runSync(await context(serverB));
     expect(report.merged).toBe(true);
