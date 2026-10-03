@@ -10,11 +10,9 @@ import { hideDevOverlay } from './helpers';
  * "Loading..." (and Settings "Checking sync…", and sign-out did nothing) indefinitely. Now the
  * app says what's going on and continues by itself once the other tab lets go.
  *
- * Runs in every project (Chromium and WebKit) against the dev server like the other specs:
- *   npx playwright test e2e/upgrade.spec.ts
- * or against a production build:
- *   npm run build && npx next start -p 3123
- *   E2E_BASE_URL=http://localhost:3123 npx playwright test e2e/upgrade.spec.ts
+ * CI runs it in the Chromium projects; run the WebKit project (the engine of every iOS browser)
+ * locally:
+ *   npm run build && E2E_SERVER=prod npx playwright test e2e/upgrade.spec.ts
  *
  * Seeded records carry no Blobs: Playwright's WebKit can't store Blobs in IndexedDB.
  */

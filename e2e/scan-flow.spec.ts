@@ -52,18 +52,13 @@ test.describe('Scan Flow', () => {
     // Redirects to document page (url should contain /doc/)
     await expect(page).toHaveURL(/.*\/doc\/.+/);
 
-    // Verify document page loaded by checking for some generic document viewer elements or just back button
-    const backButton = page.getByRole('button').filter({ hasText: 'Back' }).or(page.getByLabel('Go back'));
-    if (await backButton.count() > 0) {
-       await backButton.click();
-    } else {
-       await page.goto('/');
-    }
+    // Back to the gallery with the document page's own button
+    await page.getByRole('button', { name: 'Back to gallery' }).click();
 
-    // Document appears in gallery
-    await expect(page).toHaveURL(/.*localhost:3000\/?$/);
-    // There should be at least one document card
-    // The empty state shouldn't be there
+    // Document appears in gallery (a path relative to the configured baseURL)
+    await expect(page).toHaveURL('/');
+    // The new document's card is there (each test gets a fresh, empty database), not the empty state
+    await expect(page.getByRole('heading', { level: 3 })).toHaveCount(1);
     await expect(page.getByText('No documents yet')).not.toBeVisible();
   });
 });
