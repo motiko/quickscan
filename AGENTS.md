@@ -240,7 +240,7 @@ const constraints = {
 
 - **Unit tests:** Vitest for utilities in `lib/`
 - **Component tests:** React Testing Library
-- **E2E (Playwright):** `e2e/`; camera flows use Chromium's fake camera. `e2e/pairing.spec.ts` and `e2e/passkeys.spec.ts` (CDP virtual authenticator) are opt-in (local Supabase stack, see their header comments)
+- **E2E (Playwright):** `e2e/`; camera flows use Chromium's fake camera. `npm run e2e` starts `next dev`; `E2E_SERVER=prod` serves the existing `npm run build` output instead (as CI does), and `E2E_BASE_URL` picks the port. Navigate and check URLs relative to the base URL, never a hardcoded host. Before a full `page.goto`, wait for the UI to show a write has landed — a reload aborts in-flight IndexedDB transactions. `e2e/pairing.spec.ts` and `e2e/passkeys.spec.ts` (CDP virtual authenticator) are opt-in (local Supabase stack, see their header comments)
 
 ## Commit Messages
 
@@ -261,6 +261,7 @@ GitHub Actions runs on every push/PR to `main`:
 2. `npm run typecheck` — TypeScript compiler
 3. `npm run test -- --passWithNoTests` — Vitest
 4. `npm run build` — Next.js production build
+5. Playwright e2e on the two Chromium projects, against that production build (`E2E_SERVER=prod`)
 
 All checks must pass before merging.
 
