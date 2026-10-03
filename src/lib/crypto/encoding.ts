@@ -7,6 +7,8 @@ import { CryptoError } from './errors';
 
 /** Format byte of every envelope this module writes (record, file, wrapped key, sealed key). */
 export const FORMAT_V1 = 0x01;
+/** Format byte of record payloads that also authenticate their sync clock (see records.ts). */
+export const FORMAT_V2 = 0x02;
 
 export const IV_BYTES = 12;
 export const TAG_BYTES = 16;
@@ -38,12 +40,12 @@ export function randomBytes(n: number): Bytes {
  *
  * Strings are UTF-8. Every item is length-prefixed, so different tuples can never encode to
  * the same bytes (`["ab","c"]` vs `["a","bc"]`), and the label separates purposes (a record
- * AAD can never equal a file AAD). The leading byte is the envelope format version, so the
- * version byte of a payload is authenticated too.
+ * AAD can never equal a file AAD). The leading byte is the envelope format version (`version`,
+ * 0x01 unless a format says otherwise), so the version byte of a payload is authenticated too.
  */
-export function encodeContext(label: string, fields: readonly (string | Uint8Array)[]): Bytes {
+export function encodeContext(label: string, fields: readonly (string | Uint8Array)[], version: number = FORMAT_V1): Bytes {
   const items = [label, ...fields].map((f) => (typeof f === 'string' ? utf8.encode(f) : f));
-  const parts: Uint8Array[] = [Uint8Array.of(FORMAT_V1)];
+  const parts: Uint8Array[] = [Uint8Array.of(version)];
   for (const item of items) {
     const len = new Uint8Array(4);
     new DataView(len.buffer).setUint32(0, item.length);
@@ -57,12 +59,16 @@ export function toBytes(data: ArrayBuffer | Uint8Array): Bytes {
   return data instanceof Uint8Array ? new Uint8Array(data) : new Uint8Array(data.slice(0));
 }
 
-/** Split `0x01 || iv(12) || ciphertext+tag` after checking version and minimum length. */
-export function splitEnvelope(data: Uint8Array, headerBytes = 0): { header: Uint8Array; iv: Bytes; body: Bytes } {
+/** Split `version || [header] || iv(12) || ciphertext+tag` after checking version and minimum length. */
+export function splitEnvelope(
+  data: Uint8Array,
+  headerBytes = 0,
+  version: number = FORMAT_V1
+): { header: Uint8Array; iv: Bytes; body: Bytes } {
   if (data.length < 1 + headerBytes + IV_BYTES + TAG_BYTES) {
     throw new CryptoError('malformed', 'Encrypted data is too short');
   }
-  if (data[0] !== FORMAT_V1) {
+  if (data[0] !== version) {
     throw new CryptoError('unsupported-version', `Unsupported encryption format ${data[0]}`);
   }
   return {

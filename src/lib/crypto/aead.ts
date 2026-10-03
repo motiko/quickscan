@@ -6,18 +6,33 @@ import { FORMAT_V1, IV_BYTES, concatBytes, randomBytes, splitEnvelope, type Byte
  *
  *   0x01 || [header] || iv (12 random bytes) || ciphertext || tag (16 bytes)
  *
+ * (Record payloads that authenticate their sync clock use 0x02 with an 8-byte header; see
+ * records.ts.)
+ *
  * A fresh random 96-bit IV per encryption. With random IVs the usual NIST limit is 2^32
  * encryptions per key, far beyond what one user's vault produces.
  */
 
-export async function sealEnvelope(key: CryptoKey, aad: Bytes, plaintext: Bytes, header?: Uint8Array): Promise<Bytes> {
+export async function sealEnvelope(
+  key: CryptoKey,
+  aad: Bytes,
+  plaintext: Bytes,
+  header?: Uint8Array,
+  version: number = FORMAT_V1
+): Promise<Bytes> {
   const iv = randomBytes(IV_BYTES);
   const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: aad }, key, plaintext);
-  return concatBytes(Uint8Array.of(FORMAT_V1), header ?? new Uint8Array(0), iv, new Uint8Array(ct));
+  return concatBytes(Uint8Array.of(version), header ?? new Uint8Array(0), iv, new Uint8Array(ct));
 }
 
-export async function openEnvelope(key: CryptoKey, aad: Bytes, data: Uint8Array, headerBytes = 0): Promise<Bytes> {
-  const { iv, body } = splitEnvelope(data, headerBytes);
+export async function openEnvelope(
+  key: CryptoKey,
+  aad: Bytes,
+  data: Uint8Array,
+  headerBytes = 0,
+  version: number = FORMAT_V1
+): Promise<Bytes> {
+  const { iv, body } = splitEnvelope(data, headerBytes, version);
   try {
     return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv, additionalData: aad }, key, body));
   } catch (cause) {

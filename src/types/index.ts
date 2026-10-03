@@ -116,6 +116,9 @@ export interface Page {
   ocrLang?: string; // languages joined by '+'; kept for pages recognized before ocrInfo
   ocrInfo?: OcrInfo;
   annotations?: Annotation[];
+  // Set on a "conflicted copy": the version of page `conflictOf` that lost to a newer change
+  // on another device, kept so the work isn't lost (see lib/sync/engine.ts). Synced.
+  conflictOf?: string;
 }
 
 /*

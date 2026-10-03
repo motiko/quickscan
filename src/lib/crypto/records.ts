@@ -1,16 +1,31 @@
 import { openEnvelope, sealEnvelope } from './aead';
 import { CryptoError } from './errors';
-import { encodeContext, fromBase64, toBase64, type Bytes } from './encoding';
+import { encodeContext, fromBase64, FORMAT_V1, FORMAT_V2, toBase64, type Bytes } from './encoding';
 
 /*
- * Record payloads (the `records.payload bytea` column):
+ * Record payloads (the `records.payload bytea` column). Two formats; the app writes v2.
  *
+ * v2 — also authenticates the sync clock:
+ *   0x02 || u64be(updatedAtMs) (8) || iv (12) || AES-256-GCM(vaultKey, iv, aad, utf8(json)) || tag (16)
+ *   aad = encodeContext('quickscan/record',
+ *           [userId, kind, id, u64be(updatedAtMs), deviceId, deleted ? '1' : '0'], version 0x02)
+ *
+ * v1 — older payloads; they still decrypt, but are no longer written:
  *   0x01 || iv (12) || AES-256-GCM(vaultKey, iv, aad, utf8(json)) || tag (16)
  *   aad = encodeContext('quickscan/record', [userId, kind, id])
  *
  * The AAD binds the ciphertext to its row, so the server can't move it to another record,
- * kind or user. `key_version` is a plain column, not part of the AAD: a wrong version only
- * picks the wrong key, which fails authentication anyway.
+ * kind or user. v2 also binds the last-write-wins clock the writing device sent, its device
+ * id and the deletion flag, so the server can't re-date an old version (a replay) or
+ * attribute it to another device. The clock travels in the clear in the 8-byte header and is
+ * authenticated through the AAD: the row's own `updated_at` can't be what's authenticated,
+ * because `upsert_records` may lower it (it clamps to now() + 5 minutes). `openRecord` returns
+ * the authenticated clock and the sync engine accepts a row clock at or below it, never above
+ * (see engine.ts). Tombstones carry no payload (a schema constraint), so they can't be
+ * authenticated; a payload is always sealed with deleted = '0'.
+ *
+ * `key_version` is a plain column, not part of the AAD: a wrong version only picks the wrong
+ * key, which fails authentication anyway.
  *
  * Serialization is JSON with three tagged forms, so values survive the round trip:
  *   Date        -> {"$date": <epoch ms>}
@@ -28,23 +43,103 @@ export interface RecordContext {
   id: string;
 }
 
+/** The row metadata a v2 payload authenticates. */
+export interface RecordVersion {
+  /** The last-write-wins clock the writer sent (epoch ms, integer). */
+  updatedAt: number;
+  deviceId: string;
+  deleted: boolean;
+}
+
+export interface OpenedRecord<T = unknown> {
+  value: T;
+  format: 1 | 2;
+  /** v2 only: the authenticated clock, as the writing device sent it. */
+  updatedAt?: number;
+}
+
+const CLOCK_BYTES = 8;
+
+function clockBytes(ms: number): Uint8Array {
+  if (!Number.isSafeInteger(ms) || ms < 0) throw new TypeError(`Invalid record clock ${ms}`);
+  const out = new Uint8Array(CLOCK_BYTES);
+  const view = new DataView(out.buffer);
+  view.setUint32(0, Math.floor(ms / 2 ** 32));
+  view.setUint32(4, ms % 2 ** 32);
+  return out;
+}
+
+function readClock(data: Uint8Array): number {
+  const view = new DataView(data.buffer, data.byteOffset + 1, CLOCK_BYTES);
+  return view.getUint32(0) * 2 ** 32 + view.getUint32(4);
+}
+
 export function recordAad({ userId, kind, id }: RecordContext): Bytes {
   return encodeContext('quickscan/record', [userId, kind, id]);
 }
 
-export async function encryptRecord(key: CryptoKey, ctx: RecordContext, value: unknown): Promise<Bytes> {
-  const json = JSON.stringify(toJsonSafe(value, '$'));
-  return sealEnvelope(key, recordAad(ctx), new TextEncoder().encode(json));
+export function recordAadV2({ userId, kind, id }: RecordContext, version: RecordVersion): Bytes {
+  return encodeContext(
+    'quickscan/record',
+    [userId, kind, id, clockBytes(version.updatedAt), version.deviceId, version.deleted ? '1' : '0'],
+    FORMAT_V2
+  );
 }
 
-/** Throws `CryptoError` on a wrong key, tampering, a mismatched context or a truncated payload. */
-export async function decryptRecord<T = unknown>(key: CryptoKey, ctx: RecordContext, payload: Uint8Array): Promise<T> {
-  const plain = await openEnvelope(key, recordAad(ctx), payload);
+const encodeValue = (value: unknown) => new TextEncoder().encode(JSON.stringify(toJsonSafe(value, '$')));
+
+/**
+ * Encrypt a record. With `version` (what the sync engine always passes) the payload is v2 and
+ * authenticates that clock, device id and deletion flag; without it, a legacy v1 payload.
+ */
+export async function encryptRecord(
+  key: CryptoKey,
+  ctx: RecordContext,
+  value: unknown,
+  version?: RecordVersion
+): Promise<Bytes> {
+  if (!version) return sealEnvelope(key, recordAad(ctx), encodeValue(value));
+  return sealEnvelope(key, recordAadV2(ctx, version), encodeValue(value), clockBytes(version.updatedAt), FORMAT_V2);
+}
+
+/**
+ * Decrypt a v1 or v2 payload. A v2 payload needs the row's `deviceId` and `deleted` (its clock
+ * comes from the header). Throws `CryptoError` on a wrong key, tampering, a mismatched
+ * context or row, or a truncated payload.
+ */
+export async function openRecord<T = unknown>(
+  key: CryptoKey,
+  ctx: RecordContext,
+  payload: Uint8Array,
+  row?: Pick<RecordVersion, 'deviceId' | 'deleted'>
+): Promise<OpenedRecord<T>> {
+  let plain: Bytes;
+  let updatedAt: number | undefined;
+  if (payload[0] === FORMAT_V2) {
+    if (!row) throw new CryptoError('malformed', 'A v2 record needs its row to be verified');
+    if (payload.length < 1 + CLOCK_BYTES) throw new CryptoError('malformed', 'Encrypted data is too short');
+    updatedAt = readClock(payload);
+    plain = await openEnvelope(key, recordAadV2(ctx, { updatedAt, ...row }), payload, CLOCK_BYTES, FORMAT_V2);
+  } else {
+    plain = await openEnvelope(key, recordAad(ctx), payload, 0, FORMAT_V1);
+  }
+  let value: T;
   try {
-    return fromJsonSafe(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(plain))) as T;
+    value = fromJsonSafe(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(plain))) as T;
   } catch (cause) {
     throw new CryptoError('malformed', 'Decrypted record is not valid', { cause });
   }
+  return updatedAt === undefined ? { value, format: 1 } : { value, format: 2, updatedAt };
+}
+
+/** `openRecord` without the format details. */
+export async function decryptRecord<T = unknown>(
+  key: CryptoKey,
+  ctx: RecordContext,
+  payload: Uint8Array,
+  row?: Pick<RecordVersion, 'deviceId' | 'deleted'>
+): Promise<T> {
+  return (await openRecord<T>(key, ctx, payload, row)).value;
 }
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };

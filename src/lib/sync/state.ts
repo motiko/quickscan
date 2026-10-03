@@ -11,10 +11,50 @@ import type { SignaturePayload } from './payload';
  *   sync:file:<kind>:<id>     the record's current remote file (FileRef)
  *   sync:cleanup:<userId>     orphaned-file cleanup: last run, candidates, storage usage
  *   sync:bad:<userId>         pulled rows that couldn't be read (retried on demand)
+ *   sync:mark:<kind>:<id>     the record's sync marker (RecordMark): newest version seen, base
+ *   sync:marksReady:<userId>  base markers were initialised for records synced before they existed
+ *   sync:accountSwitch        the user's answer to "upload this device's documents to the new account?"
+ *
+ * Everything under `sync:` belongs to the account in `sync:lastUserId` and is wiped when a
+ * different account starts its first sync on this device.
  *
  * Use these helpers inside `applyUntracked` (which includes syncMeta) when they must commit
  * together with a record write.
  */
+
+export { markKey, MARK_PREFIX } from '@/lib/sync-tracking';
+
+/**
+ * What this device knows about a record's server versions:
+ *
+ * - `clock`/`device`: the newest version (by last-write-wins order, the row clock as the
+ *   server stored it) this device has pulled. A later pull of anything older is a replay and
+ *   is rejected, and a local write is clocked at least 1 ms past it (`writeClock`). 0/'' when
+ *   unknown.
+ * - `own`: the clock of this device's last accepted push of the record. Kept apart from
+ *   `clock` because the server may have stored it clamped; write clocks stay above both.
+ * - `hash`: the material fingerprint (`materialHash`) of the base version, the last version
+ *   this device and the server agreed on (applied from a pull, or pushed and accepted). A
+ *   local or remote version that differs from it changed something that matters. Pages only.
+ * - `v2`: a version authenticated with its clock (record format v2) was seen or written, so a
+ *   v1 payload for this record can only be a downgrade replay.
+ */
+export interface RecordMark {
+  clock: number;
+  device: string;
+  own?: number;
+  hash?: string;
+  v2?: boolean;
+}
+
+export const ACCOUNT_SWITCH_KEY = 'sync:accountSwitch';
+
+/** The user's answer when a different account signs in on a device with another account's data. */
+export interface AccountSwitchDecision {
+  from: string;
+  to: string;
+  choice: 'merge' | 'remove';
+}
 
 export const LAST_USER_KEY = 'sync:lastUserId';
 const CURSOR_PREFIX = 'sync:cursor:';
@@ -51,6 +91,7 @@ export const cursorKey = (userId: string) => `${CURSOR_PREFIX}${userId}`;
 export const mergeKey = (userId: string) => `${MERGE_PREFIX}${userId}`;
 export const cleanupKey = (userId: string) => `${CLEANUP_PREFIX}${userId}`;
 export const badRowsKey = (userId: string) => `${BAD_ROWS_PREFIX}${userId}`;
+export const marksReadyKey = (userId: string) => `sync:marksReady:${userId}`;
 
 /** A pulled row that couldn't be decrypted or had an unknown shape; the cursor moved past it. */
 export interface BadRow {
