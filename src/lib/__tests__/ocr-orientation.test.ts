@@ -16,7 +16,11 @@ vi.mock('@/lib/annotations/flatten', () => ({
 import { db } from '@/lib/db';
 import { recognize } from '@/lib/ocr';
 import { confidentChars, isClearlyBetter, recognizeUpright } from '@/lib/ocr-orientation';
-import { keepPageOrientation, processPendingOcr } from '@/lib/ocr-queue';
+import { keepPageOrientation, processPendingOcr, requeueAllOcr, retryOcr } from '@/lib/ocr-queue';
+import { getImageSize } from '@/lib/annotations/flatten';
+import { applyUntracked, readOutbox } from '@/lib/outbox';
+import { updatePage } from '@/hooks/useDocuments';
+import type { Annotation, Page } from '@/types';
 
 // Measured with Tesseract (eng) on a rendered invoice: upright 94 % with 37 confident words,
 // upside down 26 % with 4, sideways 54 % with none.
@@ -90,44 +94,187 @@ describe('recognizeUpright', () => {
 
 describe('processPendingOcr orientation', () => {
   const mockRecognize = vi.mocked(recognize);
+  const mockSize = vi.mocked(getImageSize);
+  const rect: Annotation = { id: 'a1', type: 'rect', x: 0.1, y: 0.2, w: 0.3, h: 0.1, color: '#f00', width: 0.01 };
+  const docUpdatedAt = new Date('2026-01-01T00:00:00Z');
+  // The queue remembers pages it mustn't turn for the session, so every test gets its own page
+  let n = 0;
+  let id: string;
+
+  async function addPage(overrides: Partial<Page> = {}) {
+    const now = new Date();
+    await db.pages.add({
+      id, documentId: 'doc1', pageNumber: 1, originalBlob: new Blob(['img']), processedBlob: new Blob(['img']),
+      filter: 'original', createdAt: now, updatedAt: now, ocrStatus: 'pending', annotations: [rect],
+      ...overrides,
+    });
+    // Only what the OCR queue writes is of interest
+    await db.outbox.clear();
+  }
+  const page = () => db.pages.get(id);
+  const image = async () => (await page())?.processedBlob?.text();
+  // Rebuilding the search text queues the document; only the page's entry matters here
+  const pageEntries = async () => (await readOutbox()).filter((e) => e.kind === 'page');
 
   beforeEach(async () => {
+    id = `p${++n}`;
     mockRecognize.mockReset();
+    mockSize.mockReset();
+    mockSize.mockResolvedValue({ width: 600, height: 800 });
     // The scanned image reads upside down; only the 180° turn reads upright
     mockRecognize.mockImplementation(async (b: Blob) => ((await b.text()) === 'img@180' ? upright : upsideDown));
     await db.delete();
     await db.open();
-    const now = new Date();
-    await db.documents.add({ id: 'doc1', name: 'Scan', createdAt: now, updatedAt: now, pageCount: 1 });
-    await db.pages.add({
-      id: 'p1', documentId: 'doc1', pageNumber: 1, processedBlob: new Blob(['img']), filter: 'original',
-      createdAt: now, updatedAt: now, ocrStatus: 'pending',
-      annotations: [{ id: 'a1', type: 'rect', x: 0.1, y: 0.2, w: 0.3, h: 0.1, color: '#f00', width: 0.01 }],
-    });
+    await db.documents.add({ id: 'doc1', name: 'Scan', createdAt: docUpdatedAt, updatedAt: docUpdatedAt, pageCount: 1 });
   });
 
   it('stores an upside-down page upright, with its text, turned annotations and thumbnail', async () => {
+    await addPage();
     await processPendingOcr();
 
-    const page = await db.pages.get('p1');
-    expect(page?.ocrStatus).toBe('done');
-    expect(page?.ocrText).toBe(upright.text);
-    expect(await page?.processedBlob?.text()).toBe('img@180');
-    const rect = page?.annotations?.[0];
-    expect(rect).toMatchObject({ type: 'rect' });
-    if (rect?.type === 'rect') {
-      expect(rect.x).toBeCloseTo(0.6);
-      expect(rect.y).toBeCloseTo(0.7);
+    const p = await page();
+    expect(p?.ocrStatus).toBe('done');
+    expect(p?.ocrText).toBe(upright.text);
+    expect(await image()).toBe('img@180');
+    const turned = p?.annotations?.[0];
+    expect(turned).toMatchObject({ type: 'rect' });
+    if (turned?.type === 'rect') {
+      expect(turned.x).toBeCloseTo(0.6);
+      expect(turned.y).toBeCloseTo(0.7);
     }
     expect(await (await db.documents.get('doc1'))?.thumbnailBlob?.text()).toBe('thumb');
   });
 
-  it('leaves a page the user turned by hand as it is', async () => {
-    keepPageOrientation('p1');
+  it('queues the turned image for upload', async () => {
+    await addPage();
     await processPendingOcr();
 
-    const page = await db.pages.get('p1');
-    expect(await page?.processedBlob?.text()).toBe('img');
-    expect(page?.ocrText).toBe(upsideDown.text);
+    expect(await pageEntries()).toEqual([expect.objectContaining({ kind: 'page', id, op: 'upsert', fileChanged: true })]);
+  });
+
+  it('refreshes the thumbnail without touching the document (no document edit to sync)', async () => {
+    await addPage();
+    await processPendingOcr();
+
+    const doc = await db.documents.get('doc1');
+    expect(await doc?.thumbnailBlob?.text()).toBe('thumb');
+    expect(doc?.updatedAt).toEqual(docUpdatedAt);
+  });
+
+  it('leaves a page the user turned by hand as it is', async () => {
+    await addPage();
+    keepPageOrientation(id);
+    await processPendingOcr();
+
+    expect(await image()).toBe('img');
+    expect((await page())?.ocrText).toBe(upsideDown.text);
+  });
+
+  it('never turns a page pulled from another device (no original)', async () => {
+    await addPage({ originalBlob: undefined });
+    await processPendingOcr();
+
+    expect(await image()).toBe('img');
+    expect((await page())?.ocrText).toBe(upsideDown.text);
+    expect(await pageEntries()).toEqual([expect.objectContaining({ kind: 'page', id, fileChanged: false })]);
+  });
+
+  it('never turns a page on a re-run of recognized text', async () => {
+    await addPage({
+      ocrStatus: 'done',
+      ocrText: 'old',
+      ocrInfo: { engine: 'tesseract', languages: ['eng'], confidence: 30, recognizedAt: new Date() },
+    });
+    await retryOcr(id);
+
+    expect(await image()).toBe('img');
+    expect((await page())?.ocrText).toBe(upsideDown.text);
+  });
+
+  it('never turns a page when recognition is retried after an error', async () => {
+    await addPage({ ocrStatus: 'error' });
+    await retryOcr(id);
+
+    expect(await image()).toBe('img');
+    expect((await page())?.ocrStatus).toBe('done');
+  });
+
+  it('never turns a page re-queued for a language change', async () => {
+    await addPage({ ocrStatus: 'done', ocrText: 'old' });
+    await requeueAllOcr();
+
+    expect(await image()).toBe('img');
+  });
+
+  it('does not write a turn over an image sync swapped in during recognition', async () => {
+    let swapped = false;
+    mockRecognize.mockImplementation(async (b: Blob) => {
+      const text = await b.text();
+      if (!swapped) {
+        swapped = true;
+        // A download stored without tracking (and without a status reset)
+        await applyUntracked(() => db.pages.update(id, { processedBlob: new Blob(['downloaded image']) }));
+      }
+      return text === 'img@180' ? upright : upsideDown;
+    });
+    await addPage();
+    await processPendingOcr();
+
+    expect(await image()).toBe('downloaded image');
+    // The new image was recognized instead
+    expect(mockRecognize.mock.calls.some(([b]) => b.size === 'downloaded image'.length)).toBe(true);
+    expect((await page())?.ocrStatus).toBe('done');
+  });
+
+  it('does not write a turn over an image the user changed while the size was measured', async () => {
+    mockSize.mockImplementationOnce(async () => {
+      await updatePage(id, { processedBlob: new Blob(['user edit']) });
+      return { width: 600, height: 800 };
+    });
+    await addPage();
+    await processPendingOcr();
+
+    expect(await image()).toBe('user edit');
+    expect((await page())?.annotations).toEqual([rect]);
+    expect((await page())?.ocrStatus).toBe('done');
+  });
+
+  it('writes nothing for a page deleted mid-recognition', async () => {
+    mockSize.mockImplementationOnce(async () => {
+      // Removed by sync (untracked), so any entry in the outbox would come from the OCR queue
+      await applyUntracked(() => db.pages.delete(id));
+      return { width: 600, height: 800 };
+    });
+    await addPage();
+    await processPendingOcr();
+
+    expect(await page()).toBeUndefined();
+    expect(await readOutbox()).toEqual([]);
+    expect((await db.documents.get('doc1'))?.updatedAt).toEqual(docUpdatedAt);
+  });
+
+  it('keeps the page as scanned, with its text, when turning it fails', async () => {
+    mockSize.mockRejectedValueOnce(new Error('decode failed'));
+    await addPage();
+    await processPendingOcr();
+
+    const p = await page();
+    expect(await image()).toBe('img');
+    expect(p?.annotations).toEqual([rect]);
+    expect(p?.ocrStatus).toBe('done');
+    expect(p?.ocrText).toBe(upsideDown.text);
+  });
+
+  it('does not mark a page as failed when its image changed before recognition failed', async () => {
+    mockRecognize.mockImplementationOnce(async () => {
+      await updatePage(id, { processedBlob: new Blob(['user edit']) });
+      throw new Error('worker crashed');
+    });
+    await addPage();
+    await processPendingOcr();
+
+    // Re-queued by updatePage and recognized again, not left as 'error'
+    expect((await page())?.ocrStatus).toBe('done');
+    expect(await image()).toBe('user edit');
   });
 });

@@ -51,6 +51,8 @@ export interface UprightResult {
   rotation: Rotation;
   /** The rotated image when `rotation` isn't 0; `result`'s word boxes refer to it. */
   image?: Blob;
+  /** The pass on the image as scanned, when `rotation` isn't 0 (to fall back on if turning the page fails). */
+  unrotated?: OcrResult;
 }
 
 /**
@@ -69,7 +71,7 @@ export async function recognizeUpright(
     try {
       const rotated = await rotate(image, degrees);
       const result = await recognize(rotated);
-      if (isClearlyBetter(result, asScanned)) return { result, rotation: degrees, image: rotated };
+      if (isClearlyBetter(result, asScanned)) return { result, rotation: degrees, image: rotated, unrotated: asScanned };
     } catch (err) {
       console.warn('Orientation probe failed:', err);
       break;

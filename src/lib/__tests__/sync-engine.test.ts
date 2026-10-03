@@ -8,7 +8,7 @@ import { db } from '@/lib/db';
 import { createDocument, addPageToDocument, deleteDocument, renameDocument, savePageAnnotations, updatePage } from '@/hooks/useDocuments';
 import { createFolder } from '@/lib/folders';
 import { updateSettings } from '@/lib/settings';
-import { getDeviceId, readOutbox } from '@/lib/outbox';
+import { applyUntracked, getDeviceId, readOutbox } from '@/lib/outbox';
 import { decryptFile, decryptRecord, generateVaultKey, type VaultKey } from '@/lib/crypto';
 import { createSupabaseBackend } from '@/lib/sync/backend';
 import { compareClock, runSync, SyncError, type SyncContext } from '@/lib/sync/engine';
@@ -265,6 +265,40 @@ describe('files', () => {
     expect(makeThumbnail).toHaveBeenCalledTimes(1);
     expect(await text((await db.documents.get('d1'))!.thumbnailBlob!)).toBe('thumb:p1');
     // Writing the image didn't queue anything, and re-pushing would not re-upload
+    expect(await readOutbox()).toEqual([]);
+  });
+
+  it('re-queues OCR when an image downloads while the old one is being recognized', async () => {
+    const server = new FakeSupabase(USER_A);
+    const now = new Date();
+    await server.remoteRecord(vault.key, {
+      kind: 'document',
+      id: 'd1',
+      updatedAt: now.getTime(),
+      value: { name: 'From phone', createdAt: now, updatedAt: now },
+    });
+    const path = await server.remoteFile(vault.key, 'file-1', img('new-pixels'));
+    await server.remoteRecord(vault.key, {
+      kind: 'page',
+      id: 'p1',
+      updatedAt: now.getTime(),
+      value: { documentId: 'd1', pageNumber: 1, filter: 'original', createdAt: now, ocrText: 'Hello', file: { id: 'file-1', type: 'image/jpeg' } },
+      files: [path],
+    });
+    const stored = server.objects.get(path)!;
+    server.objects.delete(path);
+    const ctx = await context(server);
+    await runSync(ctx);
+    // The OCR queue is recognizing the image the page had before
+    await applyUntracked(() => db.pages.update('p1', { processedBlob: img('old-pixels'), ocrStatus: 'processing' }));
+
+    server.objects.set(path, stored);
+    clock += 10_000;
+    await runSync(ctx);
+
+    const page = await db.pages.get('p1');
+    expect(await text(page!.processedBlob!)).toBe('new-pixels');
+    expect(page!.ocrStatus).toBe('pending');
     expect(await readOutbox()).toEqual([]);
   });
 

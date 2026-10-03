@@ -1,7 +1,8 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { useRef, type ReactNode } from 'react';
 import { useEscape } from '@/hooks/useEscape';
+import { useModalFocus } from '@/hooks/useModalFocus';
 import { CloseIcon } from './icons';
 
 interface BottomSheetProps {
@@ -13,12 +14,19 @@ interface BottomSheetProps {
 export const sheetIconButton =
   'flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-neutral-800 disabled:opacity-40';
 
-/** Bottom sheet with a title bar; closes on backdrop tap, the close button and Escape. */
+/**
+ * Bottom sheet with a title bar; closes on backdrop tap, the close button and Escape.
+ * Modal (UX-008): focus moves to Close on open, the rest of the page is inert while it's open,
+ * and focus returns to the opener on close.
+ */
 export function BottomSheet({ title, onClose, children }: BottomSheetProps) {
   useEscape(onClose);
+  const layerRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  useModalFocus(layerRef, closeRef);
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col justify-end bg-black/40" onClick={onClose}>
+    <div ref={layerRef} className="fixed inset-0 z-50 flex flex-col justify-end bg-black/40" onClick={onClose}>
       <div
         className="mx-auto flex max-h-[80dvh] w-full max-w-lg flex-col rounded-t-2xl bg-white dark:bg-neutral-900 pb-safe-offset-4"
         onClick={(e) => e.stopPropagation()}
@@ -28,7 +36,7 @@ export function BottomSheet({ title, onClose, children }: BottomSheetProps) {
       >
         <div className="flex items-center justify-between gap-2 border-b border-gray-200 dark:border-neutral-800 py-1 pl-4 pr-1">
           <h2 className="truncate text-sm font-bold text-gray-900 dark:text-gray-100">{title}</h2>
-          <button onClick={onClose} aria-label="Close" title="Close" className={sheetIconButton}>
+          <button ref={closeRef} onClick={onClose} aria-label="Close" title="Close" className={sheetIconButton}>
             <CloseIcon />
           </button>
         </div>

@@ -1517,7 +1517,10 @@ async function storeDownloadedFile(ref: FileRef, blob: Blob, sha256: string): Pr
     // A pulled page without text that this device never recognized: queue it for OCR now
     // that its image is here (OcrRunner picks it up; the text syncs back as a normal edit)
     const needsOcr = page.ocrText === undefined && page.ocrInfo === undefined && page.ocrStatus === undefined;
-    await db.pages.update(ref.id, needsOcr ? { processedBlob: blob, ocrStatus: 'pending' } : { processedBlob: blob });
+    // Text being recognized from the image this one replaces is stale: recognize the new one
+    // instead (like updatePage), so the OCR queue doesn't write it, or a turn of it, back
+    const reset = needsOcr || page.ocrStatus === 'processing';
+    await db.pages.update(ref.id, reset ? { processedBlob: blob, ocrStatus: 'pending' } : { processedBlob: blob });
     await db.syncMeta.put({ key, value: done });
     return { ...page, processedBlob: blob };
   }
