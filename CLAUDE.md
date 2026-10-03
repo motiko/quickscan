@@ -47,10 +47,11 @@ QuickScan is a mobile-first Progressive Web App (PWA) built with Next.js 16 (App
     - `naming/`: Document naming from OCR text — on-device heuristics, or the configured LLM via `llm/naming.ts`.
     - `annotations/`: Annotation geometry, canvas rendering and flattening onto page images.
     - `settings.ts`: App settings stored in the Dexie `settings` table.
+    - `supabase.ts` / `auth.ts`: Optional Supabase client (lazy, only when `NEXT_PUBLIC_SUPABASE_URL`/`_ANON_KEY` are set) and the auth store read via `useAuth` — passwordless sign-in with an emailed one-time code; the Account section in `/settings`.
 - `src/hooks/`: Shared React hooks for camera, database, and document state.
 
 ### Key Technical Decisions
-- **Client-Side Only**: No backend; all data is stored in IndexedDB via Dexie.js. The only server code is `/api/llm`, a stateless pass-through for LLM providers without CORS support (allowlisted in `PROXIED_HOSTS`).
+- **Local-First**: All data is stored in IndexedDB via Dexie.js and the app works fully without an account. The only server code is `/api/llm`, a stateless pass-through for LLM providers without CORS support (allowlisted in `PROXIED_HOSTS`). Supabase (Auth now, sync later) is optional and talked to directly from the client; authorization lives in row-level security, and only the anon key may ship to the client.
 - **Edge Detection**: Uses a Web Worker to prevent UI blocking during OpenCV.js processing.
 - **PWA**: Implemented via `@serwist/next` for offline-first capabilities and "Add to Home Screen" experience.
 - **PDF Export**: Multi-page PDFs are generated on the client using `pdf-lib`, with annotations flattened into the page images and an invisible OCR text layer.
