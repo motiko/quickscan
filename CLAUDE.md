@@ -16,7 +16,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Unit Tests (Vitest): `npm run test`
 - Run single test: `npx vitest run path/to/test.ts`
 - Live LLM Tests: `npm run test:live` — `*.live.test.ts` files against real providers; keys from gitignored `.env.test.local` (template: `.env.example`) or the `CUSTOM_LLM_KEY` CI secret; never put keys in `NEXT_PUBLIC_*` vars
-- E2E Tests (Playwright): `npm run e2e`
+- E2E Tests (Playwright): `npm run e2e` (`next dev`); against the production build: `npm run build && E2E_SERVER=prod npm run e2e`; another port: `E2E_BASE_URL=http://localhost:3100`
 - DB Tests (pgTAP, Docker): `npx supabase start` then `npx supabase test db`
 - E2E Tests UI: `npm run e2e:ui`
 - E2E Tests Headed: `npm run e2e:headed`
