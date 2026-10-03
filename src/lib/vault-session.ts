@@ -263,10 +263,10 @@ export async function unlockVault(recoveryKey: string): Promise<void> {
 }
 
 /**
- * Keep a vault key received from another device by QR pairing (lib/pairing-session.ts) and
- * unlock. `transientKey` is the extractable key from `openPairedVaultKey`; `userId` is the
- * account the pairing request was made for, so a sign-in switch meanwhile can't attach the
- * key to another account.
+ * Keep a vault key received from another device by QR pairing (lib/pairing-session.ts), or
+ * unwrapped with a passkey (lib/passkeys.ts), and unlock. `transientKey` is the extractable
+ * key from `openPairedVaultKey`/`unwrapVaultKey`; `userId` is the account the flow started
+ * for, so a sign-in switch meanwhile can't attach the key to another account.
  */
 export async function unlockWithPairedKey(transientKey: CryptoKey, userId: string): Promise<void> {
   const user = requireUser();

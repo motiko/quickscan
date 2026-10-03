@@ -56,11 +56,20 @@ async function device(browser: Browser, email: string): Promise<{ context: Brows
   return { context, page };
 }
 
+/** Turning sync on offers a passkey where the browser may support PRF; decline it. */
+async function skipPasskeySuggestion(page: Page) {
+  await page
+    .getByRole('button', { name: 'Not now', exact: true })
+    .click({ timeout: 5_000 })
+    .catch(() => {});
+}
+
 async function turnOnSync(page: Page) {
   await page.getByRole('button', { name: 'Turn on sync', exact: true }).click();
   await page.getByLabel("I've saved my recovery key").check();
   await page.getByRole('dialog').getByRole('button', { name: 'Turn on sync', exact: true }).click();
   await expect(page.getByText('Sync is on for this device')).toBeVisible();
+  await skipPasskeySuggestion(page);
 }
 
 async function showPairingCode(page: Page) {
@@ -166,6 +175,7 @@ test('the scanner reads a real QR code from the camera with the jsQR fallback', 
   await first.page.getByLabel("I've saved my recovery key").check();
   await first.page.getByRole('dialog').getByRole('button', { name: 'Turn on sync', exact: true }).click();
   await expect(first.page.getByText('Sync is on for this device')).toBeVisible();
+  await skipPasskeySuggestion(first.page);
 
   const laptop = await device(browser, email);
   const { code, fingerprint } = await showPairingCode(laptop.page);
