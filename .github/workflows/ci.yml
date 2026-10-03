@@ -40,7 +40,6 @@ jobs:
 
       - name: Test
         run: npm run test -- --passWithNoTests
-        continue-on-error: true
 
   e2e:
     name: E2E (Playwright, Chromium)
