@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "node scripts/copy-tesseract.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/copy-tesseract.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -18,7 +20,7 @@
     "sim": "./scripts/ios-simulator.sh"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.117.2",
+    "@supabase/supabase-js": "2.117.2",
     "@tensorflow/tfjs": "^4.22.0",
     "@tensorflow/tfjs-backend-wasm": "^4.22.0",
     "@tensorflow/tfjs-backend-webgpu": "^4.22.0",
@@ -33,7 +35,7 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "scanic": "^1.6.0",
-    "tesseract.js": "^7.0.0"
+    "tesseract.js": "7.0.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",

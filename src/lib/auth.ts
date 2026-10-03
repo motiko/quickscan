@@ -62,17 +62,35 @@ export function normalizeCode(code: string): string | null {
   return /^\d{6,10}$/.test(digits) ? digits : null;
 }
 
-/** Turn Supabase auth errors into something a person can act on. */
+const RATE_LIMIT_CODES = ['over_email_send_rate_limit', 'over_request_rate_limit', 'over_sms_send_rate_limit'];
+
+/**
+ * Turn Supabase auth errors into something a person can act on. The project is invite-only,
+ * so an uninvited email is told just that (Auth itself already answers differently for
+ * unknown emails); nothing else hints at whether an account exists.
+ */
 export function describeAuthError(error: { message?: string; status?: number; code?: string }): string {
   const message = error.message ?? '';
-  if (error.code === 'signup_disabled' || /signups not allowed/i.test(message)) {
-    return 'This email has no account yet. Ask the owner of this QuickScan to invite you.';
+  // First: a rate-limited request can carry any message
+  if (error.status === 429 || RATE_LIMIT_CODES.includes(error.code ?? '') || /rate limit/i.test(message)) {
+    const seconds = /after (\d+) seconds?/i.exec(message)?.[1];
+    return seconds
+      ? `Too many attempts. Try again in ${seconds} seconds.`
+      : 'Too many attempts. Wait a minute and try again.';
   }
-  if (error.code === 'otp_expired' || /expired|invalid/i.test(message)) {
+  if (
+    error.code === 'signup_disabled' ||
+    error.code === 'otp_disabled' ||
+    error.code === 'user_not_found' ||
+    /signups not allowed/i.test(message)
+  ) {
+    return 'Sign-in here is by invitation. Ask the owner of this QuickScan to invite you.';
+  }
+  if (error.code === 'email_address_invalid' || /email address .*invalid/i.test(message)) {
+    return 'Enter a valid email address.';
+  }
+  if (error.code === 'otp_expired' || /token has expired|expired or is invalid/i.test(message)) {
     return 'That code is wrong or has expired. Request a new one.';
-  }
-  if (error.status === 429 || error.code === 'over_email_send_rate_limit' || /rate limit/i.test(message)) {
-    return 'Too many attempts. Wait a minute and try again.';
   }
   return message || 'Something went wrong. Check your connection and try again.';
 }
@@ -82,7 +100,12 @@ export class AuthError extends Error {}
 /** Email a one-time sign-in code. */
 export async function sendSignInCode(email: string): Promise<void> {
   const supabase = await getSupabase();
-  const { error } = await supabase.auth.signInWithOtp({ email: normalizeEmail(email) });
+  // Accounts come from invitations only: never let a sign-in create one, even if sign-ups
+  // were switched on in the project by mistake.
+  const { error } = await supabase.auth.signInWithOtp({
+    email: normalizeEmail(email),
+    options: { shouldCreateUser: false },
+  });
   if (error) throw new AuthError(describeAuthError(error));
 }
 

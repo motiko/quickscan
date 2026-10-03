@@ -4,6 +4,9 @@ import { OcrRunner } from '@/components/OcrRunner';
 import { SyncRunner } from '@/components/SyncRunner';
 import { DialogHost } from '@/components/ui/DialogHost';
 
+// Render per request so Next can put the proxy's CSP nonce on its scripts (src/proxy.ts).
+export const dynamic = 'force-dynamic';
+
 export const metadata: Metadata = {
   title: 'QuickScan',
   description: 'Scan documents with your camera',
