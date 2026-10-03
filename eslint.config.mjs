@@ -14,6 +14,8 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // Agent worktrees carry their own checkouts and build output
     ".claude/**",
+    // Tesseract worker and cores copied from node_modules by scripts/copy-tesseract.mjs
+    "public/tesseract/**",
   ]),
 ]);
 
