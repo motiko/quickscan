@@ -59,16 +59,34 @@ export interface SyncBackend {
   /** Upload an encrypted file; objects are immutable (never overwritten). */
   uploadFile(path: string, data: Blob): Promise<void>;
   downloadFile(path: string): Promise<Blob>;
+  /** Storage object names (`<userId>/<fileId>`) referenced by live records with `seq > afterSeq`, in seq order. */
+  listReferencedFiles(userId: string, afterSeq: number, limit: number): Promise<{ rows: number; lastSeq: number; files: string[] }>;
+  /** One page of the objects in `vault/<userId>/`, by name. */
+  listFiles(userId: string, offset: number, limit: number): Promise<StoredFile[]>;
+  /** Delete objects by full name (`<userId>/<fileId>`). */
+  removeFiles(paths: string[]): Promise<void>;
+}
+
+/** An object in the vault bucket, as Storage lists it. */
+export interface StoredFile {
+  /** Full object name, `<userId>/<fileId>`. */
+  path: string;
+  /** Epoch ms, server time. */
+  createdAt: number;
+  size: number;
 }
 
 export class SyncBackendError extends Error {
   /** True when the request never reached the server (offline, DNS, CORS, aborted). */
   readonly network: boolean;
+  /** HTTP status, when the server answered (e.g. 401, 413). */
+  readonly status?: number;
 
-  constructor(message: string, options: { cause?: unknown; network?: boolean } = {}) {
+  constructor(message: string, options: { cause?: unknown; network?: boolean; status?: number } = {}) {
     super(message, { cause: options.cause });
     this.name = 'SyncBackendError';
     this.network = options.network ?? false;
+    this.status = options.status;
   }
 }
 
@@ -102,8 +120,21 @@ export interface SupabaseLike {
         options: { upsert: boolean; contentType: string }
       ): PromiseLike<{ data: unknown; error: SupabaseErrorLike | null }>;
       download(path: string): PromiseLike<{ data: Blob | null; error: SupabaseErrorLike | null }>;
+      list(
+        prefix: string,
+        options: { limit: number; offset: number; sortBy: { column: string; order: 'asc' | 'desc' } }
+      ): PromiseLike<{ data: StorageListEntry[] | null; error: SupabaseErrorLike | null }>;
+      remove(paths: string[]): PromiseLike<{ data: unknown; error: SupabaseErrorLike | null }>;
     };
   };
+}
+
+interface StorageListEntry {
+  name: string;
+  /** Null for folders. */
+  id: string | null;
+  created_at: string | null;
+  metadata: { size?: number } | null;
 }
 
 interface WireRow {
@@ -125,8 +156,17 @@ function isNetworkError(error: SupabaseErrorLike | unknown): boolean {
   return /failed to fetch|networkerror|network request failed|load failed|fetch failed/i.test(message);
 }
 
+function httpStatus(error: SupabaseErrorLike): number | undefined {
+  const n = Number(error.status ?? error.statusCode);
+  return Number.isInteger(n) && n >= 100 && n < 600 ? n : undefined;
+}
+
 function fail(what: string, error: SupabaseErrorLike): never {
-  throw new SyncBackendError(`${what}: ${error.message}`, { cause: error, network: isNetworkError(error) });
+  throw new SyncBackendError(`${what}: ${error.message}`, {
+    cause: error,
+    network: isNetworkError(error),
+    status: httpStatus(error),
+  });
 }
 
 /** Postgres timestamptz text (microseconds, `+00:00`) to epoch ms. */
@@ -223,6 +263,47 @@ export function createSupabaseBackend(client: SupabaseLike): SyncBackend {
       if (error) fail('Download', error);
       if (!data) throw new SyncBackendError('Download: empty response');
       return data;
+    },
+
+    async listReferencedFiles(userId, afterSeq, limit) {
+      const { data, error } = await call('List references', () =>
+        client
+          .from('records')
+          .select('seq,files')
+          .eq('user_id', userId)
+          .eq('deleted', false)
+          .gt('seq', afterSeq)
+          .order('seq', { ascending: true })
+          .limit(limit)
+      );
+      if (error) fail('List references', error);
+      const rows = (data as { seq: number | string; files: string[] | null }[] | null) ?? [];
+      return {
+        rows: rows.length,
+        lastSeq: rows.length ? Number(rows[rows.length - 1].seq) : afterSeq,
+        files: rows.flatMap((r) => r.files ?? []),
+      };
+    },
+
+    async listFiles(userId, offset, limit) {
+      const { data, error } = await call('List files', () =>
+        client.storage.from(VAULT_BUCKET).list(userId, { limit, offset, sortBy: { column: 'name', order: 'asc' } })
+      );
+      if (error) fail('List files', error);
+      return (data ?? [])
+        .filter((o) => o.id !== null)
+        .map((o) => ({
+          path: `${userId}/${o.name}`,
+          // Unknown age counts as brand new, so it's never deleted on a guess
+          createdAt: o.created_at ? Date.parse(o.created_at) || Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER,
+          size: o.metadata?.size ?? 0,
+        }));
+    },
+
+    async removeFiles(paths) {
+      if (paths.length === 0) return;
+      const { error } = await call('Delete files', () => client.storage.from(VAULT_BUCKET).remove(paths));
+      if (error) fail('Delete files', error);
     },
   };
 }

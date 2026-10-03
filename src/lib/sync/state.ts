@@ -9,6 +9,8 @@ import type { SignaturePayload } from './payload';
  *   sync:cursor:<userId>      highest `records.seq` applied, per account
  *   sync:merge:<userId>       set while the first sync with an account (a merge) is unfinished
  *   sync:file:<kind>:<id>     the record's current remote file (FileRef)
+ *   sync:cleanup:<userId>     orphaned-file cleanup: last run, candidates, storage usage
+ *   sync:bad:<userId>         pulled rows that couldn't be read (retried on demand)
  *
  * Use these helpers inside `applyUntracked` (which includes syncMeta) when they must commit
  * together with a record write.
@@ -17,6 +19,8 @@ import type { SignaturePayload } from './payload';
 export const LAST_USER_KEY = 'sync:lastUserId';
 const CURSOR_PREFIX = 'sync:cursor:';
 const MERGE_PREFIX = 'sync:merge:';
+const CLEANUP_PREFIX = 'sync:cleanup:';
+const BAD_ROWS_PREFIX = 'sync:bad:';
 export const FILE_PREFIX = 'sync:file:';
 
 /** Where a record's synced file lives remotely, and whether this device has its bytes. */
@@ -31,6 +35,13 @@ export interface FileRef {
   sha256?: string;
   /** False until a pulled file has been downloaded and stored locally. */
   downloaded: boolean;
+  /**
+   * Epoch ms (this device's clock) when this device last knew the object exists: it uploaded
+   * it, a push referencing it was accepted, or a pull showed a record referencing it. A file
+   * not confirmed recently is uploaded afresh rather than referenced again, because orphan
+   * cleanup on another device may have removed it since (see cleanup.ts).
+   */
+  confirmedAt?: number;
   /** A pulled signature waits here until its image arrives (it can't exist without one). */
   pendingSignature?: Omit<SignaturePayload, 'file'>;
 }
@@ -38,6 +49,26 @@ export interface FileRef {
 export const fileKey = (kind: string, id: string) => `${FILE_PREFIX}${kind}:${id}`;
 export const cursorKey = (userId: string) => `${CURSOR_PREFIX}${userId}`;
 export const mergeKey = (userId: string) => `${MERGE_PREFIX}${userId}`;
+export const cleanupKey = (userId: string) => `${CLEANUP_PREFIX}${userId}`;
+export const badRowsKey = (userId: string) => `${BAD_ROWS_PREFIX}${userId}`;
+
+/** A pulled row that couldn't be decrypted or had an unknown shape; the cursor moved past it. */
+export interface BadRow {
+  kind: string;
+  id: string;
+  seq: number;
+  message: string;
+}
+
+/** Orphaned-file cleanup state per account (see cleanup.ts). */
+export interface CleanupState {
+  /** Epoch ms of the last completed cleanup. */
+  lastRunAt: number;
+  /** Unreferenced object name -> epoch ms it was first seen unreferenced. */
+  candidates: Record<string, number>;
+  /** Total size of the account's objects at the last cleanup (only from a complete listing). */
+  usage?: { bytes: number; files: number; at: number };
+}
 
 export async function getFileRef(kind: FileRef['kind'], id: string): Promise<FileRef | undefined> {
   const row = await db.syncMeta.get(fileKey(kind, id));
@@ -80,8 +111,20 @@ export async function digestBlob(blob: Blob): Promise<string> {
  * Per-item exponential backoff (failed uploads, downloads, records that can't be encoded).
  * In memory: a reload retries everything at once, which is fine.
  */
+export interface RetryInfo {
+  stage: string;
+  kind: string;
+  id: string;
+  message: string;
+}
+
+export interface RetryProblem extends RetryInfo {
+  attempts: number;
+  notBefore: number;
+}
+
 export class RetryTracker {
-  private failures = new Map<string, { attempts: number; notBefore: number }>();
+  private failures = new Map<string, { attempts: number; notBefore: number; info?: RetryInfo }>();
 
   constructor(
     private readonly baseMs = 5_000,
@@ -93,10 +136,22 @@ export class RetryTracker {
     return !f || f.notBefore <= now;
   }
 
-  failed(key: string, now: number): void {
+  failed(key: string, now: number, info?: RetryInfo): void {
     const attempts = (this.failures.get(key)?.attempts ?? 0) + 1;
     const delay = Math.min(this.maxMs, this.baseMs * 2 ** (attempts - 1));
-    this.failures.set(key, { attempts, notBefore: now + delay });
+    this.failures.set(key, { attempts, notBefore: now + delay, info: info ?? this.failures.get(key)?.info });
+  }
+
+  /** Forget failures under `prefix` whose key isn't in `keep` (the item is gone). */
+  retain(prefix: string, keep: Set<string>): void {
+    for (const key of this.failures.keys()) if (key.startsWith(prefix) && !keep.has(key)) this.failures.delete(key);
+  }
+
+  /** Items currently failing, for the UI. */
+  problems(): RetryProblem[] {
+    return [...this.failures.values()]
+      .filter((f) => f.info)
+      .map((f) => ({ ...f.info!, attempts: f.attempts, notBefore: f.notBefore }));
   }
 
   succeeded(key: string): void {

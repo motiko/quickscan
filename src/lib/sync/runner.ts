@@ -6,11 +6,12 @@ import { getSupabase, isSupabaseConfigured } from '@/lib/supabase';
 import { loadVaultKey, type VaultKey } from '@/lib/crypto';
 import { VAULT_CHANGED_EVENT } from '@/lib/vault-session';
 import type { Page } from '@/types';
-import { createSupabaseBackend, SyncBackendError, type SupabaseLike, type SyncBackend } from './backend';
-import { runSync, SyncError, type SyncReport } from './engine';
+import { createSupabaseBackend, type SupabaseLike, type SyncBackend } from './backend';
+import { runSync, type SyncReport } from './engine';
 import { withSyncLock, type LockManagerLike } from './lock';
 import { RetryTracker } from './state';
-import { getSyncStatus, setSyncStatus } from './status';
+import { classifyMessage, classifySyncError, SYNC_ERROR_TEXT } from './errors';
+import { getSyncStatus, setSyncStatus, type SyncProblem } from './status';
 
 /*
  * When sync runs: `requestSync()` (coalesced — a request during a run queues exactly one more
@@ -69,6 +70,7 @@ let env: SyncEnvironment = defaultEnvironment;
 const retry = new RetryTracker();
 let runFailures = 0;
 let runRetryAt: number | undefined;
+let retryBadRows = false;
 let current: Promise<void> | null = null;
 let again = false;
 let retryTimer: ReturnType<typeof setTimeout> | undefined;
@@ -79,6 +81,7 @@ export function setSyncEnvironment(overrides: Partial<SyncEnvironment>): () => v
   retry.clear();
   runFailures = 0;
   runRetryAt = undefined;
+  retryBadRows = false;
   return () => {
     env = defaultEnvironment;
   };
@@ -104,10 +107,42 @@ export function requestSync(): Promise<void> {
   return current;
 }
 
-function summarize(report: SyncReport): string | undefined {
-  if (report.issues.length === 0) return undefined;
-  const n = report.issues.length;
-  return `${n} item${n === 1 ? '' : 's'} couldn’t sync. They’ll be retried.`;
+/**
+ * The user pressed Retry: forget every backoff, read rows that couldn't be read again, and
+ * sync now.
+ */
+export function retrySync(): Promise<void> {
+  retry.clear();
+  runFailures = 0;
+  runRetryAt = undefined;
+  retryBadRows = true;
+  return requestSync();
+}
+
+function currentProblems(): SyncProblem[] {
+  return retry.problems().map((p) => ({
+    stage: p.stage,
+    kind: p.kind,
+    id: p.id,
+    message: p.message,
+    code: classifyMessage(p.message),
+    attempts: p.attempts,
+    retryAt: p.notBefore,
+  }));
+}
+
+function summarize(report: SyncReport, problems: SyncProblem[]): { message: string; code?: SyncProblem['code'] } | undefined {
+  const failing = new Set([
+    ...problems.map((p) => `${p.stage}:${p.kind}:${p.id}`),
+    ...report.issues.map((i) => `${i.stage}:${i.kind}:${i.id}`),
+  ]);
+  if (failing.size === 0) return undefined;
+  const quota = problems.find((p) => p.code === 'quota');
+  if (quota) return { message: SYNC_ERROR_TEXT.quota, code: 'quota' };
+  const auth = problems.find((p) => p.code === 'auth');
+  if (auth) return { message: SYNC_ERROR_TEXT.auth, code: 'auth' };
+  const n = failing.size;
+  return { message: `${n} item${n === 1 ? '' : 's'} couldn’t sync. They’ll be retried.` };
 }
 
 /** One gated run: checks configuration, account, network and vault key, then syncs under the lock. */
@@ -123,7 +158,7 @@ export async function syncOnce(): Promise<SyncReport | null> {
     return null;
   }
   if (!env.isOnline()) {
-    setSyncStatus({ state: 'offline', message: 'Offline. Changes sync when you’re back online.' });
+    setSyncStatus({ state: 'offline', code: 'offline', message: 'Offline. Changes sync when you’re back online.' });
     return null;
   }
   const vault = await env.loadKey(auth.user.id);
@@ -138,6 +173,8 @@ export async function syncOnce(): Promise<SyncReport | null> {
       // The account may have changed while this tab waited for the lock
       const latest = env.getAuth();
       if (latest.status !== 'signed-in' || latest.user.id !== auth.user.id) return null;
+      const rereadBadRows = retryBadRows;
+      retryBadRows = false;
       return runSync({
         backend: await env.getBackend(),
         userId: auth.user.id,
@@ -146,6 +183,7 @@ export async function syncOnce(): Promise<SyncReport | null> {
         now: () => env.now(),
         retry,
         makeThumbnail: env.makeThumbnail,
+        retryBadRows: rereadBadRows,
       });
     }, env.locks);
     runFailures = 0;
@@ -155,21 +193,20 @@ export async function syncOnce(): Promise<SyncReport | null> {
       setSyncStatus({ state: 'idle' });
       return null;
     }
-    const problem = summarize(report);
-    setSyncStatus(
-      problem ? { state: 'error', message: problem, lastSyncedAt: env.now() } : { state: 'idle', lastSyncedAt: env.now() }
-    );
+    const problems = currentProblems();
+    const facts = { lastSyncedAt: env.now(), problems, pendingDownloads: report.pendingDownloads };
+    const problem = summarize(report, problems);
+    setSyncStatus(problem ? { state: 'error', ...problem, ...facts } : { state: 'idle', ...facts });
     return report;
   } catch (err) {
     runFailures++;
     runRetryAt = env.now() + Math.min(5 * 60_000, 5_000 * 2 ** (runFailures - 1));
-    if (err instanceof SyncError) {
-      setSyncStatus({ state: 'error', message: err.message });
-    } else if ((err instanceof SyncBackendError && err.network) || !env.isOnline()) {
-      setSyncStatus({ state: 'offline', message: 'Can’t reach the server. Retrying soon.' });
+    const code = !env.isOnline() ? 'offline' : classifySyncError(err);
+    if (code === 'offline') {
+      setSyncStatus({ state: 'offline', code, message: 'Can’t reach the server. Retrying soon.' });
     } else {
-      console.warn('Sync failed:', err);
-      setSyncStatus({ state: 'error', message: 'Sync failed. Retrying soon.' });
+      if (code === 'unknown') console.warn('Sync failed:', err);
+      setSyncStatus({ state: 'error', code, message: SYNC_ERROR_TEXT[code] });
     }
     return null;
   }

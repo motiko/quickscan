@@ -2,7 +2,7 @@
 
 A mobile-first Progressive Web App for scanning documents using your phone's camera. Inspired by GeniusScan — capture, crop, enhance, and export documents as PDFs, entirely client-side.
 
-> **Local-first, no signup required** — your documents stay on your device. An optional account (for upcoming sync between devices) is only offered when the build is configured with a Supabase project.
+> **Local-first, no signup required** — your documents stay on your device. An optional account (for end-to-end-encrypted sync between your devices) is only offered when the build is configured with a Supabase project.
 
 ## ✨ Features (v1)
 
@@ -19,7 +19,16 @@ A mobile-first Progressive Web App for scanning documents using your phone's cam
 - **Annotation** — Pen, highlighter, rectangles, arrows, text boxes, and a reusable signature
 - **Folders & tags** — File documents in folders, tag them freely, and filter the gallery by folder and tags
 - **Optional account** — Passwordless sign-in with an emailed code (Supabase Auth)
-- **End-to-end-encrypted sync (in progress)** — Documents, pages, folders, tags, signatures and OCR languages replicate between your devices through Supabase as ciphertext; images download in the background, originals never leave the device that captured them
+- **End-to-end-encrypted sync** — Documents, pages, folders, tags, signatures and OCR languages replicate between your devices through Supabase as ciphertext; images download in the background, originals never leave the device that captured them
+
+### 🔄 How sync works
+
+- **Your device is the source of truth.** Everything works offline; sync is an optional, encrypted backup and replica in your account. Turn it on under **Settings → Account → Sync**.
+- **End-to-end encrypted.** Documents and images are encrypted on your device before upload with a key only your devices hold. The server sees ciphertext, sizes and timestamps, never names, text or images. Keep your recovery key: without it and without another unlocked device, synced data can't be recovered.
+- **Last write wins.** If the same document is changed on two devices, the most recent change wins for that document; deletes sync too. The first sync of a device merges, so nothing is deleted on either side.
+- **Images live in Storage.** Page images upload once per change and download in the background on your other devices; replaced or deleted images are cleaned up from your storage after a day or two. Original (uncropped) photos never leave the device that took them.
+- **Problems show in Settings**, under Sync: items that keep failing (with Retry), items that couldn't be read, files still downloading, and storage used.
+- **Cleaning up a device.** *Remove synced documents from this device* (also offered when signing out) deletes the local copies of everything that's safely in your account and keeps anything not yet synced. Signing in and unlocking again downloads them.
 
 ## 🛠️ Tech Stack
 
@@ -112,7 +121,7 @@ eval "$(npx supabase status -o env)"
 npm run test:supabase
 ```
 
-**Sync setup (end-to-end encrypted).** Once signed in, the Account section shows **Sync**. On the first device, *Turn on sync* creates the vault key and shows a recovery key once (copy, download or print it); only the vault key wrapped by the recovery key is stored in Supabase. To add another device, sign in there and tap *Scan from another device*: it shows a QR code that an unlocked device scans under *Add a device* (WhatsApp-style; the code expires after 5 minutes and holds only a one-time public key, and the vault key travels sealed to that key). The recovery key still works as the alternative. *Create a new recovery key* replaces it (the old one stops working). Without the recovery key and without another unlocked device, synced data can't be recovered. Signing out forgets the key on that device; documents stay. Once unlocked, sync runs in the background (on start, on focus, when back online, a few seconds after a change and every 5 minutes); a cloud icon in the gallery header shows its state and syncs on tap. The first sync with an account merges: everything on the device is uploaded, nothing is deleted on either side.
+**Sync setup (end-to-end encrypted).** Once signed in, the Account section shows **Sync**. On the first device, *Turn on sync* creates the vault key and shows a recovery key once (copy, download or print it); only the vault key wrapped by the recovery key is stored in Supabase. To add another device, sign in there and tap *Scan from another device*: it shows a QR code that an unlocked device scans under *Add a device* (WhatsApp-style; the code expires after 5 minutes and holds only a one-time public key, and the vault key travels sealed to that key). The recovery key still works as the alternative. *Create a new recovery key* replaces it (the old one stops working). Without the recovery key and without another unlocked device, synced data can't be recovered. Signing out forgets the key on that device; documents stay. Once unlocked, sync runs in the background (on start, on focus, when back online, a few seconds after a change and every 5 minutes); a cloud icon in the gallery header shows its state and syncs on tap. The first sync with an account merges: everything on the device is uploaded, nothing is deleted on either side. About once a day each device removes Storage objects no live record references any more (replaced images, deleted pages, failed uploads), after a grace period; Settings lists sync problems with Retry and offers *Remove synced documents from this device*.
 
 ## 📁 Project Structure
 
@@ -143,10 +152,10 @@ src/
 - [x] Project setup & CI
 - [x] **Phase 1:** Camera capture, manual crop, filters, PDF export, gallery
 - [x] **Phase 2:** Auto edge detection, auto-capture, image enhancement, Share API
-- [ ] **Phase 3:** Organization & sync
+- [x] **Phase 3:** Organization & sync
   - [x] Folders & tags (local, on-device)
   - [x] User accounts — passwordless email-code sign-in via Supabase Auth (optional, invite-only)
-  - [ ] Cloud sync — Supabase Postgres + Storage, row-level security per user, last-write-wins per record
+  - [x] Cloud sync — end-to-end encrypted on the device; records in Supabase Postgres (row-level security per user, last-write-wins per record, tombstones for deletes) and images in Supabase Storage, with orphaned-file cleanup, sync problems in Settings and "remove synced documents from this device"
 - [x] **Phase 4:** OCR/text extraction, AI document naming, annotation
 - [ ] **Phase 5:** Security & robustness
   - [ ] End-to-end encryption — documents and images encrypted on the device before upload; key recovery story
