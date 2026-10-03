@@ -11,6 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Typecheck: `npm run typecheck`
 - Lint: `npm run lint`
 - Lint Fix: `npm run lint:fix`
+- Static export for the native app: `npm run build:export` (→ `out/`); `npm run cap:sync` also copies it into `ios/`; `npm run ios` opens Xcode
 
 ### Testing
 - Unit Tests (Vitest): `npm run test`
@@ -62,6 +63,7 @@ QuickScan is a mobile-first Progressive Web App (PWA) built with Next.js 16 (App
     - `pairing-code.ts` / `pairing-session.ts` / `qr.ts`: QR pairing ("Scan from another device" on a locked device, "Add a device" on an unlocked one). QR text `qs1:<requestId>:<P-256 public key, base64url>` parsed strictly; `PairingRequest` (new device: key pair in memory, `pairing_requests` row, polls every 2 s for 5 min) and `sendVaultKeyToDevice` (unlocked device: seals the vault key; the update must hit exactly one row of the caller's account, which defeats someone else's QR code). QR drawn with `uqr`, read with `BarcodeDetector` or `jsqr` (iOS Safari), both lazy-loaded. UI in `components/settings/ShowPairingCode.tsx` / `ScanPairingCode.tsx`.
 - `src/hooks/`: Shared React hooks for camera, database, and document state.
 - `bench/`: The scanner benchmark corpus and its tools (`docs/scanner-data-plan.md`, `.claude/skills/scanner-bench/SKILL.md`). `corpus/manifest.json` lists every case; `npm run bench:pages` prints test pages with exact OCR text, `npm run bench:synth` regenerates the synthetic cases from a seed, `npm run bench:fetch -- --sample <set>` samples the public datasets, `npm run bench:validate` checks the manifest. Owner clips stay in `tests/fixtures/camera/private/` (ignored by version control) and enter the corpus as private cases.
+- `ios/`: Capacitor 8 iOS shell (Swift Package Manager) around the static export, M0 spike of the native migration (`docs/native/m0-spike.md`). `scripts/build-export.mjs` builds with `NEXT_PUBLIC_BUILD_TARGET=export`, parking the server-only files (`proxy.ts`, `app/api`, `app/doc/[id]`); documents use `/doc?id=` there, so link with `docHref()` from `lib/routes.ts`. `MainViewController.swift` routes `/scan` to `scan.html` (Capacitor's default router serves `index.html` for every extensionless path). The export has no CSP yet, so nothing ships from it.
 - `supabase/`: CLI config, `migrations/` (applied to production on merge to `main`) and pgTAP tests in `tests/` (`npx supabase start`, then `npx supabase test db`; CI workflow `supabase.yml`). Sync schema: `records` (encrypted, LWW via `upsert_records`, pulled by `seq`), `vault_keys`, `pairing_requests`, private Storage bucket `vault`.
 
 ### Key Technical Decisions

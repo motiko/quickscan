@@ -11,6 +11,7 @@ import { createDocument, addPageToDocument } from '@/hooks/useDocuments';
 import { useBlobUrl } from '@/hooks/useBlobUrl';
 import { useEscape } from '@/hooks/useEscape';
 import { alertDialog, confirmDialog } from '@/lib/dialogs';
+import { docHref } from '@/lib/routes';
 
 function ScanPageContent() {
   const router = useRouter();
@@ -119,7 +120,7 @@ function ScanPageContent() {
         }
       }
 
-      router.push(`/doc/${finalDocId}`);
+      router.push(docHref(finalDocId));
     } catch (err) {
       console.error('Failed to save document:', err);
       setPhase('review');
