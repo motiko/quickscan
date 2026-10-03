@@ -170,7 +170,10 @@ export default function SettingsPage() {
                   Use Cloud LLM
                 </span>
                 <span className="block text-xs text-gray-500 dark:text-gray-400">
-                  OpenAI, Anthropic, Google or a custom endpoint (OpenRouter, Ollama, …). Falls back to on-device naming if it fails.
+                  Used for generating summaries, text recognition and automatic titles.
+                </span>
+                <span className="block text-xs text-gray-500 dark:text-gray-400">
+                  OpenAI, Anthropic, Google or a custom endpoint with compatible API (Ollama)
                 </span>
               </span>
               <input
