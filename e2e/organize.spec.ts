@@ -40,11 +40,17 @@ function tagChips(page: Page) {
     .filter({ has: page.getByRole('button', { name: /^Remove tag/ }) });
 }
 
+/**
+ * Types a tag and waits for its chip, i.e. until it is saved: `page.goto` right after Enter is a
+ * full reload, which aborts the still-running IndexedDB write and loses the tag.
+ */
 async function addTag(page: Page, tag: string) {
   const input = page.getByRole('textbox', { name: 'New tag' });
   if (!(await input.isVisible())) await page.getByRole('button', { name: 'Add tag', exact: true }).click();
   await input.fill(tag);
   await input.press('Enter');
+  const stored = tag.replace(/^#+\s*/, '');
+  await expect(page.getByRole('button', { name: `Remove tag ${stored}`, exact: true })).toBeVisible();
 }
 
 test.describe('Folders & tags', () => {
