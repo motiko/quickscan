@@ -40,7 +40,7 @@ test.describe('Document naming', () => {
     await expect(page.getByLabel('Endpoint URL', { exact: true })).toHaveValue('https://llm.example.test/v1');
     await expect(page.getByLabel('Model', { exact: true })).toHaveValue('test/model');
     await page.getByRole('button', { name: 'Test connection' }).click();
-    await expect(page.getByRole('status')).toContainText('Works! Sample title: “Rechnung ACME September 2026”');
+    await expect(page.getByRole('status')).toContainText('Works with test/model! Sample title: “Rechnung ACME September 2026”');
     expect(requestBody!.model).toBe('test/model');
     expect(authHeader).toBe('Bearer sk-e2e');
   });
@@ -48,16 +48,38 @@ test.describe('Document naming', () => {
   test('uses Anthropic with an API key', async ({ page }) => {
     let requestBody: { model: string; system: string; messages: { content: string }[] } | null = null;
     let apiKey: string | null = null;
+    let listKey: string | null = null;
+    const corsPreflight = {
+      status: 204,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': '*',
+        'Access-Control-Allow-Methods': 'GET, POST',
+      },
+    };
+    // No model is set, so the app picks the newest one from the account's model list
+    await page.route('https://api.anthropic.com/v1/models', async (route) => {
+      if (route.request().method() === 'OPTIONS') {
+        await route.fulfill(corsPreflight);
+        return;
+      }
+      listKey = await route.request().headerValue('x-api-key');
+      await route.fulfill({
+        status: 200,
+        headers: { 'Access-Control-Allow-Origin': '*' },
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: [
+            { type: 'model', id: 'claude-opus-5-5' },
+            { type: 'model', id: 'claude-sonnet-4-5' },
+          ],
+          has_more: false,
+        }),
+      });
+    });
     await page.route('https://api.anthropic.com/v1/messages', async (route) => {
       if (route.request().method() === 'OPTIONS') {
-        await route.fulfill({
-          status: 204,
-          headers: {
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Headers': '*',
-            'Access-Control-Allow-Methods': 'POST',
-          },
-        });
+        await route.fulfill(corsPreflight);
         return;
       }
       requestBody = route.request().postDataJSON();
@@ -76,7 +98,8 @@ test.describe('Document naming', () => {
     await expect(page.getByRole('radio', { name: 'Anthropic' })).toBeChecked();
     await page.getByLabel('API key', { exact: true }).fill('sk-ant-e2e');
     await page.getByRole('button', { name: 'Test connection' }).click();
-    await expect(page.getByRole('status')).toContainText('Works! Sample title: “Rechnung – ACME – 2026-09-14”');
+    await expect(page.getByRole('status')).toContainText('Works with claude-opus-5-5! Sample title: “Rechnung – ACME – 2026-09-14”');
+    expect(listKey).toBe('sk-ant-e2e');
     expect(apiKey).toBe('sk-ant-e2e');
     expect(requestBody!.model).toBe('claude-opus-5-5');
   });
