@@ -79,7 +79,7 @@ QuickScan is a **mobile-first PWA** for scanning documents using the phone camer
 - **No CSS-in-JS** — no styled-components, Emotion, etc.
 
 ### Dialogs & Overlays
-- **Never use `window.alert`, `window.confirm` or `window.prompt`.** Use `confirmDialog()` / `alertDialog()` from `src/lib/dialogs.ts` (rendered by `<DialogHost>` in the root layout). Give the dialog a question as `title`, the consequence as `message`, a verb as `confirmLabel` ("Delete", "Re-run", not "OK"), and `destructive: true` for deleting/discarding.
+- **Never use `window.alert`, `window.confirm` or `window.prompt`.** Use `confirmDialog()` / `alertDialog()` / `promptDialog()` from `src/lib/dialogs.ts` (rendered by `<DialogHost>` in the root layout). Give the dialog a question as `title`, the consequence as `message`, a verb as `confirmLabel` ("Delete", "Re-run", not "OK"), and `destructive: true` for deleting/discarding.
 - **Escape closes every layer.** Any overlay, sheet, modal, full-screen viewer or mode (camera, crop, annotation editor, …) must close on Escape via `useEscape(onClose)` from `src/hooks/useEscape.ts`, calling the same handler as its close/cancel button (including any discard confirmation). Layers stack, so Escape only closes the topmost one; call the hook in the component that renders the layer.
 - **Inputs that handle Escape themselves** (cancelling an inline edit) must call `e.preventDefault()` so the layer underneath stays open.
 
@@ -125,8 +125,21 @@ The IndexedDB schema is defined in `src/lib/db.ts`. Key entities:
   updatedAt: Date;
   pageCount: number;
   thumbnailBlob: Blob; // small JPEG thumbnail of first page
+  folderId?: string;   // FK → Folder.id; absent (or a deleted folder) = unfiled
+  tags?: string[];     // free-form, normalized, sorted; see lib/tags.ts
 }
 ```
+
+### Folder
+```typescript
+{
+  id: string;          // nanoid
+  name: string;        // unique (case-insensitive)
+  createdAt: Date;
+  updatedAt: Date;
+}
+```
+Folders are flat. Deleting a folder keeps its documents and unfiles them.
 
 ### Page
 ```typescript

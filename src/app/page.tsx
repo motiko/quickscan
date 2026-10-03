@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useDocuments, deleteDocument } from '@/hooks/useDocuments';
 import { useOcrProgress } from '@/hooks/useProcessing';
@@ -9,11 +9,46 @@ import { ACCEPT_ATTRIBUTE, importFiles } from '@/lib/import';
 import { DocumentList } from '@/components/documents/DocumentList';
 import { ProcessingBanner } from '@/components/documents/ProcessingBanner';
 import { confirmDialog } from '@/lib/dialogs';
+import { LibraryFilterBar } from '@/components/documents/LibraryFilterBar';
+import { OrganizeSheet } from '@/components/documents/OrganizeSheet';
+import { promptCreateFolder } from '@/components/documents/library-actions';
+import { useFolders } from '@/hooks/useLibrary';
+import { countByFolder, filterDocuments, type FolderFilter } from '@/lib/document-filter';
+import { collectTags, hasTag, tagKey } from '@/lib/tags';
+
+// The folder and tag filter survive visiting a document and coming back, for this tab only
+const FILTER_STORAGE_KEY = 'quickscan.galleryFilter';
+
+interface StoredFilter {
+  folder: FolderFilter;
+  tags: string[];
+}
+
+function loadFilter(): StoredFilter {
+  const fallback: StoredFilter = { folder: { kind: 'all' }, tags: [] };
+  try {
+    const raw = typeof window !== 'undefined' ? window.sessionStorage.getItem(FILTER_STORAGE_KEY) : null;
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw) as Partial<StoredFilter>;
+    const folder = parsed.folder;
+    const validFolder =
+      folder?.kind === 'all' || folder?.kind === 'unfiled' || (folder?.kind === 'folder' && typeof folder.id === 'string');
+    return {
+      folder: validFolder ? folder : fallback.folder,
+      tags: Array.isArray(parsed.tags) ? parsed.tags.filter((t): t is string => typeof t === 'string') : [],
+    };
+  } catch {
+    return fallback;
+  }
+}
 
 export default function Home() {
   const router = useRouter();
   const { documents, isLoading } = useDocuments();
+  const { folders, isLoading: foldersLoading } = useFolders();
   const [query, setQuery] = useState('');
+  const [storedFilter, setStoredFilter] = useState<StoredFilter>(loadFilter);
+  const [isOrganizing, setIsOrganizing] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { documentIds: processingIds } = useOcrProgress();
@@ -26,16 +61,50 @@ export default function Home() {
     if (files && files.length > 0) void importFiles(Array.from(files));
   };
 
-  const filteredDocuments = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return documents;
-    return documents.filter(
-      (d) =>
-        d.name.toLowerCase().includes(q) ||
-        d.searchText?.includes(q) ||
-        d.summary?.text.toLowerCase().includes(q)
-    );
-  }, [documents, query]);
+  const folderIds = useMemo(() => new Set(folders.map((f) => f.id)), [folders]);
+  const folderCounts = useMemo(() => countByFolder(documents, folderIds), [documents, folderIds]);
+  const tagCounts = useMemo(() => collectTags(documents), [documents]);
+
+  // Drop a deleted folder or tag from the filter
+  const folderFilter = useMemo<FolderFilter>(() => {
+    const folder = storedFilter.folder;
+    if (foldersLoading) return folder;
+    if (folder.kind === 'folder' && !folderIds.has(folder.id)) return { kind: 'all' };
+    if (folder.kind === 'unfiled' && folderIds.size === 0) return { kind: 'all' };
+    return folder;
+  }, [storedFilter.folder, foldersLoading, folderIds]);
+  const allTagNames = useMemo(() => tagCounts.map((t) => t.tag), [tagCounts]);
+  const selectedTags = useMemo(
+    () => storedFilter.tags.filter((t) => hasTag(allTagNames, t)),
+    [storedFilter.tags, allTagNames]
+  );
+
+  useEffect(() => {
+    try {
+      window.sessionStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(storedFilter));
+    } catch {
+      // Storage unavailable (private mode): the filter just isn't remembered
+    }
+  }, [storedFilter]);
+
+  const filteredDocuments = useMemo(
+    () => filterDocuments(documents, { folder: folderFilter, tags: selectedTags, query }, folderIds),
+    [documents, folderFilter, selectedTags, query, folderIds]
+  );
+
+  const setFolderFilter = (folder: FolderFilter) => setStoredFilter((f) => ({ ...f, folder }));
+  const toggleTag = (tag: string) =>
+    setStoredFilter((f) => ({
+      ...f,
+      tags: hasTag(f.tags, tag) ? f.tags.filter((t) => tagKey(t) !== tagKey(tag)) : [...f.tags, tag],
+    }));
+  const clearFilters = () => {
+    setStoredFilter({ folder: { kind: 'all' }, tags: [] });
+    setQuery('');
+  };
+  const isNarrowed = folderFilter.kind !== 'all' || selectedTags.length > 0 || query.trim() !== '';
+  const activeFolderName =
+    folderFilter.kind === 'folder' ? folders.find((f) => f.id === folderFilter.id)?.name : undefined;
 
   if (isLoading) {
     return (
@@ -105,7 +174,7 @@ export default function Home() {
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search names and text"
+              placeholder="Search names, text and tags"
               aria-label="Search documents"
               className="w-full rounded-lg bg-gray-100 dark:bg-neutral-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-500 outline-none focus:ring-2 focus:ring-blue-500"
             />
@@ -115,10 +184,43 @@ export default function Home() {
 
       <main className="flex-1">
         <ProcessingBanner />
-        {query && filteredDocuments.length === 0 ? (
-          <p className="p-8 text-center text-sm text-gray-500 dark:text-gray-400">
-            No documents match “{query}”.
-          </p>
+        {documents.length > 0 && (
+          <LibraryFilterBar
+            folders={folders}
+            folderCounts={folderCounts}
+            totalCount={documents.length}
+            tags={tagCounts}
+            folder={folderFilter}
+            selectedTags={selectedTags}
+            onFolderChange={setFolderFilter}
+            onToggleTag={toggleTag}
+            onCreateFolder={async () => {
+              const id = await promptCreateFolder();
+              if (id) setFolderFilter({ kind: 'folder', id });
+            }}
+            onOrganize={() => setIsOrganizing(true)}
+          />
+        )}
+        {documents.length > 0 && filteredDocuments.length === 0 ? (
+          <div className="p-8 text-center text-sm text-gray-500 dark:text-gray-400">
+            <p>
+              {query.trim()
+                ? `No documents match “${query}”.`
+                : activeFolderName && selectedTags.length === 0
+                  ? `“${activeFolderName}” is empty. Open a document and tap its folder to move it here.`
+                  : folderFilter.kind === 'unfiled' && selectedTags.length === 0
+                    ? 'Every document is in a folder.'
+                    : 'No documents match these filters.'}
+            </p>
+            {isNarrowed && (
+              <button
+                onClick={clearFilters}
+                className="mt-3 rounded-full px-4 py-2 font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/60"
+              >
+                Show all documents
+              </button>
+            )}
+          </div>
         ) : (
           <DocumentList
             documents={filteredDocuments}
@@ -139,6 +241,15 @@ export default function Home() {
           />
         )}
       </main>
+
+      {isOrganizing && (
+        <OrganizeSheet
+          folders={folders}
+          folderCounts={folderCounts}
+          tags={tagCounts}
+          onClose={() => setIsOrganizing(false)}
+        />
+      )}
 
       <div className="fixed bottom-safe-offset-6 right-4 z-20 flex gap-3">
         <button

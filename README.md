@@ -17,6 +17,7 @@ A mobile-first Progressive Web App for scanning documents using your phone's cam
 - **Text recognition (OCR)** — On-device Tesseract.js; copy text, search the gallery, and export searchable PDFs
 - **Smart naming** — New scans are named from their content (e.g. “Rechnung – Telekom – 2026-09-14”), optionally via any OpenAI-compatible model (OpenRouter, Ollama)
 - **Annotation** — Pen, highlighter, rectangles, arrows, text boxes, and a reusable signature
+- **Folders & tags** — File documents in folders, tag them freely, and filter the gallery by folder and tags
 
 ## 🛠️ Tech Stack
 
@@ -101,7 +102,10 @@ src/
 - [x] Project setup & CI
 - [x] **Phase 1:** Camera capture, manual crop, filters, PDF export, gallery
 - [x] **Phase 2:** Auto edge detection, auto-capture, image enhancement, Share API
-- [ ] **Phase 3:** User accounts, cloud sync, folders & tags
+- [ ] **Phase 3:** Organization & sync
+  - [x] Folders & tags (local, on-device)
+  - [ ] User accounts
+  - [ ] Cloud sync
 - [x] **Phase 4:** OCR/text extraction, AI document naming, annotation
 
 ## 🤝 Contributing

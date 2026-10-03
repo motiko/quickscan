@@ -20,6 +20,7 @@ import { alertDialog, confirmDialog } from '@/lib/dialogs';
 import { importPagesToDocument } from '@/lib/import';
 import { TextSheet } from '@/components/documents/TextSheet';
 import { SummaryCard } from '@/components/documents/SummaryCard';
+import { DocumentOrganizer } from '@/components/documents/DocumentOrganizer';
 import { resolveLlmConfig } from '@/lib/llm/client';
 import { LiveTextIcon } from '@/components/ui/LiveTextIcon';
 import { collectDocumentText } from '@/lib/ocr-text';
@@ -399,6 +400,7 @@ export default function DocumentViewer() {
             Adding pasted pages…
           </div>
         )}
+        <DocumentOrganizer document={document} />
         {llmConfigured && pages.length > 0 && (
           <SummaryCard document={document} pages={pages} />
         )}
