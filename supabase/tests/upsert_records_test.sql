@@ -1,7 +1,7 @@
 -- upsert_records: last-write-wins, tie-break by device_id, clamping, user_id, rejected rows.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(25);
+select plan(29);
 
 insert into auth.users (id, email) values ('11111111-1111-1111-1111-111111111111', 'a@example.com');
 
@@ -83,15 +83,32 @@ select ok(
   (select user_id = '11111111-1111-1111-1111-111111111111' and seq <> 1 from public.records where id = 'd3'),
   '... as the caller''s row with a server-assigned seq');
 
--- tombstones drop payload and files
+-- tombstones keep their (authenticated) payload and drop files
 select is_empty(
   $$select * from public.upsert_records(jsonb_build_array(jsonb_build_object(
       'kind', 'document', 'id', 'd1', 'updated_at', '2026-01-02T00:00:00Z', 'device_id', 'dev-m',
-      'deleted', true, 'payload', encode('\x01'::bytea, 'base64'), 'files', jsonb_build_array('f1'))))$$,
+      'deleted', true, 'payload', encode('\x0102'::bytea, 'base64'), 'files', jsonb_build_array('f1'))))$$,
   'a newer tombstone is accepted');
 select ok(
-  (select deleted and payload is null and files = '{}' from public.records where id = 'd1'),
-  'the tombstone is stored without payload or files');
+  (select deleted and payload = '\x0102'::bytea and files = '{}' from public.records where id = 'd1'),
+  'the tombstone is stored with its payload and without files');
+
+-- tombstones from older clients, without a payload, are still accepted
+select is_empty(
+  $$select * from public.upsert_records(jsonb_build_array(jsonb_build_object(
+      'kind', 'document', 'id', 'd5', 'updated_at', '2026-01-02T00:00:00Z', 'device_id', 'dev-m', 'deleted', true)))$$,
+  'a tombstone without a payload is accepted');
+select ok(
+  (select deleted and payload is null and files = '{}' from public.records where id = 'd5'),
+  '... and stored without one');
+
+-- a tombstone payload over 256 bytes fails the whole call
+select throws_ok(
+  $$select * from public.upsert_records(jsonb_build_array(jsonb_build_object(
+      'kind', 'document', 'id', 'd6', 'updated_at', '2026-01-02T00:00:00Z', 'device_id', 'dev-m',
+      'deleted', true, 'payload', encode(decode(repeat('00', 257), 'hex'), 'base64'))))$$,
+  '23514', null, 'a tombstone payload over 256 bytes is rejected');
+select ok(not exists (select 1 from public.records where id = 'd6'), '... and nothing is stored');
 
 -- mixed batch: rejected rows only
 select results_eq(

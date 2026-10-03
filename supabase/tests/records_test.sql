@@ -1,7 +1,7 @@
 -- public.records: RLS between two users, anon, no deletes, seq assignment, constraints.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(31);
+select plan(33);
 
 insert into auth.users (id, email) values
   ('11111111-1111-1111-1111-111111111111', 'a@example.com'),
@@ -60,14 +60,23 @@ select lives_ok(
   $$insert into public.records (kind, id, updated_at, device_id, payload)
     values ('page', 'max', now(), 'dev-a', decode(repeat('00', 2 * 1024 * 1024), 'hex'))$$,
   'a payload of exactly 2 MB is accepted');
+-- tombstones: an authenticated payload of at most 256 bytes, never files
+select lives_ok(
+  $$insert into public.records (kind, id, updated_at, device_id, deleted, payload)
+    values ('page', 'tomb1', now(), 'dev-a', true, decode(repeat('00', 256), 'hex'))$$,
+  'a tombstone with a payload of 256 bytes is accepted');
 select throws_ok(
   $$insert into public.records (kind, id, updated_at, device_id, deleted, payload)
-    values ('page', 'tomb1', now(), 'dev-a', true, '\x01')$$,
-  '23514', null, 'a tombstone with a payload is rejected');
+    values ('page', 'tomb1b', now(), 'dev-a', true, decode(repeat('00', 257), 'hex'))$$,
+  '23514', null, 'a tombstone with a payload over 256 bytes is rejected');
 select throws_ok(
   $$insert into public.records (kind, id, updated_at, device_id, deleted, files)
     values ('page', 'tomb2', now(), 'dev-a', true, '{f1}')$$,
   '23514', null, 'a tombstone with files is rejected');
+select throws_ok(
+  $$insert into public.records (kind, id, updated_at, device_id, deleted, payload, files)
+    values ('page', 'tomb3', now(), 'dev-a', true, '\x01', '{f1}')$$,
+  '23514', null, 'a tombstone with a payload and files is rejected');
 select throws_ok(
   $$insert into public.records (kind, id, updated_at, device_id)
     values ('page', 'nopayload', now(), 'dev-a')$$,
