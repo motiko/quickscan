@@ -180,7 +180,7 @@ export default function Home() {
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search names, text and tags"
               aria-label="Search documents"
-              className="w-full rounded-lg bg-gray-100 dark:bg-neutral-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-500 outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full rounded-lg bg-gray-100 dark:bg-neutral-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-600 dark:placeholder:text-neutral-400 outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
         )}
@@ -255,11 +255,17 @@ export default function Home() {
         />
       )}
 
+      {/* Fades the grid out behind the buttons so they don't merge with thumbnails */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none fixed inset-x-0 bottom-0 z-10 h-[calc(env(safe-area-inset-bottom,0px)+6rem)] bg-linear-to-t from-gray-50 via-gray-50/70 to-transparent dark:from-neutral-950 dark:via-neutral-950/70"
+      />
       <div className="fixed bottom-safe-offset-6 right-4 z-20 flex gap-3">
+        {/* Accessible names are the visible text (WCAG 2.5.3 Label in Name) */}
         <button
           onClick={openFilePicker}
-          className="flex h-12 items-center gap-2 rounded-full bg-white dark:bg-neutral-800 px-5 text-sm font-semibold text-gray-900 dark:text-gray-100 shadow-lg ring-1 ring-black/5 dark:ring-white/10 hover:bg-gray-50 dark:hover:bg-neutral-700 active:bg-gray-100 dark:active:bg-neutral-600"
-          aria-label="Upload files"
+          className="flex h-12 items-center gap-2 rounded-full bg-white dark:bg-neutral-800 px-5 text-sm font-semibold text-gray-900 dark:text-gray-100 shadow-xl shadow-black/20 ring-1 ring-black/10 dark:shadow-black/60 dark:ring-white/15 hover:bg-gray-50 dark:hover:bg-neutral-700 active:bg-gray-100 dark:active:bg-neutral-600"
+          title="Upload images"
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -271,8 +277,8 @@ export default function Home() {
 
         <button
           onClick={() => router.push('/scan')}
-          className="flex h-12 items-center gap-2 rounded-full bg-blue-600 px-5 text-sm font-semibold text-white shadow-lg hover:bg-blue-700 active:bg-blue-800"
-          aria-label="Scan new document"
+          className="flex h-12 items-center gap-2 rounded-full bg-blue-600 px-5 text-sm font-semibold text-white shadow-xl shadow-black/25 ring-2 ring-white/90 dark:shadow-black/60 dark:ring-neutral-950 hover:bg-blue-700 active:bg-blue-800"
+          title="Scan a new document"
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
