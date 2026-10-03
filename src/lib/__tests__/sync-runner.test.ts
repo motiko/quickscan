@@ -45,6 +45,16 @@ beforeEach(async () => {
 afterEach(() => restore?.());
 
 describe('syncOnce gating', () => {
+  it('pauses, sending nothing, while another account’s documents wait for the user', async () => {
+    env();
+    await createDocument('From another account', new Blob(['x']));
+    await db.syncMeta.put({ key: 'sync:lastUserId', value: 'previous-user' });
+    const report = await syncOnce();
+    expect(report?.accountSwitch).toMatchObject({ previousUserId: 'previous-user', documents: 1 });
+    expect(getSyncStatus()).toMatchObject({ state: 'paused', accountSwitch: { documents: 1 } });
+    expect(server.log).toEqual([]);
+  });
+
   it('stays disabled and sends nothing when Supabase is off', async () => {
     env({ isConfigured: () => false });
     await createDocument('Doc', new Blob(['x']));

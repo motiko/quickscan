@@ -207,6 +207,15 @@ export async function syncOnce(): Promise<SyncReport | null> {
       setSyncStatus({ state: 'idle' });
       return null;
     }
+    if (report.accountSwitch) {
+      // Another account's documents are here: wait for the user's answer (Settings)
+      setSyncStatus({
+        state: 'paused',
+        message: 'Sync is paused: documents from another account are on this device.',
+        accountSwitch: report.accountSwitch,
+      });
+      return report;
+    }
     const problems = currentProblems();
     const facts = { lastSyncedAt: env.now(), problems, pendingDownloads: report.pendingDownloads };
     const problem = summarize(report, problems);

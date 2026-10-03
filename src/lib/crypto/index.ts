@@ -4,7 +4,14 @@
  */
 export { CryptoError, type CryptoErrorCode } from './errors';
 export { generateVaultKey, storeVaultKey, loadVaultKey, loadTransferableVaultKey, clearVaultKey, type VaultKey } from './vault';
-export { encryptRecord, decryptRecord, type RecordContext } from './records';
+export {
+  encryptRecord,
+  decryptRecord,
+  openRecord,
+  type OpenedRecord,
+  type RecordContext,
+  type RecordVersion,
+} from './records';
 export { encryptFile, decryptFile, type FileContext } from './files';
 export { wrapVaultKey, unwrapVaultKey, type WrapMethod, type WrapParams, type WrappedVaultKey } from './wrap';
 export {

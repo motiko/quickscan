@@ -9,6 +9,7 @@ import {
   deletePage,
   updatePage,
   savePageAnnotations,
+  keepConflictedCopy,
 } from '@/hooks/useDocuments';
 import { generatePdf, pagesToPdfInput, shareOrDownload, shareImage, downloadBlob } from '@/lib/pdf';
 import { rotateImage } from '@/lib/image-processing';
@@ -66,6 +67,14 @@ function PageItem({
         />
       ) : (
         <div className="h-full w-full animate-pulse bg-gray-300 dark:bg-neutral-700" />
+      )}
+      {page.conflictOf && (
+        <div
+          className="absolute left-2 top-2 rounded-full bg-amber-500 px-2.5 py-0.5 text-xs font-semibold text-white shadow-sm"
+          data-testid="conflict-badge"
+        >
+          Conflicted copy
+        </div>
       )}
       <div className="absolute bottom-2 right-2 rounded-full bg-black/60 px-2.5 py-0.5 text-xs font-semibold text-white backdrop-blur-sm">
         {index + 1}
@@ -512,6 +521,24 @@ export default function DocumentViewer() {
               </svg>
             </button>
           </div>
+
+          {selectedPage.conflictOf && (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 bg-amber-500/20 px-4 py-2 text-sm text-amber-100" role="status">
+              <p className="flex-1 min-w-[12rem]">
+                <span className="font-semibold">Conflicted copy.</span> This version was changed on another device at the
+                same time and kept so nothing is lost.
+              </p>
+              <button
+                onClick={() => void keepConflictedCopy(selectedPage.id)}
+                className="min-h-11 font-semibold text-white"
+              >
+                Keep
+              </button>
+              <button onClick={handleDeleteCurrentPage} className="min-h-11 font-semibold text-red-300">
+                Delete
+              </button>
+            </div>
+          )}
 
           {/* Image — swipe left/right or use the arrows to change page */}
           <div

@@ -107,8 +107,9 @@ export function SyncProblems() {
       )}
       {unreadable > 0 && (
         <p className={errorClass}>
-          {plural(unreadable, 'item')} from your account couldn’t be read: damaged, encrypted with another key, or from a
-          newer version of QuickScan.
+          {plural(unreadable, 'item')} from your account couldn’t be read or {unreadable === 1 ? 'was' : 'were'} refused:
+          damaged, encrypted with another key, from a newer version of QuickScan, or an older version the server sent
+          again.
         </p>
       )}
       {pending > 0 && <p className={hintClass}>{plural(pending, 'file')} not downloaded yet.</p>}
