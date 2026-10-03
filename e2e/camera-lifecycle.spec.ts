@@ -30,7 +30,7 @@ test.describe('Camera lifecycle', () => {
   test('releases the camera after capturing a photo', async ({ page }) => {
     await trackStreams(page);
     await page.goto('/');
-    await page.getByLabel('Scan new document').click();
+    await page.getByRole('button', { name: 'Camera', exact: true }).click();
     await expect(page).toHaveURL(/\/scan/);
 
     const applyCrop = page.getByRole('button', { name: /Apply Crop/ });
@@ -52,7 +52,7 @@ test.describe('Camera lifecycle', () => {
   test('does not reopen the camera after capture through review and save', async ({ page }) => {
     await trackStreams(page);
     await page.goto('/');
-    await page.getByLabel('Scan new document').click();
+    await page.getByRole('button', { name: 'Camera', exact: true }).click();
 
     const applyCrop = page.getByRole('button', { name: /Apply Crop/ });
     const shutter = page.getByLabel('Take photo');
@@ -82,7 +82,7 @@ test.describe('Camera lifecycle', () => {
   test('releases the camera when leaving the scanner right away', async ({ page }) => {
     await trackStreams(page);
     await page.goto('/');
-    await page.getByLabel('Scan new document').click();
+    await page.getByRole('button', { name: 'Camera', exact: true }).click();
     await expect(page).toHaveURL(/\/scan/);
     // Leave before getUserMedia has necessarily resolved
     await page.getByLabel('Close camera').click();

@@ -64,7 +64,7 @@ test.describe('Escape and confirm dialogs', () => {
 test('Escape leaves the camera', async ({ page, browserName }) => {
   test.skip(browserName === 'webkit', 'Camera emulation not supported in WebKit');
   await page.goto('/');
-  await page.getByLabel('Scan new document').click();
+  await page.getByRole('button', { name: 'Camera', exact: true }).click();
   await expect(page).toHaveURL(/\/scan/);
   await expect(page.getByLabel('Take photo')).toBeVisible();
   await page.keyboard.press('Escape');

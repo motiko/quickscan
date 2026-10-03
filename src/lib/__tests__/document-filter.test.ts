@@ -5,6 +5,7 @@ import {
   filterDocuments,
   isFiltering,
   matchesQuery,
+  showUnfiledFilter,
   EMPTY_FILTER,
   type DocumentFilter,
 } from '@/lib/document-filter';
@@ -88,5 +89,31 @@ describe('isFiltering', () => {
     expect(isFiltering({ ...EMPTY_FILTER, query: ' ' })).toBe(false);
     expect(isFiltering({ ...EMPTY_FILTER, tags: ['a'] })).toBe(true);
     expect(isFiltering({ ...EMPTY_FILTER, folder: { kind: 'unfiled' } })).toBe(true);
+  });
+});
+
+describe('showUnfiledFilter', () => {
+  const all = { kind: 'all' } as const;
+  const unfiled = { kind: 'unfiled' } as const;
+
+  it('is hidden without folders', () => {
+    expect(showUnfiledFilter({ hasFolders: false, unfiledCount: 3, totalCount: 3, folder: all })).toBe(false);
+  });
+
+  it('is hidden when nothing is filed, since it would match All', () => {
+    expect(showUnfiledFilter({ hasFolders: true, unfiledCount: 10, totalCount: 10, folder: all })).toBe(false);
+  });
+
+  it('is shown when some documents are filed', () => {
+    expect(showUnfiledFilter({ hasFolders: true, unfiledCount: 2, totalCount: 3, folder: all })).toBe(true);
+    expect(showUnfiledFilter({ hasFolders: true, unfiledCount: 0, totalCount: 3, folder: all })).toBe(true);
+    expect(
+      showUnfiledFilter({ hasFolders: true, unfiledCount: 2, totalCount: 3, folder: { kind: 'folder', id: 'f1' } })
+    ).toBe(true);
+  });
+
+  it('is never hidden while it is the active filter', () => {
+    expect(showUnfiledFilter({ hasFolders: true, unfiledCount: 10, totalCount: 10, folder: unfiled })).toBe(true);
+    expect(showUnfiledFilter({ hasFolders: false, unfiledCount: 1, totalCount: 1, folder: unfiled })).toBe(true);
   });
 });

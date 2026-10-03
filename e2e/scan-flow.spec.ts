@@ -11,7 +11,7 @@ test.describe('Scan Flow', () => {
 
     // Click scan button (the fixed bottom right button or the 'Start Scanning' empty state button)
     // We try to click the fixed button using its generic SVG aria-label or just router push button
-    await page.getByLabel('Scan new document').click();
+    await page.getByRole('button', { name: 'Camera', exact: true }).click();
 
     // Verify we arrived at /scan
     await expect(page).toHaveURL(/.*\/scan/);
