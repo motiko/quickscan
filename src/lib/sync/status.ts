@@ -9,13 +9,33 @@
  * - error:    the last run failed or skipped items; `message` says what.
  */
 
+import type { SyncErrorCode } from './errors';
+
 export type SyncState = 'disabled' | 'idle' | 'syncing' | 'offline' | 'locked' | 'error';
+
+/** An item that keeps failing to upload or download; retried with backoff. */
+export interface SyncProblem {
+  stage: string;
+  kind: string;
+  id: string;
+  message: string;
+  code: SyncErrorCode;
+  attempts: number;
+  /** Epoch ms of the next automatic attempt. */
+  retryAt: number;
+}
 
 export interface SyncStatus {
   state: SyncState;
   message?: string;
+  /** Why the last run failed, when it did. */
+  code?: SyncErrorCode;
   /** Epoch ms of the last completed run. */
   lastSyncedAt?: number;
+  /** Items failing to upload or download (from the last completed run). */
+  problems?: SyncProblem[];
+  /** Pulled files not downloaded yet (from the last completed run). */
+  pendingDownloads?: number;
 }
 
 export const DISABLED_STATUS: SyncStatus = { state: 'disabled' };
@@ -32,17 +52,24 @@ export function subscribeSyncStatus(listener: () => void): () => void {
   return () => subscribers.delete(listener);
 }
 
-/** Replace the status; `lastSyncedAt` carries over unless given. */
+/**
+ * Replace the status; `lastSyncedAt`, `problems` and `pendingDownloads` (facts from the last
+ * completed run) carry over unless given.
+ */
 export function setSyncStatus(next: SyncStatus): void {
-  const merged: SyncStatus = { lastSyncedAt: status.lastSyncedAt, ...next };
-  if (merged.state === 'disabled') delete merged.lastSyncedAt;
-  if (
-    merged.state === status.state &&
-    merged.message === status.message &&
-    merged.lastSyncedAt === status.lastSyncedAt
-  ) {
-    return;
+  const merged: SyncStatus = {
+    lastSyncedAt: status.lastSyncedAt,
+    problems: status.problems,
+    pendingDownloads: status.pendingDownloads,
+    ...next,
+  };
+  if (merged.state === 'disabled' || merged.state === 'locked') {
+    delete merged.problems;
+    delete merged.pendingDownloads;
   }
+  if (merged.state === 'disabled') delete merged.lastSyncedAt;
+  for (const key of Object.keys(merged) as (keyof SyncStatus)[]) if (merged[key] === undefined) delete merged[key];
+  if (JSON.stringify(merged) === JSON.stringify(status)) return;
   status = merged;
   for (const notify of subscribers) notify();
 }

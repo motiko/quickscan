@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { AuthError, sendSignInCode, signOut, verifySignInCode } from '@/lib/auth';
 import { confirmDialog } from '@/lib/dialogs';
 import { SyncSettings } from './SyncSettings';
+import { askRemoveOnSignOut } from './RemoveSyncedDocuments';
 
 const inputClass =
   'w-full rounded-lg border border-gray-300 dark:border-neutral-700 bg-white dark:bg-neutral-950 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none focus:border-blue-500';
@@ -123,17 +124,28 @@ export function AccountSettings() {
   if (auth.status === 'disabled') return null;
 
   const handleSignOut = async () => {
+    if (auth.status !== 'signed-in') return;
+    const userId = auth.user.id;
     const confirmed = await confirmDialog({
       title: 'Sign out on this device?',
       message: 'Your documents stay on this device. To sync here again, you’ll need your recovery key.',
       confirmLabel: 'Sign out',
     });
     if (!confirmed) return;
+    // Optionally clean the device too; removed after signing out, so no sync runs in between
+    const removeSynced = await askRemoveOnSignOut(userId);
     setError(null);
     try {
       await signOut();
     } catch (err) {
       setError(errorText(err));
+      return;
+    }
+    try {
+      await removeSynced?.();
+    } catch (err) {
+      console.warn('Removing synced documents failed', err);
+      setError('Signed out, but the synced documents couldn’t be removed from this device.');
     }
   };
 

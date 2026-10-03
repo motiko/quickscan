@@ -44,11 +44,17 @@ type WireLike = { updatedAt: number; deviceId: string };
 export class FakeSupabase {
   rows = new Map<string, StoredRow>();
   objects = new Map<string, Blob>();
+  /** Object name -> creation time (epoch ms, server clock), as Storage's `created_at`. */
+  created = new Map<string, number>();
   seq = 0;
   /** Requests made, for assertions. */
   log: string[] = [];
   /** Make the next N uploads fail (non-network error). */
   failUploads = 0;
+  /** Status code for failed uploads. */
+  failUploadStatus = '500';
+  /** Make object deletes fail. */
+  failRemove = false;
   /** Make pulls with `seq > n` fail with a network error. */
   failPullAfter: number | undefined;
   /** Simulated server clock (epoch ms) for the +5 min clamp. */
@@ -123,9 +129,11 @@ export class FakeSupabase {
         return { data: null, error: { message: 'TypeError: Failed to fetch' } };
       }
       const userFilter = filters.eq.find(([c]) => c === 'user_id')?.[1];
+      const deletedFilter = filters.eq.find(([c]) => c === 'deleted')?.[1];
       const rows = [...this.rows.values()]
         // RLS: only the signed-in user's rows, whatever the query asks for
         .filter((r) => r.userId === this.userId && (userFilter === undefined || r.userId === userFilter))
+        .filter((r) => deletedFilter === undefined || r.deleted === deletedFilter)
         .filter((r) => r.seq > after)
         .sort((a, b) => a.seq - b.seq)
         .slice(0, filters.limit)
@@ -162,18 +170,47 @@ export class FakeSupabase {
           this.log.push(`upload:${path}`);
           if (this.failUploads > 0) {
             this.failUploads--;
-            return { data: null, error: { message: 'Internal Server Error', statusCode: '500' } };
+            const tooLarge = this.failUploadStatus === '413';
+            return {
+              data: null,
+              error: { message: tooLarge ? 'Payload too large' : 'Internal Server Error', statusCode: this.failUploadStatus },
+            };
           }
           if (!path.startsWith(`${this.userId}/`)) return { data: null, error: { message: 'new row violates row-level security policy' } };
           if (options.contentType !== 'application/octet-stream') return { data: null, error: { message: 'mime type not allowed' } };
           if (this.objects.has(path) && !options.upsert) return { data: null, error: { message: 'The resource already exists' } };
           this.objects.set(path, body);
+          this.created.set(path, this.now());
           return { data: { path }, error: null };
         },
         download: async (path: string) => {
           this.log.push(`download:${path}`);
           const blob = path.startsWith(`${this.userId}/`) ? this.objects.get(path) : undefined;
           return blob ? { data: blob, error: null } : { data: null, error: { message: 'Object not found' } };
+        },
+        list: async (prefix: string, options: { limit: number; offset: number }) => {
+          this.log.push(`list:${prefix}:${options.offset}`);
+          if (prefix !== this.userId) return { data: [], error: null };
+          const names = [...this.objects.keys()].filter((p) => p.startsWith(`${prefix}/`)).sort();
+          const data = names.slice(options.offset, options.offset + options.limit).map((path) => ({
+            name: path.slice(prefix.length + 1),
+            id: `obj-${path}`,
+            created_at: new Date(this.created.get(path) ?? this.now()).toISOString(),
+            metadata: { size: this.objects.get(path)!.size },
+          }));
+          return { data, error: null };
+        },
+        remove: async (paths: string[]) => {
+          this.log.push(`remove:${paths.length}`);
+          if (this.failRemove) return { data: null, error: { message: 'Internal Server Error', statusCode: '500' } };
+          for (const path of paths) {
+            // RLS: only the owner's folder
+            if (path.startsWith(`${this.userId}/`)) {
+              this.objects.delete(path);
+              this.created.delete(path);
+            }
+          }
+          return { data: [], error: null };
         },
       };
     },
@@ -212,6 +249,7 @@ export class FakeSupabase {
   async remoteFile(key: CryptoKey, fileId: string, blob: Blob): Promise<string> {
     const path = `${this.userId}/${fileId}`;
     this.objects.set(path, await encryptFile(key, { userId: this.userId, fileId }, blob));
+    this.created.set(path, this.now());
     return path;
   }
 }

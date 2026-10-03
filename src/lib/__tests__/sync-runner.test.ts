@@ -8,8 +8,8 @@ import { db } from '@/lib/db';
 import { createDocument } from '@/hooks/useDocuments';
 import { generateVaultKey, type VaultKey } from '@/lib/crypto';
 import type { AuthState } from '@/lib/auth';
-import { createSupabaseBackend } from '@/lib/sync/backend';
-import { requestSync, setSyncEnvironment, syncOnce } from '@/lib/sync/runner';
+import { createSupabaseBackend, SyncBackendError } from '@/lib/sync/backend';
+import { requestSync, retrySync, setSyncEnvironment, syncOnce } from '@/lib/sync/runner';
 import { getSyncStatus } from '@/lib/sync/status';
 import { readOutbox } from '@/lib/outbox';
 import { FakeSupabase } from './fake-supabase';
@@ -119,5 +119,100 @@ describe('requestSync', () => {
     // Two runs: the first pushes, the queued one finds nothing new to push
     expect(runs).toHaveBeenCalledTimes(1);
     expect(server.log.filter((l) => l.startsWith('pull:')).length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('surfacing problems', () => {
+  it('lists items failing to upload, with a storage-full hint for 413', async () => {
+    env({ now: () => 1_000_000 });
+    await createDocument('Doc', new Blob(['x']));
+    server.failUploads = 1;
+    server.failUploadStatus = '413';
+    await syncOnce();
+    const status = getSyncStatus();
+    expect(status).toMatchObject({ state: 'error', code: 'quota' });
+    expect(status.problems).toEqual([
+      expect.objectContaining({ stage: 'upload', kind: 'page', code: 'quota', attempts: 1, retryAt: 1_005_000 }),
+    ]);
+  });
+
+  it('keeps showing an item that is still backing off, and clears it once it syncs', async () => {
+    let now = 1_000_000;
+    env({ now: () => now });
+    await createDocument('Doc', new Blob(['x']));
+    server.failUploads = 1;
+    await syncOnce();
+    await syncOnce(); // backing off: not attempted, still a problem
+    expect(getSyncStatus()).toMatchObject({ state: 'error', problems: [expect.objectContaining({ stage: 'upload' })] });
+    now += 10_000;
+    await syncOnce();
+    expect(getSyncStatus()).toMatchObject({ state: 'idle', problems: [] });
+  });
+
+  it('retrySync retries at once, ignoring the backoff', async () => {
+    env({ now: () => 1_000_000 });
+    await createDocument('Doc', new Blob(['x']));
+    server.failUploads = 1;
+    await syncOnce();
+    await retrySync();
+    expect(getSyncStatus()).toMatchObject({ state: 'idle', problems: [] });
+    expect(await readOutbox()).toEqual([]);
+  });
+
+  it('counts files not downloaded yet', async () => {
+    env();
+    const path = `${USER}/missing-file`;
+    await server.remoteRecord(vault.key, {
+      kind: 'page',
+      id: 'p1',
+      updatedAt: Date.now(),
+      value: { documentId: 'd1', pageNumber: 1, filter: 'original', createdAt: new Date(), file: { id: 'missing-file', type: 'image/jpeg' } },
+      files: [path],
+    });
+    await syncOnce();
+    expect(getSyncStatus()).toMatchObject({
+      state: 'error',
+      pendingDownloads: 1,
+      problems: [expect.objectContaining({ stage: 'download', id: 'p1' })],
+    });
+  });
+
+  it('records unreadable rows and reads them again on retry', async () => {
+    env();
+    await server.remoteRecord(vault.key, { kind: 'folder', id: 'ok', updatedAt: Date.now(), value: { name: 'OK', createdAt: new Date() } });
+    server.write({ kind: 'folder', id: 'bad', updatedAt: Date.now(), deviceId: 'x', deleted: false, keyVersion: 1, payload: new Uint8Array(40), files: [] });
+    await syncOnce();
+    const key = `sync:bad:${USER}`;
+    expect((await db.syncMeta.get(key))?.value).toEqual([expect.objectContaining({ kind: 'folder', id: 'bad' })]);
+
+    // Retry reads it again from before its seq; still unreadable, so it stays listed
+    server.log = [];
+    await retrySync();
+    expect(server.log).toContain('pull:0');
+    expect((await db.syncMeta.get(key))?.value).toHaveLength(1);
+
+    // Replaced by a readable version: the problem goes away
+    await server.remoteRecord(vault.key, { kind: 'folder', id: 'bad', updatedAt: Date.now() + 1, value: { name: 'OK', createdAt: new Date() } });
+    await syncOnce();
+    expect(await db.syncMeta.get(key)).toBeUndefined();
+  });
+
+  it('says the session expired on 401 and points to recovery on a key mismatch', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    env({
+      getBackend: async () => ({
+        ...createSupabaseBackend(server.asClient()),
+        pullRecords: async () => {
+          throw new SyncBackendError('Pull: JWT expired', { status: 401 });
+        },
+      }),
+    });
+    await syncOnce();
+    expect(getSyncStatus()).toMatchObject({ state: 'error', code: 'auth', message: expect.stringMatching(/sign in again/i) });
+
+    env();
+    await server.remoteRecord(await generateVaultKey(), { kind: 'folder', id: 'f', updatedAt: Date.now(), value: { name: 'X', createdAt: new Date() } });
+    await syncOnce();
+    expect(getSyncStatus()).toMatchObject({ state: 'error', code: 'key-mismatch', message: expect.stringMatching(/recovery key/i) });
   });
 });
