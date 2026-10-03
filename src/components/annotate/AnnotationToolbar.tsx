@@ -5,6 +5,19 @@ export type Tool = 'select' | 'pen' | 'highlighter' | 'rect' | 'arrow' | 'text' 
 export const INK_COLORS = ['#111827', '#2563eb', '#dc2626', '#16a34a'];
 export const HIGHLIGHT_COLORS = ['#facc15', '#4ade80', '#f472b6', '#60a5fa'];
 
+const COLOR_NAMES: Record<string, string> = {
+  '#111827': 'black',
+  '#2563eb': 'blue',
+  '#dc2626': 'red',
+  '#16a34a': 'green',
+  '#facc15': 'yellow',
+  '#4ade80': 'green',
+  '#f472b6': 'pink',
+  '#60a5fa': 'blue',
+};
+
+const focusRing = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white';
+
 const ICON_PROPS = {
   xmlns: 'http://www.w3.org/2000/svg',
   width: 22,
@@ -39,7 +52,7 @@ const TOOLS: { id: Tool; label: string; icon: React.ReactNode }[] = [
   },
   {
     id: 'highlighter',
-    label: 'Highlighter',
+    label: 'Highlight', // "Highlighter" leaves no gap to its neighbours at 360 px
     icon: (
       <svg {...ICON_PROPS}>
         <path d="m9 11-6 6v3h9l3-3" />
@@ -97,8 +110,6 @@ interface AnnotationToolbarProps {
   onColorChange: (color: string) => void;
   sizeIndex: number;
   onSizeChange: (index: number) => void;
-  hasSelection: boolean;
-  onDeleteSelected: () => void;
 }
 
 export function AnnotationToolbar({
@@ -109,67 +120,60 @@ export function AnnotationToolbar({
   onColorChange,
   sizeIndex,
   onSizeChange,
-  hasSelection,
-  onDeleteSelected,
 }: AnnotationToolbarProps) {
   return (
-    <div className="border-t border-white/10 bg-neutral-900 px-3 pt-2 pb-safe-offset-2">
-      <div className="mb-2 flex h-9 items-center justify-between gap-3">
-        <div className="flex items-center gap-2" role="group" aria-label="Colors">
+    <div className="border-t border-white/10 bg-neutral-900 px-safe-offset-3 pt-1 pb-safe-offset-2">
+      {/* Hit areas are 44 px (UX-001); the swatches and dots inside stay small */}
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-x-3">
+        <div className="flex items-center" role="group" aria-label="Colors">
           {colors.map((c) => (
             <button
               key={c}
               onClick={() => onColorChange(c)}
-              aria-label={`Color ${c}`}
+              aria-label={`Color ${COLOR_NAMES[c] ?? c}`}
               aria-pressed={c === color}
-              className={`h-7 w-7 rounded-full border-2 transition-transform ${
-                c === color ? 'scale-110 border-white' : 'border-transparent'
-              }`}
-              style={{ backgroundColor: c }}
-            />
+              className={focusRing + ' flex h-11 w-11 items-center justify-center rounded-full'}
+            >
+              <span
+                aria-hidden="true"
+                // The ring keeps dark ink visible on the dark toolbar (UX-005, 3:1 for UI boundaries)
+                className={`h-7 w-7 rounded-full border border-white/50 ${
+                  c === color ? 'ring-2 ring-white ring-offset-2 ring-offset-neutral-900' : ''
+                }`}
+                style={{ backgroundColor: c }}
+              />
+            </button>
           ))}
         </div>
-        <div className="flex items-center gap-1" role="group" aria-label="Size">
+        <div className="flex items-center" role="group" aria-label="Size">
           {[0, 1, 2].map((i) => (
             <button
               key={i}
               onClick={() => onSizeChange(i)}
               aria-label={['Small', 'Medium', 'Large'][i]}
               aria-pressed={i === sizeIndex}
-              className={`flex h-8 w-8 items-center justify-center rounded-full ${
+              className={`${focusRing} flex h-11 w-11 items-center justify-center rounded-full ${
                 i === sizeIndex ? 'bg-white/20' : 'hover:bg-white/10'
               }`}
             >
-              <span className="rounded-full bg-gray-200" style={{ width: 4 + i * 4, height: 4 + i * 4 }} />
+              <span aria-hidden="true" className="rounded-full bg-gray-200" style={{ width: 4 + i * 4, height: 4 + i * 4 }} />
             </button>
           ))}
-          {hasSelection && (
-            <button
-              onClick={onDeleteSelected}
-              className="ml-1 flex h-8 w-8 items-center justify-center rounded-full text-red-400 hover:bg-white/10"
-              aria-label="Delete selected"
-            >
-              <svg {...ICON_PROPS} width={18} height={18}>
-                <polyline points="3 6 5 6 21 6" />
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-              </svg>
-            </button>
-          )}
         </div>
       </div>
-      <div className="flex items-center justify-between" role="toolbar" aria-label="Annotation tools">
+      {/* Fits 7 × 44 px at 360 px; scrolls rather than clipping with large text (UX-010) */}
+      <div className="flex items-stretch overflow-x-auto" role="toolbar" aria-label="Annotation tools">
         {TOOLS.map((t) => (
           <button
             key={t.id}
             onClick={() => onToolChange(t.id)}
-            aria-label={t.label}
             aria-pressed={t.id === tool}
-            className={`flex flex-col items-center rounded-lg px-1.5 py-1 text-[0.625rem] font-medium ${
+            className={`${focusRing} flex min-h-11 flex-1 shrink-0 flex-col items-center justify-center rounded-lg py-1 text-[0.625rem] font-medium ${
               t.id === tool ? 'bg-white/15 text-white' : 'text-gray-400 hover:text-white'
             }`}
           >
-            {t.icon}
-            <span className="mt-0.5">{t.label}</span>
+            <span aria-hidden="true">{t.icon}</span>
+            <span className="mt-0.5 min-w-11 whitespace-nowrap text-center">{t.label}</span>
           </button>
         ))}
       </div>

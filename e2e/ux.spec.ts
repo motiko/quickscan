@@ -220,6 +220,32 @@ test.describe('Document page', () => {
       const sheet = page.getByRole('dialog', { name: 'Recognized text' });
       await expect(sheet).toBeVisible();
       expect(tooSmall(await touchTargets(sheet)), 'text sheet').toEqual([]);
+      await page.keyboard.press('Escape');
+
+      await viewer.getByRole('button', { name: 'Annotate' }).click();
+      const editor = page.getByRole('dialog', { name: 'Annotate page' });
+      await expect(editor).toBeVisible();
+      expect(tooSmall(await touchTargets(editor)), 'annotation editor').toEqual([]);
+
+      await editor.getByRole('button', { name: 'Signature' }).click();
+      const pad = page.getByRole('dialog', { name: 'Signature' });
+      await expect(pad).toBeVisible();
+      expect(tooSmall(await touchTargets(pad)), 'signature pad').toEqual([]);
+    });
+
+    test(`UX-005: the annotation editor and signature pad meet WCAG AA contrast (${scheme})`, async ({ page }) => {
+      await page.emulateMedia({ colorScheme: scheme });
+      await seedPages(page, { pages: 1, text: 'Invoice' });
+      await openDocument(page);
+      await page.getByRole('button', { name: 'Open page 1' }).click();
+      await page.getByRole('button', { name: 'Annotate' }).click();
+      const editor = page.getByRole('dialog', { name: 'Annotate page' });
+      await expect(editor).toBeVisible();
+      expect(await lowContrastText(page), 'annotation editor').toEqual([]);
+      // "Save & place" is disabled until something is drawn
+      await editor.getByRole('button', { name: 'Signature' }).click();
+      await expect(page.getByRole('button', { name: 'Save & place' })).toBeDisabled();
+      expect(await lowContrastText(page), 'signature pad').toEqual([]);
     });
 
     test(`UX-005: text meets WCAG AA contrast, disabled controls included (${scheme})`, async ({ page }) => {
@@ -296,6 +322,44 @@ test.describe('Document page', () => {
     );
   });
 
+  test('UX-008: the annotation editor, its signature pad and its discard confirm stack as modal layers', async ({ page }) => {
+    await seedPages(page, { pages: 1, text: 'Invoice' });
+    await openDocument(page);
+    await page.getByRole('button', { name: 'Open page 1' }).click();
+    const viewer = page.getByRole('dialog', { name: 'Page 1 of 1' });
+    const annotate = viewer.getByRole('button', { name: 'Annotate' });
+    const editor = page.getByRole('dialog', { name: 'Annotate page' });
+
+    // Editor over the viewer: nothing changed, so Escape closes it straight away
+    await expectModalFocus(page, annotate, editor);
+    await expectFocusTrapped(page, viewer);
+
+    // Signature pad over the editor
+    await annotate.click();
+    await expectModalFocus(
+      page,
+      editor.getByRole('button', { name: 'Signature' }),
+      page.getByRole('dialog', { name: 'Signature' })
+    );
+    await expectFocusTrapped(page, editor);
+
+    // Discard confirm over the editor: "Keep editing" leaves the editor modal, "Discard" closes it
+    const canvas = editor.getByLabel('Annotation canvas');
+    const box = (await canvas.boundingBox())!;
+    await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.3, { steps: 5 });
+    await page.mouse.up();
+    const cancel = editor.getByRole('button', { name: 'Cancel' });
+    const confirm = page.getByRole('alertdialog', { name: 'Discard your changes?' });
+    await expectModalFocus(page, cancel, confirm);
+    await expectFocusTrapped(page, editor);
+    await cancel.click();
+    await confirm.getByRole('button', { name: 'Discard' }).click();
+    await expect(editor).not.toBeVisible();
+    await expect(annotate).toBeFocused();
+  });
+
   test('UX-009: header and toolbar actions show a text label', async ({ page }) => {
     await seedPages(page, { pages: 1, text: 'Invoice' });
     await openDocument(page);
@@ -329,6 +393,28 @@ test.describe('Document page', () => {
     // Toolbar labels scale with the text size too (rem, not px)
     const label = page.getByRole('group', { name: 'Document actions' }).getByText('Text', { exact: true });
     expect(await label.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(24);
+  });
+
+  test('UX-010: annotation tool labels fit their buttons at 360 px and with 200% text', async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 740 });
+    await seedPages(page, { pages: 1, text: 'Invoice' });
+    await openDocument(page);
+    await page.getByRole('button', { name: 'Open page 1' }).click();
+    await page.getByRole('button', { name: 'Annotate' }).click();
+    const tools = page.getByRole('toolbar', { name: 'Annotation tools' });
+    const spilled = () =>
+      tools.evaluate((bar) =>
+        [...bar.querySelectorAll('button')]
+          .filter((b) => b.scrollWidth > b.clientWidth + 0.5)
+          .map((b) => b.innerText.trim())
+      );
+    expect(await spilled(), '360 px').toEqual([]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
+    await page.addStyleTag({ content: 'html{font-size:200%!important}' });
+    expect(await spilled(), '200% text').toEqual([]);
+    // The bar scrolls instead of pushing the last tool off screen
+    await tools.getByRole('button', { name: 'Signature' }).click();
+    await expect(page.getByRole('dialog', { name: 'Signature' })).toBeVisible();
   });
 
   test('UX-013: when recognition finds no text, the page says how to fix it instead of offering dead ends', async ({ page }) => {

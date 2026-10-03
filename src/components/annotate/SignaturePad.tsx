@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import type { Signature } from '@/types';
 import { useBlobUrl } from '@/hooks/useBlobUrl';
 import { useEscape } from '@/hooks/useEscape';
+import { useModalFocus } from '@/hooks/useModalFocus';
+import { confirmDialog } from '@/lib/dialogs';
 import { deleteSignature, saveSignature, useSignatures } from '@/hooks/useSignatures';
 
 interface SignaturePadProps {
@@ -13,24 +15,39 @@ interface SignaturePadProps {
 
 const PAD_LINE_WIDTH = 3;
 
+const textButton =
+  'min-h-11 rounded-full px-4 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-neutral-800';
+
+async function confirmDeleteSignature(signature: Signature) {
+  const confirmed = await confirmDialog({
+    title: 'Delete this signature?',
+    // Placed signatures reference the saved image, so they go too
+    message: 'It will also disappear from every page where you placed it.',
+    confirmLabel: 'Delete',
+    destructive: true,
+  });
+  if (confirmed) await deleteSignature(signature.id);
+}
+
 function SavedSignature({ signature, onPick }: { signature: Signature; onPick: (s: Signature) => void }) {
   const url = useBlobUrl(signature.blob);
   return (
-    <div className="relative">
+    <div className="flex flex-col items-stretch">
       <button
         onClick={() => onPick(signature)}
-        className="flex h-20 w-full items-center justify-center rounded-lg border border-gray-200 bg-white p-2 hover:border-blue-500"
+        className="flex h-20 w-full items-center justify-center rounded-lg border border-gray-300 bg-white p-2 hover:border-blue-500"
         aria-label="Use saved signature"
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        {url && <img src={url} alt="Saved signature" className="max-h-full max-w-full object-contain" />}
+        {url && <img src={url} alt="" className="max-h-full max-w-full object-contain" />}
       </button>
+      {/* A labelled button under the signature, not a 24 px ✕ on its corner */}
       <button
-        onClick={() => void deleteSignature(signature.id)}
-        className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-gray-700 text-xs text-white"
+        onClick={() => void confirmDeleteSignature(signature)}
+        className="min-h-11 rounded-full text-sm font-semibold text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
         aria-label="Delete saved signature"
       >
-        ✕
+        Delete
       </button>
     </div>
   );
@@ -74,6 +91,10 @@ export function SignaturePad({ onPick, onClose }: SignaturePadProps) {
 
   const showDraw = mode === 'draw' || signatures.length === 0;
   useEscape(onClose);
+  // A modal layer over the annotation editor (UX-008)
+  const layerRef = useRef<HTMLDivElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  useModalFocus(layerRef, cancelRef);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -143,47 +164,50 @@ export function SignaturePad({ onPick, onClose }: SignaturePadProps) {
   return (
     <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/60 sm:items-center" onClick={onClose}>
       <div
+        ref={layerRef}
         className="w-full max-w-lg rounded-t-2xl bg-white dark:bg-neutral-900 p-4 pb-safe-offset-4 sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
+        aria-modal="true"
         aria-label="Signature"
       >
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-bold text-gray-900 dark:text-gray-100">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h2 className="text-base font-bold text-gray-900 dark:text-gray-100">
             {showDraw ? 'Draw your signature' : 'Choose a signature'}
           </h2>
-          <button
-            onClick={onClose}
-            className="rounded-full px-3 py-1 text-xs font-semibold text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-neutral-800"
-          >
+          <button ref={cancelRef} onClick={onClose} className={`${textButton} -mr-2`}>
             Cancel
           </button>
         </div>
 
         {showDraw ? (
           <>
-            <canvas
-              ref={canvasRef}
-              onPointerDown={handleDown}
-              onPointerMove={handleMove}
-              onPointerUp={handleUp}
-              onPointerCancel={handleUp}
-              className="h-48 w-full touch-none rounded-lg border-2 border-dashed border-gray-300 bg-white"
-              aria-label="Signature drawing area"
-            />
-            <div className="mt-3 flex items-center justify-between">
-              <div className="flex gap-2">
-                <button
-                  onClick={handleClear}
-                  className="rounded-full px-3 py-1.5 text-xs font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-neutral-800"
+            <div className="relative rounded-lg bg-white">
+              <canvas
+                ref={canvasRef}
+                onPointerDown={handleDown}
+                onPointerMove={handleMove}
+                onPointerUp={handleUp}
+                onPointerCancel={handleUp}
+                className="block h-48 w-full touch-none rounded-lg border-2 border-dashed border-gray-400 bg-white"
+                aria-label="Signature drawing area"
+              />
+              {!hasInk && (
+                <p
+                  id="signature-hint"
+                  className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-gray-600"
                 >
+                  Sign here with your finger
+                </p>
+              )}
+            </div>
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+              <div className="-ml-4 flex flex-wrap">
+                <button onClick={handleClear} className={textButton}>
                   Clear
                 </button>
                 {signatures.length > 0 && (
-                  <button
-                    onClick={() => setMode('pick')}
-                    className="rounded-full px-3 py-1.5 text-xs font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-neutral-800"
-                  >
+                  <button onClick={() => setMode('pick')} className={textButton}>
                     Saved signatures
                   </button>
                 )}
@@ -191,7 +215,9 @@ export function SignaturePad({ onPick, onClose }: SignaturePadProps) {
               <button
                 onClick={handleSave}
                 disabled={!hasInk}
-                className="rounded-full bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                // UX-012: the hint in the drawing area says why it's disabled
+                aria-describedby={hasInk ? undefined : 'signature-hint'}
+                className="min-h-11 rounded-full bg-blue-600 px-5 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-600 dark:disabled:bg-neutral-800 dark:disabled:text-gray-400"
               >
                 Save &amp; place
               </button>
@@ -209,7 +235,7 @@ export function SignaturePad({ onPick, onClose }: SignaturePadProps) {
                 setHasInk(false);
                 setMode('draw');
               }}
-              className="mt-3 w-full rounded-full border border-blue-600 py-2 text-xs font-semibold text-blue-600 dark:text-blue-400"
+              className="mt-3 min-h-11 w-full rounded-full border border-blue-600 text-sm font-semibold text-blue-600 dark:border-blue-400 dark:text-blue-400"
             >
               Draw a new signature
             </button>
