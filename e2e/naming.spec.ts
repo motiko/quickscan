@@ -111,5 +111,17 @@ test.describe('Document naming', () => {
     expect(listKey).toBe('sk-ant-e2e');
     expect(apiKey).toBe('sk-ant-e2e');
     expect(requestBody!.model).toBe('claude-opus-5-5');
+
+    // The account's models are offered in a picker, with the automatic choice named
+    const model = page.getByRole('combobox', { name: 'Model', exact: true });
+    await expect(model.locator('option')).toContainText(['Automatic (claude-opus-5-5)', 'claude-opus-5-5', 'claude-sonnet-4-5', 'Other…']);
+    await expect(model).toHaveValue('');
+    await model.selectOption('claude-sonnet-4-5');
+    await expect(page.getByRole('radio', { name: 'Anthropic claude-sonnet-4-5' })).toBeChecked();
+    await page.reload();
+    await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveValue('claude-sonnet-4-5');
+    await page.getByRole('button', { name: 'Test connection' }).click();
+    await expect(page.getByRole('status')).toContainText('Works with claude-sonnet-4-5!');
+    expect(requestBody!.model).toBe('claude-sonnet-4-5');
   });
 });
