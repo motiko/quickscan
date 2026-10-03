@@ -53,8 +53,13 @@ QuickScan is a **mobile-first PWA** for scanning documents using the phone camer
 ## Architecture Principles
 
 ### Client-Side First
-- **No server-side state in Next.js.** Everything runs in the browser. Pages are static or client-rendered. The only route handler is the stateless `/api/llm` proxy; don't add Next.js API routes for app data — talk to Supabase from the client instead.
+- **No server-side state in Next.js.** Everything runs in the browser. Pages are client-rendered (rendered per request only so `src/proxy.ts` can nonce Next's scripts). The only route handler is the stateless `/api/llm` proxy; don't add Next.js API routes for app data — talk to Supabase from the client instead.
 - **IndexedDB is the database.** Use Dexie.js for all persistent storage. Store binary data as `Blob` objects, never as Base64 strings. Supabase (when it arrives for sync) is a replica, never the source the UI reads from.
+
+### Security: keep the CSP tight
+- **XSS is the threat to the vault key** (see `SECURITY.md`). The CSP lives in `src/lib/csp.ts`: documents get a per-request nonce policy from `src/proxy.ts`, worker scripts a static one from `next.config.ts`.
+- **Adding a network destination** (provider, CDN, font, analytics): add the exact origin to the narrowest directive in `src/lib/csp.ts`, update its unit test and `SECURITY.md`, and run `e2e/security.spec.ts`. Prefer self-hosting (as with Tesseract in `public/tesseract/`). Never add `'unsafe-inline'`, `'unsafe-eval'` or a CDN host to `script-src`, and never widen `frame-ancestors`/`object-src`/`base-uri`.
+- **No HTML sinks:** no `dangerouslySetInnerHTML`, `innerHTML`, `eval`/`new Function`, and no `href`/`src` built from user or LLM text. Render untrusted text as React children.
 
 ### Accounts & Supabase
 - **Optional, always.** Check `isSupabaseConfigured()` / `useAuth().status === 'disabled'` and render nothing account-related when it's off. Scanning, OCR, export and everything local must never require signing in.

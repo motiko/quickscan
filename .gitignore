@@ -44,3 +44,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Tesseract worker and cores, copied from node_modules by scripts/copy-tesseract.mjs
+/public/tesseract/
