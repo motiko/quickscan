@@ -15,6 +15,7 @@ import {
 import { RecoveryKeyDialog } from './RecoveryKeyDialog';
 import { ScanPairingCode } from './ScanPairingCode';
 import { ShowPairingCode } from './ShowPairingCode';
+import { ManagePasskeys, UnlockWithPasskey, suggestPasskey } from './PasskeySettings';
 import { useSyncStatus } from '@/hooks/useSyncStatus';
 import { requestSync } from '@/lib/sync';
 
@@ -37,6 +38,7 @@ function TurnOnSync({ email }: { email: string }) {
   const finish = async (key: string) => {
     const result = await createVault(key);
     setRecoveryKey(null);
+    if (result === 'created') void suggestPasskey();
     if (result === 'exists') {
       await alertDialog({
         title: 'Sync is already on for your account',
@@ -106,6 +108,7 @@ function UnlockSync() {
         <button type="button" onClick={() => setPairing(true)} className={`mb-3 ${primaryButtonClass}`}>
           Scan from another device
         </button>
+        <UnlockWithPasskey />
         <p className={`mb-2 ${hintClass}`}>Or use your recovery key:</p>
         <div className="flex gap-2">
           <input
@@ -138,8 +141,6 @@ function UnlockSync() {
             {error}
           </p>
         )}
-        {/* Step 7 (passkeys) adds "Unlock with a passkey" here for accounts with a 'passkey'
-          vault_keys row. */}
       </form>
       {/* Outside the form, so the dialog's buttons can't submit it. */}
       {pairing && <ShowPairingCode onClose={closePairing} />}
@@ -208,7 +209,7 @@ function SyncOn({ email }: { email: string }) {
           Create a new recovery key
         </button>
       </div>
-      {/* Step 7: "Add a passkey" goes here. */}
+      <ManagePasskeys />
       {scanning && <ScanPairingCode onClose={closeScanner} />}
       {recoveryKey && (
         <RecoveryKeyDialog
