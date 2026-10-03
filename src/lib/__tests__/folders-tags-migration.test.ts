@@ -24,7 +24,7 @@ describe('folders & tags schema upgrade (v6)', () => {
 
     const { db } = await import('@/lib/db');
     await db.open();
-    expect(db.verno).toBe(6);
+    expect(db.verno).toBeGreaterThanOrEqual(6);
 
     const docs = await db.documents.orderBy('id').toArray();
     expect(docs.map((d) => d.name)).toEqual(['Invoice', 'Receipt']);

@@ -60,6 +60,7 @@ export async function createDocument(
       processedBlob: firstPageBlob,
       filter: 'original',
       createdAt: now,
+      updatedAt: now,
       ocrStatus: 'pending',
     });
   });
@@ -89,6 +90,7 @@ export async function addPageToDocument(
       processedBlob: imageBlob,
       filter,
       createdAt: now,
+      updatedAt: now,
       ocrStatus: 'pending',
     });
 

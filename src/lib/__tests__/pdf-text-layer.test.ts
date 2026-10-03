@@ -47,6 +47,7 @@ describe('pagesToPdfInput', () => {
     originalBlob: new Blob(['o']),
     filter: 'original' as const,
     createdAt: new Date(),
+    updatedAt: new Date(),
   };
 
   it('includes words only when OCR is done for the current image', async () => {
