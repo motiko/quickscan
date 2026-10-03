@@ -5,6 +5,9 @@ import { startCamera, stopCamera, captureStill, isCameraSupported } from '@/lib/
 
 interface UseCameraOptions {
   facingMode?: 'user' | 'environment';
+  /** Ideal resolution; defaults to 4K for document capture. QR scanning needs far less. */
+  width?: number;
+  height?: number;
 }
 
 interface UseCameraReturn {
@@ -39,6 +42,8 @@ export function useCamera(options: UseCameraOptions = {}): UseCameraReturn {
       const video = videoRef.current;
       const stream = await startCamera(video, {
         facingMode: options.facingMode || 'environment',
+        ...(options.width ? { width: options.width } : {}),
+        ...(options.height ? { height: options.height } : {}),
       });
       if (session !== sessionRef.current) {
         // stop() or unmount happened while the camera was starting
@@ -74,7 +79,7 @@ export function useCamera(options: UseCameraOptions = {}): UseCameraReturn {
       setError(message);
       setIsActive(false);
     }
-  }, [options.facingMode]);
+  }, [options.facingMode, options.width, options.height]);
 
   const stop = useCallback(() => {
     sessionRef.current++;

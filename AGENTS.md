@@ -66,6 +66,7 @@ QuickScan is a **mobile-first PWA** for scanning documents using the phone camer
 - **Every migration gets pgTAP tests** in `supabase/tests/` (two users, `anon`, each policy and constraint): `npx supabase start` (Docker, local only) then `npx supabase test db`. Never `supabase link`/`db push` — merging is what deploys.
 - **End-to-end encrypted:** all synced payloads and files are encrypted on the device with `src/lib/crypto` before they leave it. Never send plaintext user content, keys or the recovery key to Supabase (or log them), never derive keys from the emailed sign-in code, and never roll your own primitives beyond WebCrypto.
 - **Vault state:** read it with `useVault()` / `getVaultStatus()` from `src/lib/vault-session.ts`, and listen for the `quickscan:vault-changed` window event (dispatched on every unlock, creation and clear) rather than polling. The recovery key lives only in component state while its dialog is open. Sign-out (`signOut` in `auth.ts`) forgets the vault key on the device; documents stay.
+- **QR pairing** (`lib/pairing-session.ts`): the new device's public key reaches the unlocked device only through the QR code, never through the server (ECIES doesn't authenticate the sender). The QR holds only `qs1:<requestId>:<public key>` — never a secret. Sending must update exactly one `pairing_requests` row (RLS limits it to the caller's own, unexpired, unanswered rows); zero rows means "not your code or expired" and nothing is sent. Test-only hooks are gated by `process.env.NODE_ENV !== 'production' && NEXT_PUBLIC_E2E_HOOKS === '1'` so production builds drop them.
 - **`bytea` via PostgREST** is `'\x' + hex` both ways — use `toBytea`/`fromBytea` from `src/lib/bytea.ts`. Plain hex or a `Uint8Array` is silently stored as the wrong bytes.
 - **Sync-friendly data:** new Dexie records use client-generated string IDs and `createdAt`/`updatedAt`, so they can be replicated later without migrations. Local changes to synced tables are recorded in the `outbox` automatically (see Data Model); a new synced table or local-only field goes in `TRACKED_TABLES` in `lib/sync-tracking.ts`.
 - **Web Workers for heavy computation.** All OpenCV.js / image processing runs in Web Workers to keep the UI thread responsive.
@@ -186,6 +187,8 @@ Folders are flat. Deleting a folder keeps its documents and unfiles them.
 | `@serwist/next` | Service worker / PWA | Build-time config in `next.config.ts` |
 | `nanoid` | Generate unique IDs | Static import where needed |
 | `@supabase/supabase-js` | Auth (and later sync) | **Dynamic import** — only via `getSupabase()` in `lib/supabase.ts`; type-only imports elsewhere |
+| `uqr` (pinned) | Draw pairing QR codes (no dependencies) | **Dynamic import** in `lib/qr.ts` |
+| `jsqr` (pinned) | Read QR codes where `BarcodeDetector` is missing (iOS Safari) | **Dynamic import** in `lib/qr.ts`, fallback only |
 
 ### Dynamic Import Pattern
 ```typescript
@@ -229,7 +232,7 @@ const constraints = {
 
 - **Unit tests:** Vitest for utilities in `lib/`
 - **Component tests:** React Testing Library
-- **No E2E tests in v1** — camera APIs are hard to mock in headless browsers
+- **E2E (Playwright):** `e2e/`; camera flows use Chromium's fake camera. `e2e/pairing.spec.ts` is opt-in (local Supabase stack, see its header comment)
 
 ## Commit Messages
 

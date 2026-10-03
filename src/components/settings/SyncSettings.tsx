@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useVault } from '@/hooks/useVault';
 import { generateRecoveryKey } from '@/lib/crypto';
 import { alertDialog, confirmDialog } from '@/lib/dialogs';
@@ -13,6 +13,8 @@ import {
   unlockVault,
 } from '@/lib/vault-session';
 import { RecoveryKeyDialog } from './RecoveryKeyDialog';
+import { ScanPairingCode } from './ScanPairingCode';
+import { ShowPairingCode } from './ShowPairingCode';
 
 const inputClass =
   'w-full rounded-lg border border-gray-300 dark:border-neutral-700 bg-white dark:bg-neutral-950 px-3 py-2 font-mono text-sm uppercase text-gray-900 dark:text-gray-100 outline-none focus:border-blue-500';
@@ -66,8 +68,10 @@ function TurnOnSync({ email }: { email: string }) {
   );
 }
 
-/** Unlock this device with the recovery key; pairing by QR code from another device comes later. */
+/** Unlock this device by scanning from an unlocked device (QR pairing) or with the recovery key. */
 function UnlockSync() {
+  const [pairing, setPairing] = useState(false);
+  const closePairing = useCallback(() => setPairing(false), []);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -90,52 +94,62 @@ function UnlockSync() {
 
   const typo = inputState === 'typo';
   return (
-    <form onSubmit={(e) => void submit(e)} className="px-4 py-3">
-      <p className="mb-1 text-sm font-medium text-gray-900 dark:text-gray-100">Unlock sync on this device</p>
-      <p className={`mb-3 ${hintClass}`}>
-        Sync is on for your account. Enter the recovery key you saved when you turned it on.
-      </p>
-      <div className="flex gap-2">
-        <input
-          value={input}
-          onChange={(e) => {
-            setInput(e.target.value);
-            setError(null);
-          }}
-          placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX"
-          aria-label="Recovery key"
-          aria-invalid={typo}
-          autoComplete="off"
-          autoCapitalize="characters"
-          autoCorrect="off"
-          spellCheck={false}
-          className={`${inputClass} ${typo ? 'border-red-500 dark:border-red-500' : ''}`}
-        />
-        <button type="submit" disabled={busy || inputState !== 'valid'} className={primaryButtonClass}>
-          Unlock
+    <>
+      <form onSubmit={(e) => void submit(e)} className="px-4 py-3">
+        <p className="mb-1 text-sm font-medium text-gray-900 dark:text-gray-100">Unlock sync on this device</p>
+        <p className={`mb-3 ${hintClass}`}>
+          Sync is on for your account. Scan a code with a device where sync is already on, or enter the recovery key you
+          saved when you turned it on.
+        </p>
+        <button type="button" onClick={() => setPairing(true)} className={`mb-3 ${primaryButtonClass}`}>
+          Scan from another device
         </button>
-      </div>
-      {typo && !error && (
-        <p role="alert" className="mt-2 text-xs text-red-600 dark:text-red-400">
-          That doesn&apos;t look right — check for a typo. Recovery keys use the digits 0–9 and letters A–Z (no I, L, O
-          or U).
-        </p>
-      )}
-      {error && (
-        <p role="alert" className="mt-2 text-xs text-red-600 dark:text-red-400">
-          {error}
-        </p>
-      )}
-      {/* Step 5 (QR pairing): a "Scan from another device" action goes here, next to the
-          recovery key, using the pairing helpers in lib/crypto/pairing.ts. Step 7 (passkeys)
-          adds "Unlock with a passkey" here for accounts with a 'passkey' vault_keys row. */}
-    </form>
+        <p className={`mb-2 ${hintClass}`}>Or use your recovery key:</p>
+        <div className="flex gap-2">
+          <input
+            value={input}
+            onChange={(e) => {
+              setInput(e.target.value);
+              setError(null);
+            }}
+            placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX"
+            aria-label="Recovery key"
+            aria-invalid={typo}
+            autoComplete="off"
+            autoCapitalize="characters"
+            autoCorrect="off"
+            spellCheck={false}
+            className={`${inputClass} ${typo ? 'border-red-500 dark:border-red-500' : ''}`}
+          />
+          <button type="submit" disabled={busy || inputState !== 'valid'} className={primaryButtonClass}>
+            Unlock
+          </button>
+        </div>
+        {typo && !error && (
+          <p role="alert" className="mt-2 text-xs text-red-600 dark:text-red-400">
+            That doesn&apos;t look right — check for a typo. Recovery keys use the digits 0–9 and letters A–Z (no I, L,
+            O or U).
+          </p>
+        )}
+        {error && (
+          <p role="alert" className="mt-2 text-xs text-red-600 dark:text-red-400">
+            {error}
+          </p>
+        )}
+        {/* Step 7 (passkeys) adds "Unlock with a passkey" here for accounts with a 'passkey'
+          vault_keys row. */}
+      </form>
+      {/* Outside the form, so the dialog's buttons can't submit it. */}
+      {pairing && <ShowPairingCode onClose={closePairing} />}
+    </>
   );
 }
 
 /** This device holds the vault key. */
 function SyncOn({ email }: { email: string }) {
   const [recoveryKey, setRecoveryKey] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const closeScanner = useCallback(() => setScanning(false), []);
 
   const startReplace = async () => {
     const confirmed = await confirmDialog({
@@ -157,10 +171,16 @@ function SyncOn({ email }: { email: string }) {
     <div className="px-4 py-3">
       <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Sync is on for this device</p>
       {/* Step 6: the sync engine's status (last synced, pending changes, errors) goes here. */}
-      <button onClick={() => void startReplace()} className={`mt-1 ${linkButtonClass}`}>
-        Create a new recovery key
-      </button>
-      {/* Step 5/7: "Add a device" (QR pairing) and "Add a passkey" go here. */}
+      <div className="mt-1 flex flex-wrap gap-x-5">
+        <button onClick={() => setScanning(true)} className={linkButtonClass}>
+          Add a device
+        </button>
+        <button onClick={() => void startReplace()} className={linkButtonClass}>
+          Create a new recovery key
+        </button>
+      </div>
+      {/* Step 7: "Add a passkey" goes here. */}
+      {scanning && <ScanPairingCode onClose={closeScanner} />}
       {recoveryKey && (
         <RecoveryKeyDialog
           recoveryKey={recoveryKey}

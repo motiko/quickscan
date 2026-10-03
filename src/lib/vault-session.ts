@@ -263,6 +263,20 @@ export async function unlockVault(recoveryKey: string): Promise<void> {
 }
 
 /**
+ * Keep a vault key received from another device by QR pairing (lib/pairing-session.ts) and
+ * unlock. `transientKey` is the extractable key from `openPairedVaultKey`; `userId` is the
+ * account the pairing request was made for, so a sign-in switch meanwhile can't attach the
+ * key to another account.
+ */
+export async function unlockWithPairedKey(transientKey: CryptoKey, userId: string): Promise<void> {
+  const user = requireUser();
+  if (user.id !== userId) throw new VaultError('signed-out');
+  await keepLocally(transientKey, user.id);
+  settle({ status: 'unlocked' });
+  announce();
+}
+
+/**
  * Re-wrap this device's vault key under a new recovery key and replace the server row. The
  * old recovery key stops working; devices that are already unlocked are unaffected.
  */
