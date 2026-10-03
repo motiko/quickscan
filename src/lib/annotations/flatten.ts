@@ -2,6 +2,7 @@ import { db } from '@/lib/db';
 import type { Annotation, Page } from '@/types';
 import { requirePageImage } from '@/lib/page-image';
 import { drawAnnotations, type SignatureImages } from './render';
+import { canvasToBlob } from '@/lib/image-processing';
 
 export async function loadSignatureImages(annotations: Annotation[]): Promise<SignatureImages> {
   const ids = [...new Set(annotations.flatMap((a) => (a.type === 'signature' ? [a.signatureId] : [])))];
@@ -41,11 +42,5 @@ export async function getRenderedBlob(page: Page): Promise<Blob> {
   bitmap.close();
   drawAnnotations(ctx, page.annotations, canvas.width, canvas.height, signatures);
 
-  return new Promise((resolve, reject) =>
-    canvas.toBlob(
-      (blob) => (blob ? resolve(blob) : reject(new Error('Failed to render annotations'))),
-      'image/jpeg',
-      0.92
-    )
-  );
+  return canvasToBlob(canvas, 'image/jpeg', 0.92);
 }

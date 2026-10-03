@@ -7,6 +7,7 @@ vi.mock('@/lib/image-processing', () => ({
   // A "rotated" image is the original's text plus the turn, so the fake recognizer can tell them apart
   rotateImage: vi.fn(async (blob: Blob, degrees: number) => new Blob([`${await blob.text()}@${degrees}`])),
   createThumbnail: vi.fn(async () => new Blob(['thumb'])),
+  fitImage: vi.fn(async (blob: Blob) => ({ blob, scale: 1 })),
 }));
 vi.mock('@/lib/annotations/flatten', () => ({
   getImageSize: vi.fn(async () => ({ width: 600, height: 800 })),

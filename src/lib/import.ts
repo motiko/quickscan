@@ -1,4 +1,5 @@
 import { addPageToDocument, createDocument } from '@/hooks/useDocuments';
+import { canvasToBlob } from '@/lib/image-processing';
 
 /** File types the upload picker accepts. HEIC/HEIF only decode where the browser supports them (Safari). */
 export const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
@@ -55,13 +56,7 @@ export async function normalizeImage(file: Blob): Promise<Blob> {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    return await new Promise<Blob>((resolve, reject) =>
-      canvas.toBlob(
-        (blob) => (blob ? resolve(blob) : reject(new Error('Failed to encode image'))),
-        'image/jpeg',
-        JPEG_QUALITY
-      )
-    );
+    return await canvasToBlob(canvas, 'image/jpeg', JPEG_QUALITY);
   } finally {
     bitmap.close();
   }

@@ -1,4 +1,5 @@
 import type { CameraConstraints } from '@/types';
+import { canvasToBlob, releaseCanvas } from '@/lib/image-processing';
 
 const DEFAULT_CONSTRAINTS: CameraConstraints = {
   facingMode: 'environment',
@@ -114,13 +115,17 @@ async function captureSharpestFrame(videoElement: HTMLVideoElement, quality: num
   sampleCanvas.height = sampleH;
   const sampleCtx = sampleCanvas.getContext('2d', { willReadFrequently: true });
 
+  // A 4K frame is ~33 MB of canvas memory, and iOS Safari kills a page that holds too much of
+  // it: only the best frame so far and one candidate exist at a time, and both are freed here
   let bestCanvas: HTMLCanvasElement | null = null;
   let bestScore = -1;
+  let spare: HTMLCanvasElement | null = null;
 
   for (let i = 0; i < SHARPNESS_FRAME_COUNT; i++) {
     if (i > 0) await new Promise((resolve) => setTimeout(resolve, SHARPNESS_FRAME_INTERVAL_MS));
 
-    const canvas = document.createElement('canvas');
+    const canvas: HTMLCanvasElement = spare ?? document.createElement('canvas');
+    spare = null;
     canvas.width = width;
     canvas.height = height;
     const ctx = canvas.getContext('2d');
@@ -134,17 +139,16 @@ async function captureSharpestFrame(videoElement: HTMLVideoElement, quality: num
     }
     if (score > bestScore) {
       bestScore = score;
+      spare = bestCanvas;
       bestCanvas = canvas;
+    } else {
+      spare = canvas;
     }
   }
 
-  return new Promise((resolve, reject) => {
-    bestCanvas!.toBlob(
-      (blob) => (blob ? resolve(blob) : reject(new Error('Failed to capture frame'))),
-      'image/jpeg',
-      quality
-    );
-  });
+  if (spare) releaseCanvas(spare);
+  releaseCanvas(sampleCanvas);
+  return canvasToBlob(bestCanvas!, 'image/jpeg', quality);
 }
 
 /**

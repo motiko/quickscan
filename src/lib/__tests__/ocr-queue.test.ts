@@ -4,9 +4,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('@/lib/ocr', () => ({
   recognize: vi.fn(),
 }));
+vi.mock('@/lib/image-processing', () => ({
+  // Node has no canvas: the OCR copy is the image itself unless a test says otherwise
+  fitImage: vi.fn(async (blob: Blob) => ({ blob, scale: 1 })),
+  rotateImage: vi.fn(async (blob: Blob, degrees: number) => new Blob([`${await blob.text()}@${degrees}`])),
+  createThumbnail: vi.fn(async () => new Blob(['thumb'])),
+}));
 
 import { db } from '@/lib/db';
 import { recognize } from '@/lib/ocr';
+import { fitImage, rotateImage } from '@/lib/image-processing';
 import { processPendingOcr, onPageOcrDone, resetStaleOcr, retryDocumentOcr } from '@/lib/ocr-queue';
 import { updateSettings } from '@/lib/settings';
 import type { Page } from '@/types';
@@ -159,5 +166,59 @@ describe('resetStaleOcr', () => {
     await db.pages.add(makePage('p1', 1, { ocrStatus: 'processing' }));
     await resetStaleOcr();
     expect((await db.pages.get('p1'))?.ocrStatus).toBe('pending');
+  });
+});
+
+describe('OCR image size', () => {
+  const mockFit = vi.mocked(fitImage);
+  const mockRotate = vi.mocked(rotateImage);
+  const word = (text: string, confidence: number, x0 = 0) => ({
+    text,
+    confidence,
+    bbox: { x0, y0: 20, x1: x0 + 10 * text.length, y1: 45 },
+  });
+
+  beforeEach(() => {
+    mockFit.mockImplementation(async (blob: Blob) => ({ blob, scale: 1 }));
+    mockRotate.mockClear();
+  });
+
+  it('recognizes a bounded copy and maps the word boxes back to the page image', async () => {
+    mockFit.mockResolvedValueOnce({ blob: new Blob(['p1-small']), scale: 0.5 });
+    mockRecognize.mockResolvedValue({ text: 'Invoice', confidence: 90, words: [word('Invoice', 95, 10)] });
+    await db.pages.add(makePage('p1', 1));
+
+    await processPendingOcr();
+
+    expect(await (mockRecognize.mock.calls[0][0] as Blob).text()).toBe('p1-small');
+    const page = await db.pages.get('p1');
+    expect(page?.ocrStatus).toBe('done');
+    expect(page?.ocrWords?.[0].bbox).toEqual({ x0: 20, y0: 40, x1: 160, y1: 90 });
+    expect(mockRotate).not.toHaveBeenCalled();
+  });
+
+  it('probes the orientation on the copy and turns the page image itself once, at full size', async () => {
+    mockFit.mockImplementation(async (blob: Blob) => ({ blob: new Blob([`${await blob.text()}-small`]), scale: 0.5 }));
+    mockRecognize.mockImplementation(async (blob: Blob) =>
+      (await blob.text()).endsWith('@180')
+        ? {
+            text: 'Invoice 2026-0042 Total amount',
+            confidence: 92,
+            words: [word('Invoice', 95, 10), word('2026-0042', 94), word('Total', 96), word('amount', 93)],
+          }
+        : { text: '*a]ep 92I0AUl', confidence: 25, words: [word('*a]ep', 30), word('92I0AUl', 40)] }
+    );
+    await db.pages.add(makePage('p1', 1));
+
+    await processPendingOcr();
+
+    // The probe turned the copy; the page got its own image turned, not the copy
+    expect(mockRotate.mock.calls.length).toBe(2);
+    expect(await mockRotate.mock.calls[0][0].text()).toBe('p1-small');
+    expect(await mockRotate.mock.calls[1][0].text()).toBe('p1');
+    const page = await db.pages.get('p1');
+    expect(await page?.processedBlob?.text()).toBe('p1@180');
+    expect(page?.ocrText).toBe('Invoice 2026-0042 Total amount');
+    expect(page?.ocrWords?.[0].bbox).toEqual({ x0: 20, y0: 40, x1: 160, y1: 90 });
   });
 });

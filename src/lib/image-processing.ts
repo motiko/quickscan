@@ -76,158 +76,172 @@ export function getInversePerspectiveMatrix(
   ];
 }
 
+/*
+ * Memory: iOS Safari caps the pixel memory a page's canvases may hold, counting detached
+ * canvases until they're garbage collected, and an object URL pins its blob until revoked. A
+ * pipeline that leaves its full-size canvases and URLs to the collector runs a phone out of
+ * memory, and iOS then kills the page ("This page couldn't load"). So every helper here decodes
+ * through `loadImage` (URL revoked as soon as the image is decoded) and frees each canvas
+ * through `canvasToBlob` / `releaseCanvas` the moment it's done with it.
+ */
+
+/** Decode `blob` into an image element; its object URL is revoked once decoded (or failed). */
+export function loadImage(blob: Blob): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(img);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Failed to load image'));
+    };
+    img.src = url;
+  });
+}
+
+/** Free a canvas's pixel buffer now instead of whenever the element is collected. */
+export function releaseCanvas(canvas: HTMLCanvasElement): void {
+  canvas.width = 0;
+  canvas.height = 0;
+}
+
+/** Encode a canvas, then free it. */
+export function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality?: number): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        releaseCanvas(canvas);
+        if (blob) resolve(blob);
+        else reject(new Error('Failed to encode image'));
+      },
+      type,
+      quality
+    );
+  });
+}
+
 /**
  * Warps a quadrilateral section of an image into a rectified flat rectangle.
  */
-export function warpPerspective(
+export async function warpPerspective(
   sourceBlob: Blob,
   corners: Quad,
   quality = 0.95
 ): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      try {
-        const { width: dstW, height: dstH } = getQuadDimensions(corners);
+  const img = await loadImage(sourceBlob);
+  const { width: dstW, height: dstH } = getQuadDimensions(corners);
+  const srcW = img.width;
+  const srcH = img.height;
 
-        const srcCanvas = document.createElement('canvas');
-        srcCanvas.width = img.width;
-        srcCanvas.height = img.height;
-        const srcCtx = srcCanvas.getContext('2d');
-        if (!srcCtx) {
-          reject(new Error('Failed to get source 2D canvas context'));
-          return;
-        }
-        srcCtx.drawImage(img, 0, 0);
+  // The source canvas only serves to read the pixels: freed before the output is allocated
+  const srcCanvas = document.createElement('canvas');
+  srcCanvas.width = srcW;
+  srcCanvas.height = srcH;
+  const srcCtx = srcCanvas.getContext('2d', { willReadFrequently: true });
+  if (!srcCtx) throw new Error('Failed to get source 2D canvas context');
+  srcCtx.drawImage(img, 0, 0);
+  const srcData = srcCtx.getImageData(0, 0, srcW, srcH).data;
+  releaseCanvas(srcCanvas);
 
-        const srcImageData = srcCtx.getImageData(0, 0, img.width, img.height);
-        const srcData = srcImageData.data;
-        const srcW = img.width;
-        const srcH = img.height;
+  const dstCanvas = document.createElement('canvas');
+  dstCanvas.width = dstW;
+  dstCanvas.height = dstH;
+  const dstCtx = dstCanvas.getContext('2d');
+  if (!dstCtx) throw new Error('Failed to get destination 2D canvas context');
 
-        const dstCanvas = document.createElement('canvas');
-        dstCanvas.width = dstW;
-        dstCanvas.height = dstH;
-        const dstCtx = dstCanvas.getContext('2d');
-        if (!dstCtx) {
-          reject(new Error('Failed to get destination 2D canvas context'));
-          return;
-        }
+  const dstImageData = dstCtx.createImageData(dstW, dstH);
+  const dstData = dstImageData.data;
 
-        const dstImageData = dstCtx.createImageData(dstW, dstH);
-        const dstData = dstImageData.data;
+  const H = getInversePerspectiveMatrix(dstW, dstH, corners);
+  const [h00, h01, h02, h10, h11, h12, h20, h21, h22] = H;
 
-        const H = getInversePerspectiveMatrix(dstW, dstH, corners);
-        const [h00, h01, h02, h10, h11, h12, h20, h21, h22] = H;
+  let dstIdx = 0;
+  for (let y = 0; y < dstH; y++) {
+    for (let x = 0; x < dstW; x++) {
+      const w = h20 * x + h21 * y + h22;
+      const invW = w !== 0 ? 1 / w : 0;
+      const sx = (h00 * x + h01 * y + h02) * invW;
+      const sy = (h10 * x + h11 * y + h12) * invW;
 
-        let dstIdx = 0;
-        for (let y = 0; y < dstH; y++) {
-          for (let x = 0; x < dstW; x++) {
-            const w = h20 * x + h21 * y + h22;
-            const invW = w !== 0 ? 1 / w : 0;
-            const sx = (h00 * x + h01 * y + h02) * invW;
-            const sy = (h10 * x + h11 * y + h12) * invW;
+      if (sx >= 0 && sx < srcW - 1 && sy >= 0 && sy < srcH - 1) {
+        const x0 = Math.floor(sx);
+        const x1 = x0 + 1;
+        const y0 = Math.floor(sy);
+        const y1 = y0 + 1;
 
-            if (sx >= 0 && sx < srcW - 1 && sy >= 0 && sy < srcH - 1) {
-              const x0 = Math.floor(sx);
-              const x1 = x0 + 1;
-              const y0 = Math.floor(sy);
-              const y1 = y0 + 1;
+        const fx = sx - x0;
+        const fy = sy - y0;
+        const w00 = (1 - fx) * (1 - fy);
+        const w10 = fx * (1 - fy);
+        const w01 = (1 - fx) * fy;
+        const w11 = fx * fy;
 
-              const fx = sx - x0;
-              const fy = sy - y0;
-              const w00 = (1 - fx) * (1 - fy);
-              const w10 = fx * (1 - fy);
-              const w01 = (1 - fx) * fy;
-              const w11 = fx * fy;
+        const idx00 = (y0 * srcW + x0) * 4;
+        const idx10 = (y0 * srcW + x1) * 4;
+        const idx01 = (y1 * srcW + x0) * 4;
+        const idx11 = (y1 * srcW + x1) * 4;
 
-              const idx00 = (y0 * srcW + x0) * 4;
-              const idx10 = (y0 * srcW + x1) * 4;
-              const idx01 = (y1 * srcW + x0) * 4;
-              const idx11 = (y1 * srcW + x1) * 4;
-
-              dstData[dstIdx] =
-                w00 * srcData[idx00] +
-                w10 * srcData[idx10] +
-                w01 * srcData[idx01] +
-                w11 * srcData[idx11];
-              dstData[dstIdx + 1] =
-                w00 * srcData[idx00 + 1] +
-                w10 * srcData[idx10 + 1] +
-                w01 * srcData[idx01 + 1] +
-                w11 * srcData[idx11 + 1];
-              dstData[dstIdx + 2] =
-                w00 * srcData[idx00 + 2] +
-                w10 * srcData[idx10 + 2] +
-                w01 * srcData[idx01 + 2] +
-                w11 * srcData[idx11 + 2];
-              dstData[dstIdx + 3] = 255;
-            } else if (sx >= 0 && sx < srcW && sy >= 0 && sy < srcH) {
-              const nearestIdx = (Math.floor(sy) * srcW + Math.floor(sx)) * 4;
-              dstData[dstIdx] = srcData[nearestIdx];
-              dstData[dstIdx + 1] = srcData[nearestIdx + 1];
-              dstData[dstIdx + 2] = srcData[nearestIdx + 2];
-              dstData[dstIdx + 3] = 255;
-            } else {
-              dstData[dstIdx] = 255;
-              dstData[dstIdx + 1] = 255;
-              dstData[dstIdx + 2] = 255;
-              dstData[dstIdx + 3] = 255;
-            }
-            dstIdx += 4;
-          }
-        }
-
-        dstCtx.putImageData(dstImageData, 0, 0);
-        dstCanvas.toBlob(
-          (blob) => (blob ? resolve(blob) : reject(new Error('Failed to create warped blob'))),
-          'image/jpeg',
-          quality
-        );
-      } catch (err) {
-        reject(err);
+        dstData[dstIdx] =
+          w00 * srcData[idx00] +
+          w10 * srcData[idx10] +
+          w01 * srcData[idx01] +
+          w11 * srcData[idx11];
+        dstData[dstIdx + 1] =
+          w00 * srcData[idx00 + 1] +
+          w10 * srcData[idx10 + 1] +
+          w01 * srcData[idx01 + 1] +
+          w11 * srcData[idx11 + 1];
+        dstData[dstIdx + 2] =
+          w00 * srcData[idx00 + 2] +
+          w10 * srcData[idx10 + 2] +
+          w01 * srcData[idx01 + 2] +
+          w11 * srcData[idx11 + 2];
+        dstData[dstIdx + 3] = 255;
+      } else if (sx >= 0 && sx < srcW && sy >= 0 && sy < srcH) {
+        const nearestIdx = (Math.floor(sy) * srcW + Math.floor(sx)) * 4;
+        dstData[dstIdx] = srcData[nearestIdx];
+        dstData[dstIdx + 1] = srcData[nearestIdx + 1];
+        dstData[dstIdx + 2] = srcData[nearestIdx + 2];
+        dstData[dstIdx + 3] = 255;
+      } else {
+        dstData[dstIdx] = 255;
+        dstData[dstIdx + 1] = 255;
+        dstData[dstIdx + 2] = 255;
+        dstData[dstIdx + 3] = 255;
       }
-    };
-    img.onerror = () => reject(new Error('Failed to load source image for warping'));
-    img.src = URL.createObjectURL(sourceBlob);
-  });
+      dstIdx += 4;
+    }
+  }
+
+  dstCtx.putImageData(dstImageData, 0, 0);
+  return canvasToBlob(dstCanvas, 'image/jpeg', quality);
 }
 
 /**
  * Rotates an image clockwise by 90, 180, or 270 degrees.
  */
-export function rotateImage(
+export async function rotateImage(
   sourceBlob: Blob,
   degrees: 90 | 180 | 270,
   quality = 0.95
 ): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      const is90or270 = degrees === 90 || degrees === 270;
-      const canvas = document.createElement('canvas');
-      canvas.width = is90or270 ? img.height : img.width;
-      canvas.height = is90or270 ? img.width : img.height;
+  const img = await loadImage(sourceBlob);
+  const is90or270 = degrees === 90 || degrees === 270;
+  const canvas = document.createElement('canvas');
+  canvas.width = is90or270 ? img.height : img.width;
+  canvas.height = is90or270 ? img.width : img.height;
 
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        reject(new Error('Could not get canvas context'));
-        return;
-      }
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Could not get canvas context');
 
-      ctx.translate(canvas.width / 2, canvas.height / 2);
-      ctx.rotate((degrees * Math.PI) / 180);
-      ctx.drawImage(img, -img.width / 2, -img.height / 2);
+  ctx.translate(canvas.width / 2, canvas.height / 2);
+  ctx.rotate((degrees * Math.PI) / 180);
+  ctx.drawImage(img, -img.width / 2, -img.height / 2);
 
-      canvas.toBlob(
-        (blob) => (blob ? resolve(blob) : reject(new Error('Failed to export rotated image'))),
-        sourceBlob.type === 'image/png' ? 'image/png' : 'image/jpeg',
-        quality
-      );
-    };
-    img.onerror = () => reject(new Error('Failed to load image for rotation'));
-    img.src = URL.createObjectURL(sourceBlob);
-  });
+  return canvasToBlob(canvas, sourceBlob.type === 'image/png' ? 'image/png' : 'image/jpeg', quality);
 }
 
 interface Background {
@@ -563,120 +577,102 @@ export function applyDocumentGrayscale(imageData: ImageData): ImageData {
 /**
  * Applies selected filter to the source image Blob.
  */
-export function applyFilter(
+export async function applyFilter(
   sourceBlob: Blob,
   filter: ImageFilter,
   quality = 0.92
 ): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    if (filter === 'original') {
-      resolve(sourceBlob);
-      return;
-    }
+  if (filter === 'original') return sourceBlob;
 
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width;
-      canvas.height = img.height;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        reject(new Error('Could not get canvas context'));
-        return;
-      }
+  const img = await loadImage(sourceBlob);
+  const canvas = document.createElement('canvas');
+  canvas.width = img.width;
+  canvas.height = img.height;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) throw new Error('Could not get canvas context');
 
-      ctx.drawImage(img, 0, 0);
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(img, 0, 0);
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-      if (filter === 'grayscale') {
-        applyDocumentGrayscale(imageData);
-      } else if (filter === 'bw') {
-        applyBlackAndWhite(imageData);
-      } else if (filter === 'magic') {
-        applyMagicColor(imageData);
-      }
+  if (filter === 'grayscale') {
+    applyDocumentGrayscale(imageData);
+  } else if (filter === 'bw') {
+    applyBlackAndWhite(imageData);
+  } else if (filter === 'magic') {
+    applyMagicColor(imageData);
+  }
 
-      ctx.putImageData(imageData, 0, 0);
-      canvas.toBlob(
-        (blob) => (blob ? resolve(blob) : reject(new Error('Failed to create filtered blob'))),
-        // JPEG artifacts smear around high-contrast text edges; B&W compresses well as PNG anyway.
-        filter === 'bw' ? 'image/png' : 'image/jpeg',
-        quality
-      );
-    };
-    img.onerror = () => reject(new Error('Failed to load image for filter'));
-    img.src = URL.createObjectURL(sourceBlob);
-  });
+  ctx.putImageData(imageData, 0, 0);
+  // JPEG artifacts smear around high-contrast text edges; B&W compresses well as PNG anyway.
+  return canvasToBlob(canvas, filter === 'bw' ? 'image/png' : 'image/jpeg', quality);
 }
 
-export function cropImage(
+export async function cropImage(
   sourceBlob: Blob,
   cropRect: { x: number; y: number; width: number; height: number },
   quality = 0.92
 ): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = cropRect.width;
-      canvas.height = cropRect.height;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        reject(new Error('Could not get canvas context'));
-        return;
-      }
+  const img = await loadImage(sourceBlob);
+  const canvas = document.createElement('canvas');
+  canvas.width = cropRect.width;
+  canvas.height = cropRect.height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Could not get canvas context');
 
-      ctx.drawImage(
-        img,
-        cropRect.x,
-        cropRect.y,
-        cropRect.width,
-        cropRect.height,
-        0,
-        0,
-        cropRect.width,
-        cropRect.height
-      );
+  ctx.drawImage(
+    img,
+    cropRect.x,
+    cropRect.y,
+    cropRect.width,
+    cropRect.height,
+    0,
+    0,
+    cropRect.width,
+    cropRect.height
+  );
 
-      canvas.toBlob(
-        (blob) => (blob ? resolve(blob) : reject(new Error('Failed to crop'))),
-        'image/jpeg',
-        quality
-      );
-    };
-    img.onerror = () => reject(new Error('Failed to load image'));
-    img.src = URL.createObjectURL(sourceBlob);
-  });
+  return canvasToBlob(canvas, 'image/jpeg', quality);
 }
 
-export function createThumbnail(
+export async function createThumbnail(
   sourceBlob: Blob,
   maxSize = 200,
   quality = 0.7
 ): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      const scale = Math.min(maxSize / img.width, maxSize / img.height, 1);
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.round(img.width * scale);
-      canvas.height = Math.round(img.height * scale);
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        reject(new Error('Could not get canvas context'));
-        return;
-      }
+  const img = await loadImage(sourceBlob);
+  const scale = Math.min(maxSize / img.width, maxSize / img.height, 1);
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(img.width * scale);
+  canvas.height = Math.round(img.height * scale);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Could not get canvas context');
 
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      canvas.toBlob(
-        (blob) => (blob ? resolve(blob) : reject(new Error('Failed to create thumbnail'))),
-        'image/jpeg',
-        quality
-      );
-    };
-    img.onerror = () => reject(new Error('Failed to load image'));
-    img.src = URL.createObjectURL(sourceBlob);
-  });
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  return canvasToBlob(canvas, 'image/jpeg', quality);
+}
+
+/**
+ * `blob` scaled down so that neither side exceeds `maxDimension`, or `blob` itself when it
+ * already fits. Coordinates measured on the result map back to the source divided by `scale`.
+ */
+export async function fitImage(
+  blob: Blob,
+  maxDimension: number,
+  quality = 0.9
+): Promise<{ blob: Blob; scale: number }> {
+  const img = await loadImage(blob);
+  const scale = Math.min(1, maxDimension / Math.max(img.width, img.height));
+  if (scale === 1) return { blob, scale };
+
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(img.width * scale);
+  canvas.height = Math.round(img.height * scale);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Could not get canvas context');
+
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  const fitted = await canvasToBlob(canvas, blob.type === 'image/png' ? 'image/png' : 'image/jpeg', quality);
+  return { blob: fitted, scale };
 }
 
 export function blobToObjectUrl(blob: Blob): string {
