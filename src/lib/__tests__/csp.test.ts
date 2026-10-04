@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SECURITY_HEADERS, buildCsp, buildWorkerCsp, createNonce, supabaseOrigins } from '../csp';
+import { ASSET_CSP, SECURITY_HEADERS, buildCsp, buildWorkerCsp, createNonce, supabaseOrigins } from '../csp';
 
 function directive(csp: string, name: string): string[] | undefined {
   for (const part of csp.split(';')) {
@@ -57,6 +57,15 @@ describe('worker CSP', () => {
     const csp = buildWorkerCsp();
     expect(directive(csp, 'script-src')).toEqual(["'self'", "'wasm-unsafe-eval'"]);
     expect(directive(csp, 'connect-src')).toContain('https:');
+  });
+});
+
+describe('asset CSP', () => {
+  it('lets nothing load, run, frame or submit', () => {
+    expect(directive(ASSET_CSP, 'default-src')).toEqual(["'none'"]);
+    expect(directive(ASSET_CSP, 'frame-ancestors')).toEqual(["'none'"]);
+    expect(directive(ASSET_CSP, 'base-uri')).toEqual(["'none'"]);
+    expect(directive(ASSET_CSP, 'form-action')).toEqual(["'none'"]);
   });
 });
 

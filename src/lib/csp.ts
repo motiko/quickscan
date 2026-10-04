@@ -106,6 +106,18 @@ export function buildWorkerCsp(options: Omit<CspOptions, 'nonce'> = {}): string 
   });
 }
 
+/**
+ * Policy for the paths the proxy skips (API, icons, models, manifest, .well-known). They serve
+ * data, never a page, but a 404 under them renders Next's not-found page with the root layout:
+ * without this it would run on the vault origin with no CSP at all. Nothing may load or run.
+ */
+export const ASSET_CSP = serialize({
+  'default-src': ["'none'"],
+  'frame-ancestors': ["'none'"],
+  'base-uri': ["'none'"],
+  'form-action': ["'none'"],
+});
+
 /** Random, unguessable, fresh per response. */
 export function createNonce(): string {
   const bytes = new Uint8Array(16);
