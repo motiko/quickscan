@@ -104,7 +104,7 @@ Then, by hand: the adaptive icon's background is the colour `@color/ic_launcher_
 6. **Internal testers:** Internal testing → Testers → create an email list (up to 100 Google accounts) → save → copy the opt-in link and send it. Testers open it, accept, and install from Play. Builds reach them within minutes, without review.
 7. **Later uploads:** each signed `main` build is a candidate; upload it the same way. To automate, create a Google Cloud service account with release access to this app in Play Console (Users and permissions), store its JSON key as the secret `PLAY_SERVICE_ACCOUNT_JSON`, and enable the commented-out `r0adkll/upload-google-play` step in `android.yml` (`track: internal`; `status: draft` while the app itself is still a draft in Play Console).
 
-Before anything goes beyond internal testing: the static export still has no CSP (M1, `docs/native/m0-spike.md`).
+The static export gets a hash-based meta CSP at build time (PR #86, `SECURITY.md` → "Native app (static export)").
 
 ### Data safety answers
 
