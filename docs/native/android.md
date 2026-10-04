@@ -11,6 +11,7 @@ The Capacitor Android project in `android/`. Set up and checked on 2026-10-04 wi
 | Data survives a force-stop and relaunch | Pass: documents still listed; a non-extractable `CryptoKey` still refuses `exportKey`. Storage isn't persisted (`navigator.storage.persisted()` false, ≈6 GB quota), as on iOS |
 | Native OCR (ML Kit through `capacitor-native-ocr` 0.2.0) | Pass: an imported upside-down receipt read row by row, the page was turned upright from `rotation`, and the word boxes landed on the turned image |
 | Tesseract fallback | Pass: with Hebrew among the OCR languages, a page went to Tesseract; its worker and WASM load from the app, the language data from jsDelivr |
+| System document scanner (ML Kit) | Pass on a `google_apis_playstore` emulator, with the plugin's emulator check patched out locally (below): two pages from the virtual camera scene became one document, both read by ML Kit OCR; Add Page appended a third; cancelling created nothing |
 
 ## What's in the project
 
@@ -61,7 +62,7 @@ Checked on the release bundle with `bundletool dump manifest` and on the APKs bu
 | R8 and resource shrinking | On | Capacitor's and ML Kit's consumer rules keep what they reach by reflection. Checked in `mapping.txt`: `NativeOcrPlugin` keeps its name (Capacitor loads it by name from `capacitor.plugins.json`) and its `@PluginMethod`s, `@JavascriptInterface` methods such as `MessageHandler.postMessage` keep theirs, and the annotations survive. `proguard-rules.pro` adds `-dontwarn` for ML Kit's Chinese, Devanagari, Japanese and Korean recognizers: `capacitor-native-ocr` compiles against them but ships only the enabled ones (none), and R8 stops at missing classes otherwise. The mapping file goes into the bundle, so Play Console shows readable stack traces. |
 | `capacitor.config.ts` | Nothing debug-only | No `server.url`, no `webContentsDebuggingEnabled`, `loggingBehavior: 'none'`, default `https` scheme, mixed content off. |
 
-**Not yet checked:** the R8-shrunk release build hasn't run on a device or emulator (only its mapping was inspected). Install the APKs built from the first signed bundle, or the internal-testing build, and run one scan through native OCR before inviting testers.
+**Checked on an emulator (2026-10-04):** the R8-shrunk release build, signed with a throwaway key, ran on the API 35 emulator: `NativeOcr` loaded, and an imported upside-down receipt was read by ML Kit (`engine: mlkit`) and turned upright, with no missing-class errors in logcat. Run one scan on a real phone from the first internal-testing build too.
 
 ## App identity
 
@@ -123,9 +124,35 @@ From SECURITY.md and the code (the Android app has no analytics or crash reporti
 
 Not collected: location, contacts, financial info, messages, audio, health, web history, app activity, crash logs. Tesseract's language data is downloaded from jsDelivr without user data.
 
+## System document scanner (M3 on iOS, M5 on Android)
+
+Inside the app, Scan, Start Scanning and a document's Add Page open the platform's scanner instead of `/scan`: VisionKit's document camera on iOS, ML Kit Document Scanner (Google Play services) on Android. Both find the page, crop it, fix the perspective and take several pages. The web keeps its own camera, and in the app it stays reachable from the camera button next to Scan and from "Use the built-in camera" under Start Scanning.
+
+- **Plugin:** `@capgo/capacitor-document-scanner` 8.4.6 (MPL-2.0, pinned), the one M0 tried on iOS. On Android it uses `play-services-mlkit-document-scanner` 16.0.0 (`GmsDocumentScanning`), compileSdk 36, Java 21, Capacitor ≥ 8, so one plugin and one JS API cover both platforms. `@capacitor-mlkit/document-scanner` (Apache-2.0) is Android-only and registers the same `DocumentScanner` name, so the two can't be combined; it would only have added a module-install API.
+- **Options** (`lib/platform/native/scanner.ts`, loaded lazily like `native-passkey.ts`):
+  - `letUserAdjustCrop: false`. The plugin's default, like any page limit, swizzles private VisionKit classes to force a review after each capture. VisionKit's own review already lets the user adjust the crop, and ML Kit's always does.
+  - `responseType: 'base64'`. With file paths the iOS plugin writes every page to `Documents/` and never deletes it (≈1.5 MB a page, backed up to iCloud).
+- **Import:** one scan is one document with its pages in order (`importScan` in `lib/import.ts`), written in one transaction (`createDocumentWithPages` / `addPagesToDocument`). Each page is re-encoded to M9's target: a JPEG at most 2500 px on the long edge, quality 0.8. The simulator's sample pages came out at 1767×2500 and about 300 KB, down from 1.5 MB. Pages get no `corners` and filter `original`, like a cropped web capture, and are queued for OCR as usual.
+- **Errors:** a cancelled scan changes nothing. If the scanner can't start (no Play services, its module not downloaded yet, an unsupported device, no camera access), a short note says so and the built-in camera opens. The plugin rejects with plain messages, so `unavailableReason` sorts them by text.
+
+### What the emulator and simulator showed
+
+- **Android, `google_apis` emulator, stock plugin:** the plugin refuses every emulator (`Build.PRODUCT` contains `sdk`), so the app showed "This device can’t run the document scanner." and opened `/scan`. With the check patched out locally, Play services couldn't download the scanner module ("Something went wrong"). Closing that screen counts as a cancel, so no document was created.
+- **Android, `google_apis_playstore` emulator (API 35 arm64, `hw.camera.back=virtualscene`), check patched out:** the module downloaded on first use, and ML Kit's UI showed live edge detection, auto capture, preview, crop/rotate and filters. Two pages became one document, "Scan 2026-10-04 16:49", with pages 1 and 2 in order, both `ocrStatus: done` and `engine: mlkit`. Add Page appended page 3 without leaving the document. The emulator camera's pages are tiny (≈375×330 px, 17 KB), so they say nothing about M9 sizes.
+- **iOS Simulator:** the plugin shows its own sample screen instead of VisionKit. "Use Sample Scan" gave one document with two pages, both read by Vision; "Cancel Scan" created nothing.
+- **iOS, WebKit blob hazard (not caused by the scanner):** in runs where the scan landed while OCR was still working on other pages (scans two seconds after launch, with older pages queued), WebKit logged "Requested blob URL with incorrect top origin". The new pages showed as broken images, a page's OCR hung in `processing`, and sometimes a stored thumbnail or page blob was lost (`NotFoundError` after relaunch). The same happened with canvas-made pages written by `importScan` without the scanner. With OCR idle, three scans in a row were clean. Dexie's `update()` rewrites the whole record, blobs included, and the OCR queue updates page and document records while other code reads them. Writing a scan in one transaction removes one such race, not all of them. Worth a follow-up: keep OCR status and derived fields out of the blob-bearing records, or stop rewriting their blobs.
+
+### Still needs a real device
+
+- **iPhone:** VisionKit's real camera with `letUserAdjustCrop: false` (no swizzling), multi-page order, and page sizes against M9 on real paper. Camera permission denied (VisionKit shows its own prompt; check that the fallback note makes sense).
+- **Android phone with Play services:** the stock plugin, without the local patch; the first-use module download; a phone without Play services (Huawei) falling back; real page sizes against M9.
+- **Both:** back-to-back scans while OCR is still running (the WebKit hazard above, on iOS).
+
 ## Still open for M5
 
-- The system document scanner (ML Kit Document Scanner), shared with M3's VisionKit scanner on iOS.
-- Running the R8-shrunk release build on a device (see "Release hardening").
-- CameraX full-resolution stills for the custom camera.
+- The Play Console setup and first upload (owner checklist above).
+- The checks that need real devices (see "Still needs a real device").
 - The OCR bench on an Android device.
+- The iOS WebKit blob hazard while OCR is running (above), tracked in its own issue.
+
+CameraX full-resolution stills were dropped from M5: the system scanner already returns full-resolution, cropped pages, and a native preview would give the web detector frames only over the bridge.
