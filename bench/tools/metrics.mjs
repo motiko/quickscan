@@ -2,7 +2,7 @@
 
 /** NFC, whitespace collapsed to single spaces, trimmed. Case and punctuation are kept. */
 export function normalizeText(text) {
-  return text.normalize('NFC').replace(/\s+/g, ' ').trim();
+  return text.normalize("NFC").replace(/\s+/g, " ").trim();
 }
 
 /** Levenshtein distance between two arrays (characters or words). */
@@ -11,7 +11,11 @@ export function editDistance(a, b) {
   for (let i = 1; i <= a.length; i++) {
     const current = [i];
     for (let j = 1; j <= b.length; j++) {
-      current[j] = Math.min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      current[j] = Math.min(
+        previous[j] + 1,
+        current[j - 1] + 1,
+        previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
     }
     previous = current;
   }
@@ -27,7 +31,8 @@ export function charErrors(hypothesis, truth) {
 
 /** Word errors against the ground truth, words split on whitespace after normalizeText. */
 export function wordErrors(hypothesis, truth) {
-  const split = (text) => (normalizeText(text) ? normalizeText(text).split(' ') : []);
+  const split = (text) =>
+    normalizeText(text) ? normalizeText(text).split(" ") : [];
   const t = split(truth);
   return { errors: editDistance(split(hypothesis), t), total: t.length };
 }
@@ -48,7 +53,8 @@ export function wer(hypothesis, truth) {
  * reading-order differences, which CER and WER count as errors too.
  */
 export function bagOfWordErrors(hypothesis, truth) {
-  const split = (text) => (normalizeText(text) ? normalizeText(text).split(' ') : []);
+  const split = (text) =>
+    normalizeText(text) ? normalizeText(text).split(" ") : [];
   const h = split(hypothesis);
   const t = split(truth);
   const counts = new Map();

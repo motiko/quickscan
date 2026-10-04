@@ -116,3 +116,19 @@ Design rules:
 3. Publish `0.x` to npm and wire it into QuickScan behind `OcrProvider`.
 4. Add the Android implementation alongside M5.
 5. Release `1.0` once both platforms meet the quality bar above.
+
+## Benchmark results
+
+`bench/tools/ocr-compare.mjs`, 2026-10-04: the plugin (commit `5af7b0e`) on the iOS 26.2 Simulator against tesseract.js 7 as the app runs it. Both engines read the same images; photos are first warped to their ground-truth outline, so only OCR is compared. Order-free WER counts misread words and ignores reading order.
+
+| Set | Cases | Tesseract CER | Plugin CER | Tesseract order-free WER | Plugin order-free WER |
+|---|---|---|---|---|---|
+| Clean print (`bench/pages`) | 22 | 26.6 % | **1.5 %** | **0.5 %** | 2.8 % |
+| CORD receipt photos | 20 | 62.3 % | **16.6 %** | 116.8 % | **23.2 %** |
+| Synthetic phone captures | 100 | 76.4 % | **47.1 %** | 79.3 % | **49.6 %** |
+
+What the numbers say:
+
+- **Clean print:** Tesseract misreads almost nothing but loses reading order on the two-column and 7 pt pages; Vision keeps order but misreads more (`f`→`t`, dropped umlauts, worst on monospaced text) and drops lone single characters such as a quantity column. The M4 exit (CER ≤ 0.8 % on clean print) is **not met**: English 0.8 %, German 3.5 %.
+- **Photos:** the plugin is far ahead. The synthetic crops are low resolution (an A4 page ≈ 820 × 1160 px from a 1080 × 1920 frame) and about a quarter of them are unreadable by design (partial page, focus blur, hand), which caps both engines.
+- **Not yet measured:** a physical iPhone. The Simulator runs Vision without the Neural Engine; the example app's **Run benchmark** button gives device numbers.
