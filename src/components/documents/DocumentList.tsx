@@ -7,6 +7,8 @@ import { DocumentCard } from './DocumentCard';
 interface DocumentListProps {
   documents: ScannedDocument[];
   onScanClick: () => void;
+  /** The built-in camera, offered under "Start Scanning" when that opens the system scanner. */
+  onCameraClick?: () => void;
   onUploadClick: () => void;
   onDeleteDocument: (id: string) => void;
   processingIds?: Set<string>;
@@ -15,6 +17,7 @@ interface DocumentListProps {
 export function DocumentList({
   documents,
   onScanClick,
+  onCameraClick,
   onUploadClick,
   onDeleteDocument,
   processingIds,
@@ -45,6 +48,14 @@ export function DocumentList({
           >
             Upload Files
           </button>
+          {onCameraClick && (
+            <button
+              onClick={onCameraClick}
+              className="text-sm text-gray-500 dark:text-gray-400 underline underline-offset-2 hover:text-gray-700 dark:hover:text-gray-200"
+            >
+              Use the built-in camera
+            </button>
+          )}
         </div>
       </div>
     );

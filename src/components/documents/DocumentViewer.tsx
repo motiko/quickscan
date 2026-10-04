@@ -34,6 +34,7 @@ import { keepPageOrientation } from '@/lib/ocr-queue';
 import { useVault } from '@/hooks/useVault';
 import { PencilIcon } from '@/components/ui/icons';
 import { Annotation, Page } from '@/types';
+import { startScan } from '@/lib/platform/scanner';
 
 function PageItem({
   page,
@@ -506,7 +507,7 @@ export function DocumentViewer({ id }: { id: string }) {
         className="@container sticky bottom-0 z-20 border-t border-gray-200 dark:border-neutral-800 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-md px-safe-offset-3 pt-2 pb-safe-offset-2 shadow-lg"
       >
         <div role="group" aria-label="Document actions" className="mx-auto flex max-w-2xl items-stretch gap-1">
-          <button onClick={() => router.push(`/scan?docId=${id}`)} className={toolbarAction}>
+          <button onClick={() => void startScan(router.push, id)} className={toolbarAction}>
             <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
               <line x1="12" y1="5" x2="12" y2="19"></line>
               <line x1="5" y1="12" x2="19" y2="12"></line>

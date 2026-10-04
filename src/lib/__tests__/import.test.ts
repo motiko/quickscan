@@ -3,9 +3,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 vi.mock('@/hooks/useDocuments', () => ({
   createDocument: vi.fn(async () => 'doc-id'),
   addPageToDocument: vi.fn(async () => 'page-id'),
+  createDocumentWithPages: vi.fn(async () => 'doc-id'),
+  addPagesToDocument: vi.fn(async () => {}),
 }));
 
-import { addPageToDocument, createDocument } from '@/hooks/useDocuments';
+import { addPageToDocument, addPagesToDocument, createDocument, createDocumentWithPages } from '@/hooks/useDocuments';
 import {
   isAcceptedFile,
   nameForFile,
@@ -15,10 +17,14 @@ import {
   dismissImportFailures,
   imagesFromClipboard,
   importPagesToDocument,
+  importScan,
+  scanName,
 } from '@/lib/import';
 
 const mockCreateDocument = vi.mocked(createDocument);
 const mockAddPage = vi.mocked(addPageToDocument);
+const mockCreateWithPages = vi.mocked(createDocumentWithPages);
+const mockAddPages = vi.mocked(addPagesToDocument);
 
 function file(name: string, type: string): File {
   return new File(['data'], name, { type });
@@ -191,5 +197,59 @@ describe('importPagesToDocument', () => {
       { fileName: 'anim.gif', reason: 'Unsupported file type' },
       { fileName: 'broken.png', reason: 'This browser cannot read this image format' },
     ]);
+  });
+});
+
+describe('importScan', () => {
+  beforeEach(() => {
+    mockCreateWithPages.mockClear();
+    mockAddPages.mockClear();
+    stubImageDecoding();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const page = (name: string) => new File(['data'], name, { type: 'image/jpeg' });
+
+  it('makes one document of the scan, pages in order, re-encoded to the M9 size', async () => {
+    const id = await importScan([page('p1.jpg'), page('p2.jpg'), page('p3.jpg')]);
+
+    expect(id).toBe('doc-id');
+    expect(mockCreateWithPages).toHaveBeenCalledTimes(1);
+    const [name, blobs, nameSource] = mockCreateWithPages.mock.calls[0];
+    expect(name).toMatch(/^Scan \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+    expect(nameSource).toBeUndefined(); // 'default': auto-naming may replace it
+    expect(blobs).toHaveLength(3);
+    expect(blobs.map((b) => b.type)).toEqual(['image/jpeg', 'image/jpeg', 'image/jpeg']);
+    expect(await blobs[0].text()).toBe('2500x1250');
+  });
+
+  it('keeps the page order', async () => {
+    vi.stubGlobal('createImageBitmap', async (blob: File) => ({
+      width: Number(blob.name.slice(1, 2)) * 100,
+      height: 1000,
+      close: () => {},
+    }));
+    await importScan([page('p1.jpg'), page('p2.jpg'), page('p3.jpg')]);
+    const blobs = mockCreateWithPages.mock.calls[0][1];
+    expect(await Promise.all(blobs.map((b) => b.text()))).toEqual(['100x1000', '200x1000', '300x1000']);
+  });
+
+  it('appends to an existing document', async () => {
+    await expect(importScan([page('p1.jpg'), page('p2.jpg')], 'doc-1')).resolves.toBe('doc-1');
+    expect(mockCreateWithPages).not.toHaveBeenCalled();
+    expect(mockAddPages).toHaveBeenCalledWith('doc-1', [expect.any(Blob), expect.any(Blob)]);
+  });
+
+  it('writes nothing when a page can’t be read', async () => {
+    await expect(importScan([page('p1.jpg'), page('broken.jpg')])).rejects.toThrow();
+    expect(mockCreateWithPages).not.toHaveBeenCalled();
+    expect(mockAddPages).not.toHaveBeenCalled();
+  });
+
+  it('names the document like a camera scan', () => {
+    expect(scanName(new Date(2026, 9, 4, 9, 5))).toBe('Scan 2026-10-04 09:05');
   });
 });

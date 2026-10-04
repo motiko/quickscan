@@ -675,6 +675,34 @@ export async function fitImage(
   return { blob: fitted, scale };
 }
 
+/**
+ * `blob` decoded (EXIF orientation applied), scaled down so its long edge is at most `maxEdge`,
+ * and re-encoded as JPEG on white (transparent PNG areas would turn black).
+ */
+export async function encodeJpeg(blob: Blob, maxEdge: number, quality: number): Promise<Blob> {
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(blob, { imageOrientation: 'from-image' });
+  } catch {
+    throw new Error('This browser cannot read this image format');
+  }
+
+  try {
+    const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Could not get canvas context');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    return await canvasToBlob(canvas, 'image/jpeg', quality);
+  } finally {
+    bitmap.close();
+  }
+}
+
 export function blobToObjectUrl(blob: Blob): string {
   return URL.createObjectURL(blob);
 }

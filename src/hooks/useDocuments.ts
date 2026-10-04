@@ -37,10 +37,24 @@ export async function createDocument(
   firstPageBlob: Blob,
   nameSource: ScannedDocument['nameSource'] = 'default'
 ): Promise<string> {
+  return createDocumentWithPages(name, [firstPageBlob], nameSource);
+}
+
+/**
+ * A new document with these pages, in order, written in one transaction, so OCR can't pick
+ * up page 1 while later pages are still being added. OCR's record updates rewrite the
+ * records' blobs, and in WebKit (iOS app) such rewrites racing with other writes left blobs
+ * pointing at deleted files (docs/native/android.md, "System document scanner").
+ */
+export async function createDocumentWithPages(
+  name: string,
+  pageBlobs: Blob[],
+  nameSource: ScannedDocument['nameSource'] = 'default'
+): Promise<string> {
+  if (pageBlobs.length === 0) throw new Error('A document needs at least one page');
   const docId = nanoid();
-  const pageId = nanoid();
   const now = new Date();
-  const thumbnailBlob = await createThumbnail(firstPageBlob);
+  const thumbnailBlob = await createThumbnail(pageBlobs[0]);
 
   await db.transaction('rw', [db.documents, db.pages], async () => {
     await db.documents.add({
@@ -48,25 +62,40 @@ export async function createDocument(
       name,
       createdAt: now,
       updatedAt: now,
-      pageCount: 1,
+      pageCount: pageBlobs.length,
       thumbnailBlob,
       nameSource,
     });
 
-    await db.pages.add({
-      id: pageId,
-      documentId: docId,
-      pageNumber: 1,
-      originalBlob: firstPageBlob,
-      processedBlob: firstPageBlob,
-      filter: 'original',
-      createdAt: now,
-      updatedAt: now,
-      ocrStatus: 'pending',
-    });
+    await db.pages.bulkAdd(pageBlobs.map((blob, i) => newPage(docId, i + 1, blob, 'original', now)));
   });
 
   return docId;
+}
+
+function newPage(documentId: string, pageNumber: number, blob: Blob, filter: ImageFilter, now: Date): Page {
+  return {
+    id: nanoid(),
+    documentId,
+    pageNumber,
+    originalBlob: blob,
+    processedBlob: blob,
+    filter,
+    createdAt: now,
+    updatedAt: now,
+    ocrStatus: 'pending',
+  };
+}
+
+/** Append pages, in order, to a document in one transaction (see createDocumentWithPages). */
+export async function addPagesToDocument(documentId: string, pageBlobs: Blob[]): Promise<void> {
+  const now = new Date();
+  await db.transaction('rw', [db.documents, db.pages], async () => {
+    const doc = await db.documents.get(documentId);
+    if (!doc) throw new Error('Document not found');
+    await db.pages.bulkAdd(pageBlobs.map((blob, i) => newPage(documentId, doc.pageCount + i + 1, blob, 'original', now)));
+    await db.documents.update(documentId, { pageCount: doc.pageCount + pageBlobs.length, updatedAt: now });
+  });
 }
 
 export async function addPageToDocument(

@@ -12,6 +12,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/ionic-team/capacitor-swift-pm.git", exact: "8.5.2"),
+        .package(name: "CapgoCapacitorDocumentScanner", path: "../../../node_modules/@capgo/capacitor-document-scanner"),
         .package(name: "CapacitorNativeOcr", path: "../../../node_modules/capacitor-native-ocr")
     ],
     targets: [
@@ -20,6 +21,7 @@ let package = Package(
             dependencies: [
                 .product(name: "Capacitor", package: "capacitor-swift-pm"),
                 .product(name: "Cordova", package: "capacitor-swift-pm"),
+                .product(name: "CapgoCapacitorDocumentScanner", package: "CapgoCapacitorDocumentScanner"),
                 .product(name: "CapacitorNativeOcr", package: "CapacitorNativeOcr")
             ]
         )

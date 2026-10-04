@@ -16,6 +16,8 @@ import { promptCreateFolder } from '@/components/documents/library-actions';
 import { useFolders } from '@/hooks/useLibrary';
 import { countByFolder, filterDocuments, type FolderFilter } from '@/lib/document-filter';
 import { collectTags, hasTag, tagKey } from '@/lib/tags';
+import { cameraHref, startScan } from '@/lib/platform/scanner';
+import { useSystemScanner } from '@/hooks/useSystemScanner';
 
 // The folder and tag filter survive visiting a document and coming back, for this tab only
 const FILTER_STORAGE_KEY = 'quickscan.galleryFilter';
@@ -53,6 +55,9 @@ export default function Home() {
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { documentIds: processingIds } = useOcrProgress();
+  const systemScanner = useSystemScanner();
+  const scan = () => void startScan(router.push);
+  const openCamera = () => router.push(cameraHref());
   // Each pasted image becomes a new document, like an upload
   usePasteImages((files) => void importFiles(files));
 
@@ -228,7 +233,8 @@ export default function Home() {
         ) : (
           <DocumentList
             documents={filteredDocuments}
-            onScanClick={() => router.push('/scan')}
+            onScanClick={scan}
+            onCameraClick={systemScanner ? openCamera : undefined}
             onUploadClick={openFilePicker}
             processingIds={processingIds}
             onDeleteDocument={async (id: string) => {
@@ -275,16 +281,37 @@ export default function Home() {
           Upload
         </button>
 
+        {systemScanner && (
+          <button
+            onClick={openCamera}
+            className="flex h-12 w-12 items-center justify-center rounded-full bg-white dark:bg-neutral-800 text-gray-900 dark:text-gray-100 shadow-xl shadow-black/20 ring-1 ring-black/10 dark:shadow-black/60 dark:ring-white/15 hover:bg-gray-50 dark:hover:bg-neutral-700 active:bg-gray-100 dark:active:bg-neutral-600"
+            aria-label="Use the built-in camera"
+            title="Use the built-in camera"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+              <circle cx="12" cy="13" r="4"></circle>
+            </svg>
+          </button>
+        )}
+
         <button
-          onClick={() => router.push('/scan')}
+          onClick={scan}
           className="flex h-12 items-center gap-2 rounded-full bg-blue-600 px-5 text-sm font-semibold text-white shadow-xl shadow-black/25 ring-2 ring-white/90 dark:shadow-black/60 dark:ring-neutral-950 hover:bg-blue-700 active:bg-blue-800"
           title="Scan a new document"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
-            <circle cx="12" cy="13" r="4"></circle>
-          </svg>
-          Camera
+          {systemScanner ? (
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"></path>
+              <line x1="7" y1="12" x2="17" y2="12"></line>
+            </svg>
+          ) : (
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+              <circle cx="12" cy="13" r="4"></circle>
+            </svg>
+          )}
+          {systemScanner ? 'Scan' : 'Camera'}
         </button>
       </div>
     </div>
