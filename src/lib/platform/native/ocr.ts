@@ -109,7 +109,13 @@ export function toOcrResult(result: RecognizeResult): OcrResult {
       }
     }
   }
-  return { text: result.text.trim(), words, confidence: chars ? (weighted / chars) * 100 : 0 };
+  return {
+    text: result.text.trim(),
+    words,
+    confidence: chars ? (weighted / chars) * 100 : 0,
+    uprightRotation: result.rotation,
+    imageSize: result.imageSize,
+  };
 }
 
 async function toBase64(blob: Blob): Promise<string> {

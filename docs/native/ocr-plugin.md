@@ -35,7 +35,7 @@ The gap the new plugin fills: **Apple Vision on iOS, with word-level boxes, lang
 
 **Later**
 - iOS 26 `RecognizeDocumentsRequest` (paragraphs, tables, lists) as an opt-in `mode: 'document'`.
-- Orientation hint and detection.
+- Orientation hint. (Detection shipped in 0.2.0 as `rotation`.)
 - Recognition from a camera frame buffer for live preview.
 
 **Out of scope:** document detection and cropping (VisionKit / ML Kit Document Scanner plugins exist), PDF generation, and any app-specific retry or confidence policy.
@@ -109,7 +109,7 @@ Design rules:
   - the native call fails.
 
   Tesseract supports many more languages than either platform engine, so it stays.
-- **Orientation:** the 180/90/270° retry in `ocr-orientation.ts` stays for Tesseract. On the native path, the plugin reads sideways text in its own direction, but nothing turns the page image upright yet, and upside-down pages aren't detected. Orientation detection is a plugin feature planned for "Later".
+- **Orientation:** the 180/90/270° retry in `ocr-orientation.ts` stays for Tesseract. Vision reads text in any orientation, and since 0.2.0 the plugin reports `rotation`, the clockwise turn that makes the page upright. It comes from the direction the lines run, so it needs no extra pass. QuickScan turns the page with it under the same rules as the retry: only on the first recognition of this device's own capture, and only with at least 20 letters or digits, so a sideways label on a photo doesn't turn it.
 
 ## Order of work
 

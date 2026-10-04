@@ -5,6 +5,12 @@ export interface OcrResult {
   text: string;
   words: OcrWord[];
   confidence: number;
+  /**
+   * Clockwise turn that makes the image upright, from engines that detect it (Apple Vision).
+   * `text` already reads in order; `words` are in the image as given, of `imageSize`.
+   */
+  uprightRotation?: 0 | 90 | 180 | 270;
+  imageSize?: { width: number; height: number };
 }
 
 /**
