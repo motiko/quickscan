@@ -45,6 +45,10 @@ The probe page, sample image and scanner plugin used for the checks were removed
 - **M3 — import shape.** The scanner returns one file per page (≈1.5 MB JPEG each on the Simulator sample). The app should import a scan as one document with several pages (`importPagesToDocument`) and re-encode to the 150–400 KB target (M9).
 - **M6 — PRF parity test.** Wrap a test value with a passkey's PRF output on the web, then unwrap it with the native API for the same credential and salt. If the native API doesn't apply WebAuthn's salt hashing (SHA-256("WebAuthn PRF" ‖ 0x00 ‖ salt)), the plugin has to hash the salt itself. This needs the AASA file deployed on the production domain, the Team ID, and a device. It is the owner's call, because the AASA file is a public change to the site.
 
+## Native OCR
+
+M4's native OCR is a separate open-source plugin, `capacitor-native-ocr`; no existing plugin combines Apple Vision, word boxes and SPM. Design, API and plan: [ocr-plugin.md](ocr-plugin.md).
+
 ## How to repeat it
 
 ```bash
