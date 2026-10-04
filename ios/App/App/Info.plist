@@ -26,6 +26,15 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>QuickScan uses the camera to scan documents.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>QuickScan connects to the AI server on your network that you set up for naming and reading documents.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<!-- User-entered LLM endpoints may be plain http:// (e.g. Ollama on the LAN), reached over
+		     native HTTP. Web content still loads nothing over HTTP (CSP upgrade-insecure-requests). -->
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
