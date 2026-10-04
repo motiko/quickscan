@@ -41,7 +41,10 @@ describe('injectCsp', () => {
     const metaAt = html.indexOf('http-equiv="Content-Security-Policy"');
     expect(html.indexOf('<script')).toBeGreaterThan(metaAt);
     expect(html.indexOf('<link')).toBeGreaterThan(metaAt);
-    expect(html.replace(/<meta http-equiv="Content-Security-Policy" content="[^"]*"\/>/, '')).toBe(PAGE);
+    expect(html).toContain('<meta name="referrer" content="no-referrer"/>');
+    expect(
+      html.replace(/<meta http-equiv="Content-Security-Policy" content="[^"]*"\/><meta name="referrer" content="no-referrer"\/>/, '')
+    ).toBe(PAGE);
   });
 
   it('allows exactly the inline scripts, by their SHA-256 hashes, and nothing inline or eval', () => {

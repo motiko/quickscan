@@ -138,7 +138,8 @@ A `<meta>` policy can't do everything a header can, and the app sends no headers
 | `sandbox` | Ignored in `<meta>` | Not used on the web either. |
 | `X-Content-Type-Options: nosniff` | A header only | Every response comes from the app bundle, with a `Content-Type` set from the file extension. No user content is served from the app's origin: imported images are `blob:` URLs shown in `<img>`. |
 | `Cross-Origin-Opener-Policy` | A header only | The app opens no cross-origin windows that keep a handle on it. External links leave the WebView for the system browser. |
-| `Strict-Transport-Security`, `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Resource-Policy` | Headers only | No HTTP is involved in loading the app. Remote calls are `https:` (with `upgrade-insecure-requests`). The camera is granted by the OS prompt (`NSCameraUsageDescription`, Android's `CAMERA` permission). Nothing else can load the app's resources. A `<meta name="referrer">` would bring back `no-referrer` if requests to providers should stop carrying the app's origin. |
+| `Strict-Transport-Security`, `Permissions-Policy`, `Cross-Origin-Resource-Policy` | Headers only | No HTTP is involved in loading the app. Remote calls are `https:` (with `upgrade-insecure-requests`). The camera is granted by the OS prompt (`NSCameraUsageDescription`, Android's `CAMERA` permission). Nothing else can load the app's resources. |
+| `Referrer-Policy` | Covered | Each exported page gets `<meta name="referrer" content="no-referrer">` next to its CSP, as the web build's header. |
 
 Release builds must also not load remote code: no `server.url` in `capacitor.config.ts`, and `webContentsDebuggingEnabled` stays unset, so release builds can't be inspected.
 

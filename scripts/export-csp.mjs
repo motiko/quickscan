@@ -38,13 +38,15 @@ function unescapeAttribute(value) {
   return value.replaceAll('&quot;', '"').replaceAll('&amp;', '&');
 }
 
-/** The page with its <meta> CSP inserted first in <head> (after <meta charset> only). */
+/** The page with its <meta> CSP and referrer policy first in <head> (after <meta charset> only). */
 export function injectCsp(html, options = {}) {
   if ([...html.matchAll(CSP_META)].length > 0) throw new Error('page already has a CSP <meta>');
   const head = HEAD_START.exec(html);
   if (!head) throw new Error('page has no <head>');
   const hashes = [...new Set(inlineScripts(html).map(scriptHash))];
-  const meta = `<meta http-equiv="Content-Security-Policy" content="${escapeAttribute(buildExportCsp(hashes, options))}"/>`;
+  const meta = `<meta http-equiv="Content-Security-Policy" content="${escapeAttribute(buildExportCsp(hashes, options))}"/>`
+    // The web build's Referrer-Policy header (csp.ts), which <meta name="referrer"> can carry.
+    + '<meta name="referrer" content="no-referrer"/>';
   const at = head.index + head[0].length;
   return html.slice(0, at) + meta + html.slice(at);
 }
