@@ -69,7 +69,7 @@ function PageInfo({
   const languages = tesseractInfo?.languages ?? page.ocrLang?.split('+').filter(Boolean) ?? [];
   const recognized = Boolean(info || page.ocrLang);
   const detected = info?.detectedLanguage;
-  // Adding a Tesseract language only matters for Tesseract's own text
+  // Adding an OCR language only matters for text recognized on the device
   const missing =
     info?.engine !== 'llm' && detected && !ocrLanguages.includes(detected) ? detected : undefined;
 
@@ -87,7 +87,7 @@ function PageInfo({
             </>
           ) : (
             <>
-              <InfoRow label="Method" value="Tesseract" />
+              <InfoRow label="Method" value={info?.engine === 'vision' ? 'Apple Vision' : 'Tesseract'} />
               <InfoRow
                 label="OCR languages"
                 value={languages.length ? languages.map(ocrLanguageName).join(', ') : '—'}

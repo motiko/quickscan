@@ -97,17 +97,19 @@ Design rules:
 
 ## How QuickScan uses it (M4)
 
-- `src/lib/platform/native/ocr.ts` implements `OcrProvider` on top of the plugin, behind the interface from M2.
+- `src/lib/platform/native/ocr.ts` implements `OcrProvider` on top of the plugin. M2 hasn't happened yet, so `src/lib/platform/ocr.ts` holds just the OCR half of its interfaces: `OcrProvider`, the Tesseract provider, and `ocrProviderFor(langs)`, which picks one per page. The queue records the engine in `ocrInfo.engine` (`'vision'` or `'tesseract'`), and the text sheet shows it.
+- **Image:** the queue's bounded copy (≤ 2500 px), sent as base64.
 - **Mapping to `OcrResult`:**
   - Word boxes × `imageSize` → `bbox` in processed-image pixels (`OcrWord`, `src/types/index.ts`).
   - Confidence × 100, to match Tesseract's scale.
 - **Languages:** QuickScan stores Tesseract codes (`deu`, `eng`, see `src/lib/ocr-languages.ts`). A table maps them to BCP-47 tags.
 - **Tesseract fallback:** a page goes to Tesseract when:
-  - its language isn't in `getSupportedLanguages()`, or
-  - the plugin is unavailable (web, older OS).
+  - any of its languages isn't in `getSupportedLanguages()`, or
+  - the plugin is unavailable (web, older OS), or
+  - the native call fails.
 
   Tesseract supports many more languages than either platform engine, so it stays.
-- **Orientation:** the 180/90/270° retry in `ocr-orientation.ts` stays for Tesseract. For the native path, orientation detection is a plugin feature planned for "Later".
+- **Orientation:** the 180/90/270° retry in `ocr-orientation.ts` stays for Tesseract. On the native path, the plugin reads sideways text in its own direction, but nothing turns the page image upright yet, and upside-down pages aren't detected. Orientation detection is a plugin feature planned for "Later".
 
 ## Order of work
 

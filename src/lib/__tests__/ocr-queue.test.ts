@@ -4,6 +4,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('@/lib/ocr', () => ({
   recognize: vi.fn(),
 }));
+// The web unless a test says otherwise; inside the app, Apple Vision through the plugin
+vi.mock('@/lib/native-passkey', () => ({ isNativeApp: vi.fn(() => false) }));
+vi.mock('@/lib/platform/native/ocr', () => ({
+  canRecognize: vi.fn(async (langs: string[]) => !langs.includes('heb')),
+  nativeOcr: { engine: 'vision', recognize: vi.fn() },
+}));
 vi.mock('@/lib/image-processing', () => ({
   // Node has no canvas: the OCR copy is the image itself unless a test says otherwise
   fitImage: vi.fn(async (blob: Blob) => ({ blob, scale: 1 })),
@@ -14,11 +20,14 @@ vi.mock('@/lib/image-processing', () => ({
 import { db } from '@/lib/db';
 import { recognize } from '@/lib/ocr';
 import { fitImage, rotateImage } from '@/lib/image-processing';
+import { isNativeApp } from '@/lib/native-passkey';
+import { nativeOcr } from '@/lib/platform/native/ocr';
 import { processPendingOcr, onPageOcrDone, resetStaleOcr, retryDocumentOcr } from '@/lib/ocr-queue';
 import { updateSettings } from '@/lib/settings';
 import type { Page } from '@/types';
 
 const mockRecognize = vi.mocked(recognize);
+const mockNativeRecognize = vi.mocked(nativeOcr.recognize);
 
 function makePage(id: string, pageNumber: number, overrides: Partial<Page> = {}): Page {
   return {
@@ -220,5 +229,53 @@ describe('OCR image size', () => {
     expect(await page?.processedBlob?.text()).toBe('p1@180');
     expect(page?.ocrText).toBe('Invoice 2026-0042 Total amount');
     expect(page?.ocrWords?.[0].bbox).toEqual({ x0: 20, y0: 40, x1: 160, y1: 90 });
+  });
+});
+
+describe('in the iOS app', () => {
+  beforeEach(() => {
+    vi.mocked(isNativeApp).mockReturnValue(true);
+    mockNativeRecognize.mockReset();
+    vi.mocked(rotateImage).mockClear();
+    return () => vi.mocked(isNativeApp).mockReturnValue(false);
+  });
+
+  it('recognizes with Apple Vision and keeps the page as scanned, whatever its confidence', async () => {
+    mockNativeRecognize.mockResolvedValue({ text: 'Rechnung', words: [], confidence: 30 });
+    await updateSettings({ ocrLanguages: ['deu', 'eng'] });
+    await db.pages.add(makePage('p1', 1));
+
+    await processPendingOcr();
+
+    expect(mockNativeRecognize).toHaveBeenCalledWith(expect.any(Blob), ['deu', 'eng']);
+    expect(mockRecognize).not.toHaveBeenCalled();
+    expect(rotateImage).not.toHaveBeenCalled();
+    const page = await db.pages.get('p1');
+    expect(page?.ocrText).toBe('Rechnung');
+    expect(page?.ocrInfo).toMatchObject({ engine: 'vision', languages: ['deu', 'eng'], confidence: 30 });
+  });
+
+  it('uses Tesseract for a language Vision doesn’t read', async () => {
+    mockRecognize.mockResolvedValue({ text: 'שלום', words: [], confidence: 90 });
+    await updateSettings({ ocrLanguages: ['eng', 'heb'] });
+    await db.pages.add(makePage('p1', 1));
+
+    await processPendingOcr();
+
+    expect(mockNativeRecognize).not.toHaveBeenCalled();
+    expect((await db.pages.get('p1'))?.ocrInfo).toMatchObject({ engine: 'tesseract', languages: ['eng', 'heb'] });
+  });
+
+  it('falls back to Tesseract when Vision fails', async () => {
+    mockNativeRecognize.mockRejectedValue(new Error('recognition-failed'));
+    mockRecognize.mockResolvedValue({ text: 'Invoice', words: [], confidence: 90 });
+    await updateSettings({ ocrLanguages: ['eng'] });
+    await db.pages.add(makePage('p1', 1));
+
+    await processPendingOcr();
+
+    const page = await db.pages.get('p1');
+    expect(page?.ocrText).toBe('Invoice');
+    expect(page?.ocrInfo).toMatchObject({ engine: 'tesseract' });
   });
 });
