@@ -1,21 +1,16 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# R8 rules for the release build. Capacitor (@capacitor/android) and ML Kit ship their own
+# consumer rules, which keep Capacitor plugins (including capacitor-native-ocr's NativeOcrPlugin,
+# found by name from capacitor.plugins.json) and @JavascriptInterface bridges.
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# capacitor-native-ocr compiles against ML Kit's Chinese, Devanagari, Japanese and Korean
+# recognizers but only ships the ones enabled in variables.gradle (none here). Its code never
+# creates a disabled one, so the missing classes are expected.
+-dontwarn com.google.mlkit.vision.text.chinese.**
+-dontwarn com.google.mlkit.vision.text.devanagari.**
+-dontwarn com.google.mlkit.vision.text.japanese.**
+-dontwarn com.google.mlkit.vision.text.korean.**
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
-
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# Readable stack traces in Play Console crash reports (R8's mapping file goes into the bundle),
+# without shipping the source file names.
+-keepattributes SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile
