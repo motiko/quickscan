@@ -10,9 +10,9 @@ import type { OcrWord } from '@/types';
  */
 
 /**
- * Tesseract codes → BCP-47, for the languages Vision can read (iOS 16–18, `accurate`). The
- * plugin accepts the language alone, but the region keeps the lookup in `canRecognize` exact.
- * Which of them this device supports comes from the plugin.
+ * Tesseract codes → BCP-47, for the languages Vision (iOS 16–18, `accurate`) or ML Kit can
+ * read. Which of them this device supports comes from the plugin, in the engine's spelling:
+ * `de-DE` on iOS, `de` on Android.
  */
 const BCP47_BY_TESSERACT: Record<string, string> = {
   ara: 'ar-SA',
@@ -65,12 +65,21 @@ function supportedLanguages(): Promise<string[]> {
   return supported;
 }
 
-/** The BCP-47 tags for these Tesseract codes, or undefined if any of them can't be read natively. */
+/**
+ * The engine's tag for `tag`: the same tag, else one for the same language (`de-DE` ↔ `de`).
+ * A script is part of the language here, so `zh-Hant` never matches `zh-Hans`.
+ */
+function availableTag(tag: string, available: string[]): string | undefined {
+  const language = (t: string) => t.split('-').filter((part, i) => i === 0 || part.length === 4).join('-');
+  return available.find((a) => a === tag) ?? available.find((a) => language(a) === language(tag));
+}
+
+/** The engine's tags for these Tesseract codes, or undefined if any of them can't be read natively. */
 export function toNativeLanguages(langs: string[], available: string[]): string[] | undefined {
   const tags: string[] = [];
   for (const code of langs) {
-    const tag = BCP47_BY_TESSERACT[code];
-    if (!tag || !available.includes(tag)) return undefined;
+    const tag = BCP47_BY_TESSERACT[code] && availableTag(BCP47_BY_TESSERACT[code], available);
+    if (!tag) return undefined;
     tags.push(tag);
   }
   return tags;

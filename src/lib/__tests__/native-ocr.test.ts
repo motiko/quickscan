@@ -70,6 +70,13 @@ describe('native OCR provider', () => {
     expect(toNativeLanguages(['eng', 'heb'], available)).toBeUndefined();
   });
 
+  it('matches by language when the engine spells tags without a region (Android)', () => {
+    const available = ['en', 'de', 'zh-Hans', 'sr-Latn'];
+    expect(toNativeLanguages(['deu', 'eng'], available)).toEqual(['de', 'en']);
+    expect(toNativeLanguages(['chi_sim'], available)).toEqual(['zh-Hans']);
+    expect(toNativeLanguages(['chi_tra'], available)).toBeUndefined();
+  });
+
   it('turns normalized boxes into pixels and confidence into 0–100', () => {
     const ocr = toOcrResult(result);
 
