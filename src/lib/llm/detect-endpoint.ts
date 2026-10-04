@@ -4,7 +4,8 @@
  */
 
 import type { LlmApiSchema } from '@/types';
-import { PROXY_PATH, PROXY_TARGET_HEADER, isProxiedUrl } from './client';
+import { PROXY_PATH, PROXY_TARGET_HEADER, viaLlmProxy } from './client';
+import { llmFetch } from './transport';
 
 export interface DetectedEndpoint {
   /** The base URL that answered, which may differ from the one entered. */
@@ -54,7 +55,7 @@ export async function listModels(
     headers.Authorization = `Bearer ${apiKey}`;
   }
   // The proxy only forwards Bearer-authenticated requests
-  const viaProxy = schema === 'chat-completions' && isProxiedUrl(url);
+  const viaProxy = viaLlmProxy(url, schema);
   if (viaProxy) headers[PROXY_TARGET_HEADER] = url;
 
   try {
@@ -78,7 +79,7 @@ export async function listModels(
 export async function detectEndpoint(
   baseUrl: string,
   apiKey: string,
-  fetchImpl: typeof fetch = fetch
+  fetchImpl: typeof fetch = llmFetch
 ): Promise<DetectedEndpoint | null> {
   const key = apiKey.trim();
   const schemas: LlmApiSchema[] =

@@ -2,10 +2,11 @@
 
 import { useEffect, useId, useState } from 'react';
 import { getSettings, updateSettings } from '@/lib/settings';
-import { resolveLlmConfig } from '@/lib/llm/client';
+import { isCleartextOverInternet, resolveLlmConfig } from '@/lib/llm/client';
 import { listProviderModels, pickModel, resolveModel, selectableModels } from '@/lib/llm/models';
 import { suggestNameWithLlm } from '@/lib/llm/naming';
 import { detectEndpoint, guessSchema } from '@/lib/llm/detect-endpoint';
+import { isNativeApp } from '@/lib/native-passkey';
 import type { AppSettings, CustomLlmEndpoint, LlmApiSchema, LlmProvider } from '@/types';
 
 const SAMPLE_TEXT =
@@ -303,6 +304,12 @@ function CustomEndpointFields({
           void onDetect();
         }}
       />
+      {isCleartextOverInternet(endpoint.baseUrl) && (
+        <p className="-mt-1 text-xs text-amber-700 dark:text-amber-400">
+          This address uses plain http:// over the internet, so the API key and your documents travel unencrypted.
+          Use https://, or a server on your local network.
+        </p>
+      )}
       {detection.state !== 'idle' && (
         <p className="-mt-1 text-xs text-gray-500 dark:text-gray-400">
           {detection.state === 'detecting' && (detection.models.length > 0 ? 'Refreshing models…' : 'Detecting API…')}
@@ -458,8 +465,10 @@ export function AiProviderSettings({ settings }: { settings: AppSettings }) {
       setTestResult({
         ok: false,
         message:
-          message === 'Failed to fetch' || message.includes('NetworkError') || message.includes('Load failed')
-            ? 'Could not reach the server. Check the URL, and for local Ollama allow this site via OLLAMA_ORIGINS.'
+          message.startsWith('Failed to fetch') || message.includes('NetworkError') || message.includes('Load failed')
+            ? isNativeApp()
+              ? 'Could not reach the server. Check the URL, and that this phone can reach it (same network, server listening on that address).'
+              : 'Could not reach the server. Check the URL, and for local Ollama allow this site via OLLAMA_ORIGINS.'
             : message,
       });
     } finally {

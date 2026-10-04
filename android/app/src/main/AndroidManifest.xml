@@ -6,10 +6,13 @@
          cursors. allowBackup="false" alone still allows transfers on Android 12+, hence the rules.
          No cleartext HTTP: the app's pages come from https://localhost, everything else over HTTPS.
          See docs/native/android.md ("Release hardening"). -->
+    <!-- Cleartext is on for user-entered LLM endpoints on plain http:// (e.g. Ollama on the LAN),
+         reached over native HTTP (src/lib/platform/native/http.ts). The WebView itself still
+         loads nothing over HTTP: pages are https://localhost and the CSP upgrades requests. -->
     <application
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
-        android:usesCleartextTraffic="false"
+        android:usesCleartextTraffic="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"

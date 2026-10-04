@@ -5,6 +5,7 @@
 
 import { joinUrl, type LlmConfig } from './client';
 import { listModels } from './detect-endpoint';
+import { llmFetch } from './transport';
 
 const LIST_TIMEOUT_MS = 8000;
 
@@ -83,7 +84,7 @@ async function listGeminiModels(config: LlmConfig, fetchImpl: typeof fetch): Pro
   }
 }
 
-export async function listProviderModels(config: LlmConfig, fetchImpl: typeof fetch = fetch): Promise<string[] | null> {
+export async function listProviderModels(config: LlmConfig, fetchImpl: typeof fetch = llmFetch): Promise<string[] | null> {
   const baseUrl = config.baseUrl.trim().replace(/\/+$/, '');
   if (config.schema === 'gemini') return listGeminiModels({ ...config, baseUrl }, fetchImpl);
   return listModels(baseUrl, config.apiKey.trim(), config.schema, fetchImpl);
@@ -92,7 +93,7 @@ export async function listProviderModels(config: LlmConfig, fetchImpl: typeof fe
 const cache = new Map<string, Promise<string>>();
 
 /** The configured model, or one picked from the provider's list (cached per endpoint and key). */
-export function resolveModel(config: LlmConfig, fetchImpl: typeof fetch = fetch): Promise<string> {
+export function resolveModel(config: LlmConfig, fetchImpl: typeof fetch = llmFetch): Promise<string> {
   if (config.model.trim()) return Promise.resolve(config.model.trim());
 
   const key = [config.schema, config.baseUrl, config.apiKey].join('\n');
