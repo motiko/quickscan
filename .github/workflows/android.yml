@@ -1,0 +1,112 @@
+name: Android
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    name: Build & test (Android)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Google Play needs a larger versionCode for every upload; the run number only grows.
+      # Scheme: docs/native/android.md ("Release builds").
+      ANDROID_VERSION_CODE: ${{ github.run_number }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Setup Gradle (with cache)
+        uses: gradle/actions/setup-gradle@v4
+
+      # Accounts and sync are on only when the repository variables are set (publishable values,
+      # not secrets); without them the app is local-only.
+      - name: Static export
+        run: npm run build:export
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+
+      - name: Copy the export into the Android project
+        run: npx cap sync android
+
+      - name: Debug APK and unit tests
+        working-directory: android
+        run: ./gradlew assembleDebug test
+
+      # The upload key signs only pushes to main and manual runs, never pull requests, so PR code
+      # can't read it. Without the secret the bundle stays unsigned (Play refuses it).
+      - name: Decode the upload key
+        if: github.event_name != 'pull_request'
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "::notice::No ANDROID_KEYSTORE_BASE64 secret: the release bundle stays unsigned."
+            exit 0
+          fi
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/upload.jks"
+          echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/upload.jks" >> "$GITHUB_ENV"
+
+      - name: Release bundle (AAB)
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ github.event_name != 'pull_request' && secrets.ANDROID_KEYSTORE_PASSWORD || '' }}
+          ANDROID_KEY_ALIAS: ${{ github.event_name != 'pull_request' && secrets.ANDROID_KEY_ALIAS || '' }}
+          ANDROID_KEY_PASSWORD: ${{ github.event_name != 'pull_request' && secrets.ANDROID_KEY_PASSWORD || '' }}
+        run: |
+          ./gradlew bundleRelease
+          if [ -n "$ANDROID_KEYSTORE_FILE" ]; then
+            jarsigner -verify app/build/outputs/bundle/release/app-release.aab | grep '^jar verified'
+          fi
+
+      - name: Remove the upload key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/upload.jks"
+
+      - name: Upload the AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: quickscan-android-${{ github.run_number }}
+          path: android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 14
+
+      # Later, once the app exists in Play Console and a first bundle was uploaded by hand: upload
+      # to the internal track from main. Needs a Play service account (docs/native/android.md).
+      # - name: Upload to Google Play (internal testing)
+      #   if: github.event_name == 'push' && env.ANDROID_KEYSTORE_FILE != ''
+      #   uses: r0adkll/upload-google-play@v1
+      #   with:
+      #     serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+      #     packageName: app.quickscan
+      #     releaseFiles: android/app/build/outputs/bundle/release/app-release.aab
+      #     track: internal
+      #     status: completed

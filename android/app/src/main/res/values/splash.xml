@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 12+ launch screen behind the app icon: the page colour (light / dark). -->
+    <color name="splash_background">#FFFFFF</color>
+</resources>
