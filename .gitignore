@@ -25,6 +25,8 @@
 # misc
 .DS_Store
 *.pem
+*.jks
+*.keystore
 
 # Claude Code: share agents, skills and commands; keep worktrees and local settings out
 .claude/*
