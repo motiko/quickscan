@@ -130,6 +130,19 @@ test.describe('Security headers', () => {
     expect(scriptSrc).not.toContain("'unsafe-inline'");
   });
 
+  test('paths the proxy skips still get a deny-all CSP, and look-alike paths get the document CSP', async ({ request }) => {
+    // Not-found pages under skipped prefixes render the root layout; they must not run without a CSP
+    for (const path of ['/api/nope', '/icons/nope', '/models/nope', '/.well-known/apple-app-site-association']) {
+      const csp = (await request.get(path)).headers()['content-security-policy'] ?? '';
+      expect(directives(csp).get('default-src'), path).toEqual(["'none'"]);
+    }
+    // An unescaped dot or unanchored file name in the proxy matcher would let these skip it
+    for (const path of ['/xwell-known/apple-app-site-association', '/faviconXico', '/manifestXwebmanifest']) {
+      const csp = (await request.get(path)).headers()['content-security-policy'] ?? '';
+      expect(directives(csp).get('script-src')?.some((v) => v.startsWith("'nonce-")), path).toBe(true);
+    }
+  });
+
   test('manifest still loads', async ({ request }) => {
     const response = await request.get('/manifest.webmanifest');
     expect(response.ok()).toBeTruthy();

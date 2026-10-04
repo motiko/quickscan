@@ -29,9 +29,11 @@ export function proxy(request: NextRequest) {
 export const config = {
   matcher: [
     {
-      // Documents only: static files, the LLM proxy and public assets carry no inline scripts
+      // Documents only: static files, the LLM proxy and public assets carry no inline scripts.
+      // Dots are escaped and single files anchored, so no page path slips past the proxy.
+      // Skipped paths get ASSET_CSP (or the worker CSP) from next.config.ts instead.
       source:
-        '/((?!api/|_next/static|_next/image|favicon.ico|manifest.webmanifest|icons/|tesseract/|models/|.well-known/).*)',
+        '/((?!api/|_next/static/|_next/image|favicon\\.ico$|manifest\\.webmanifest$|icons/|tesseract/|models/|\\.well-known/apple-app-site-association$).*)',
       missing: [
         { type: 'header', key: 'next-router-prefetch' },
         { type: 'header', key: 'purpose', value: 'prefetch' },
