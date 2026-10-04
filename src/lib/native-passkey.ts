@@ -29,15 +29,19 @@ export function isNativeApp(): boolean {
   return capacitor?.isNativePlatform?.() === true;
 }
 
-let plugin: Promise<NativePasskeyPlugin> | null = null;
+// Boxed: a Capacitor plugin proxy answers every property, `then` included, so a promise
+// resolving to it would call a native "then" method that never answers.
+let plugin: Promise<{ native: NativePasskeyPlugin }> | null = null;
 
-function nativePasskey(): Promise<NativePasskeyPlugin> {
-  plugin ??= import('@capacitor/core').then(({ registerPlugin }) => registerPlugin<NativePasskeyPlugin>('NativePasskey'));
+function nativePasskey(): Promise<{ native: NativePasskeyPlugin }> {
+  plugin ??= import('@capacitor/core').then(({ registerPlugin }) => ({
+    native: registerPlugin<NativePasskeyPlugin>('NativePasskey'),
+  }));
   return plugin;
 }
 
 export async function isNativePasskeySupported(): Promise<boolean> {
-  return (await (await nativePasskey()).isSupported()).supported;
+  return (await (await nativePasskey()).native.isSupported()).supported;
 }
 
 /**
@@ -46,7 +50,7 @@ export async function isNativePasskeySupported(): Promise<boolean> {
  * `unsupported | cancelled | not-associated | failed`.
  */
 export async function getNativePrf(credentials: { id: string; salt: string }[]): Promise<NativePrfResult> {
-  const result = await (await nativePasskey()).getPrf({ rpId: NATIVE_PASSKEY_RP_ID, credentials });
+  const result = await (await nativePasskey()).native.getPrf({ rpId: NATIVE_PASSKEY_RP_ID, credentials });
   const binary = atob(result.first);
   const first = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) first[i] = binary.charCodeAt(i);
