@@ -31,7 +31,7 @@ export const config = {
     {
       // Documents only: static files, the LLM proxy and public assets carry no inline scripts
       source:
-        '/((?!api/|_next/static|_next/image|favicon.ico|manifest.webmanifest|icons/|tesseract/|models/).*)',
+        '/((?!api/|_next/static|_next/image|favicon.ico|manifest.webmanifest|icons/|tesseract/|models/|.well-known/).*)',
       missing: [
         { type: 'header', key: 'next-router-prefetch' },
         { type: 'header', key: 'purpose', value: 'prefetch' },

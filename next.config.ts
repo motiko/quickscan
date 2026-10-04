@@ -32,6 +32,12 @@ const webConfig: NextConfig = {
       { source: "/:path*", headers: SECURITY_HEADERS },
       { source: "/_next/static/:path*", headers: workerCsp },
       { source: "/tesseract/:path*", headers: workerCsp },
+      // Lets the iOS app (Team ID + bundle ID inside) use this site's passkeys. Apple fetches
+      // it from its CDN and expects JSON; the extensionless file would be octet-stream.
+      {
+        source: "/.well-known/apple-app-site-association",
+        headers: [{ key: "Content-Type", value: "application/json" }],
+      },
     ];
   },
 };
