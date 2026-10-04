@@ -19,6 +19,9 @@ public class NativePasskeyPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "getPrf", returnType: CAPPluginReturnPromise),
     ]
 
+    /// Must match NATIVE_PASSKEY_RP_ID (src/lib/native-passkey.ts) and App.entitlements.
+    static let rpId = "scantab.vercel.app"
+
     private var pending: AssertionRequest?
 
     @objc func isSupported(_ call: CAPPluginCall) {
@@ -37,7 +40,7 @@ public class NativePasskeyPlugin: CAPPlugin, CAPBridgedPlugin {
             call.reject("Passkey PRF needs iOS 18 or later.", "unsupported")
             return
         }
-        guard let rpId = call.getString("rpId"), !rpId.isEmpty,
+        guard let rpId = call.getString("rpId"), rpId == Self.rpId,
               let entries = call.getArray("credentials", JSObject.self), !entries.isEmpty else {
             call.reject("rpId and credentials are required.", "failed")
             return
@@ -70,6 +73,10 @@ public class NativePasskeyPlugin: CAPPlugin, CAPBridgedPlugin {
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            guard self.pending == nil else {
+                call.reject("Another passkey request is still open.", "failed")
+                return
+            }
             let assertion = AssertionRequest(call: call, anchor: self.bridge?.viewController?.view.window) { [weak self] in
                 self?.pending = nil
             }
@@ -127,7 +134,8 @@ private final class AssertionRequest: NSObject, ASAuthorizationControllerDelegat
             call.reject("The passkey returned no PRF output.", "unsupported")
             return
         }
-        let first = prf.first.withUnsafeBytes { Data($0) }
+        var first = prf.first.withUnsafeBytes { Data($0) }
+        defer { first.resetBytes(in: 0..<first.count) }
         call.resolve([
             "credentialId": NativePasskeyPlugin.base64urlEncode(credential.credentialID),
             "first": first.base64EncodedString(),
