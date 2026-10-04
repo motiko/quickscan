@@ -16,7 +16,7 @@ vi.mock('@/lib/annotations/flatten', () => ({
 
 import { db } from '@/lib/db';
 import { recognize } from '@/lib/ocr';
-import { confidentChars, isClearlyBetter, recognizeUpright } from '@/lib/ocr-orientation';
+import { confidentChars, isClearlyBetter, recognizeUpright, rotateWords, uprightFromEngine } from '@/lib/ocr-orientation';
 import { keepPageOrientation, processPendingOcr, requeueAllOcr, resetStaleOcr, retryOcr } from '@/lib/ocr-queue';
 import { getImageSize } from '@/lib/annotations/flatten';
 import { applyUntracked, readOutbox } from '@/lib/outbox';
@@ -341,5 +341,41 @@ describe('processPendingOcr orientation', () => {
     // Re-queued by updatePage and recognized again, not left as 'error'
     expect((await page())?.ocrStatus).toBe('done');
     expect(await image()).toBe('user edit');
+  });
+});
+
+describe('orientation reported by the engine', () => {
+  // A 100 × 200 image with one word near its top-left corner
+  const size = { width: 100, height: 200 };
+  const word = { text: 'Invoice', confidence: 90, bbox: { x0: 10, y0: 20, x1: 40, y1: 30 } };
+
+  it('moves word boxes with the image', () => {
+    expect(rotateWords([word], size, 90)[0].bbox).toEqual({ x0: 170, y0: 10, x1: 180, y1: 40 });
+    expect(rotateWords([word], size, 180)[0].bbox).toEqual({ x0: 60, y0: 170, x1: 90, y1: 180 });
+    expect(rotateWords([word], size, 270)[0].bbox).toEqual({ x0: 20, y0: 60, x1: 30, y1: 90 });
+    expect(rotateWords(rotateWords([word], size, 90), { width: 200, height: 100 }, 270)[0].bbox).toEqual(word.bbox);
+  });
+
+  const reported = (text: string, uprightRotation: 0 | 90 | 180 | 270): OcrResult => ({
+    text,
+    words: [word],
+    confidence: 90,
+    uprightRotation,
+    imageSize: size,
+  });
+
+  it('turns the words when the engine says the page is upside down', () => {
+    const result = reported('Invoice 2026-0042 Total amount', 180);
+
+    const upright = uprightFromEngine(result);
+
+    expect(upright.rotation).toBe(180);
+    expect(upright.unrotated).toBe(result);
+    expect(upright.result.words[0].bbox).toEqual({ x0: 60, y0: 170, x1: 90, y1: 180 });
+  });
+
+  it('keeps an upright page, and a page with too little text to trust the direction', () => {
+    expect(uprightFromEngine(reported('Invoice 2026-0042 Total amount', 0)).rotation).toBe(0);
+    expect(uprightFromEngine(reported('EXIT', 90))).toMatchObject({ rotation: 0, result: { words: [word] } });
   });
 });

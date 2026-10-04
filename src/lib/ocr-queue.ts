@@ -3,7 +3,7 @@ import type { OcrResult } from '@/lib/ocr';
 import { ocrProviderFor, tesseractOcr, type OcrProvider } from '@/lib/platform/ocr';
 import { getSettings } from '@/lib/settings';
 import { pageImage } from '@/lib/page-image';
-import { recognizeUpright, type Rotation, type UprightResult } from '@/lib/ocr-orientation';
+import { recognizeUpright, uprightFromEngine, type Rotation, type UprightResult } from '@/lib/ocr-orientation';
 import { createThumbnail, fitImage, rotateImage } from '@/lib/image-processing';
 import { getImageSize, getRenderedBlob } from '@/lib/annotations/flatten';
 import { rotateAnnotations90 } from '@/lib/annotations/geometry';
@@ -48,9 +48,9 @@ function mayAutoOrient(page: Page): boolean {
 const OCR_MAX_DIMENSION = 2500;
 
 /**
- * Recognize the OCR copy with the page's engine. Only Tesseract probes the orientation: its
- * confidence drops sharply on text the wrong way round, which the probe relies on, and Vision
- * reads sideways text as it is. A native failure falls back to Tesseract.
+ * Recognize the OCR copy with the page's engine, upright when `autoOrient`. Vision reads text
+ * in any orientation and reports which way the page is turned; Tesseract needs the probe, as
+ * its confidence drops on text the wrong way round. A native failure falls back to Tesseract.
  */
 async function recognizeWith(
   provider: OcrProvider,
@@ -60,7 +60,8 @@ async function recognizeWith(
 ): Promise<{ recognized: UprightResult; engine: OcrProvider['engine'] }> {
   if (provider !== tesseractOcr) {
     try {
-      return { recognized: { result: await provider.recognize(image, langs), rotation: 0 }, engine: provider.engine };
+      const result = await provider.recognize(image, langs);
+      return { recognized: autoOrient ? uprightFromEngine(result) : { result, rotation: 0 }, engine: provider.engine };
     } catch (err) {
       console.warn(`${provider.engine} OCR failed; using Tesseract:`, err);
     }

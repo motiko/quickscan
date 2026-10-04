@@ -236,6 +236,7 @@ describe('in the iOS app', () => {
   beforeEach(() => {
     vi.mocked(isNativeApp).mockReturnValue(true);
     mockNativeRecognize.mockReset();
+    vi.mocked(fitImage).mockImplementation(async (blob: Blob) => ({ blob, scale: 1 }));
     vi.mocked(rotateImage).mockClear();
     return () => vi.mocked(isNativeApp).mockReturnValue(false);
   });
@@ -253,6 +254,42 @@ describe('in the iOS app', () => {
     const page = await db.pages.get('p1');
     expect(page?.ocrText).toBe('Rechnung');
     expect(page?.ocrInfo).toMatchObject({ engine: 'vision', languages: ['deu', 'eng'], confidence: 30 });
+  });
+
+  it('turns a page upright when Vision says it is upside down', async () => {
+    mockNativeRecognize.mockResolvedValue({
+      text: 'Rechnung 2026-0042 Gesamtbetrag',
+      words: [{ text: 'Rechnung', confidence: 100, bbox: { x0: 10, y0: 20, x1: 40, y1: 30 } }],
+      confidence: 100,
+      uprightRotation: 180,
+      imageSize: { width: 100, height: 200 },
+    });
+    await db.pages.add(makePage('p1', 1));
+
+    await processPendingOcr();
+
+    expect(mockRecognize).not.toHaveBeenCalled();
+    const page = await db.pages.get('p1');
+    expect(await page?.processedBlob?.text()).toBe('p1@180');
+    expect(page?.ocrWords?.[0].bbox).toEqual({ x0: 60, y0: 170, x1: 90, y1: 180 });
+    expect(page?.ocrInfo).toMatchObject({ engine: 'vision' });
+  });
+
+  it('leaves a page turned by hand as it is, whatever Vision says', async () => {
+    mockNativeRecognize.mockResolvedValue({
+      text: 'Rechnung 2026-0042 Gesamtbetrag',
+      words: [],
+      confidence: 100,
+      uprightRotation: 180,
+      imageSize: { width: 100, height: 200 },
+    });
+    await db.pages.add(makePage('p1', 1, { keepOrientation: true }));
+
+    await processPendingOcr();
+
+    const page = await db.pages.get('p1');
+    expect(page?.ocrText).toBe('Rechnung 2026-0042 Gesamtbetrag');
+    expect(page?.processedBlob).toBeUndefined();
   });
 
   it('uses Tesseract for a language Vision doesn’t read', async () => {

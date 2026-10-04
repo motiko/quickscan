@@ -35,7 +35,7 @@
     "@tensorflow/tfjs-backend-webgpu": "^4.22.0",
     "@tensorflow/tfjs-core": "^4.22.0",
     "canvas": "^3.2.3",
-    "capacitor-native-ocr": "0.1.1",
+    "capacitor-native-ocr": "0.2.0",
     "dexie": "^4.4.6",
     "dexie-react-hooks": "^4.4.0",
     "franc-min": "^6.2.0",

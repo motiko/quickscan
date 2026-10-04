@@ -1,4 +1,5 @@
 import type { OcrResult } from '@/lib/ocr';
+import type { OcrWord } from '@/types';
 
 /**
  * Finds a page's upright orientation from OCR quality alone, so an upside-down or sideways
@@ -43,6 +44,39 @@ export function isClearlyBetter(rotated: OcrResult, asScanned: OcrResult): boole
     chars >= 2 * confidentChars(asScanned) &&
     rotated.confidence > asScanned.confidence
   );
+}
+
+/** Word boxes of an image of `size`, moved onto the same image turned clockwise by `rotation`. */
+export function rotateWords(words: OcrWord[], size: { width: number; height: number }, rotation: Rotation): OcrWord[] {
+  const { width: w, height: h } = size;
+  return words.map((word) => {
+    const { x0, y0, x1, y1 } = word.bbox;
+    const bbox =
+      rotation === 90
+        ? { x0: h - y1, y0: x0, x1: h - y0, y1: x1 }
+        : rotation === 180
+          ? { x0: w - x1, y0: h - y1, x1: w - x0, y1: h - y0 }
+          : rotation === 270
+            ? { x0: y0, y0: w - x1, x1: y1, y1: w - x0 }
+            : word.bbox;
+    return { ...word, bbox };
+  });
+}
+
+/**
+ * An engine that reports the page's orientation (Apple Vision): turn its words with the page
+ * when it isn't upright and there's enough text to trust the direction (a sideways label on a
+ * photo shouldn't turn it). No extra passes.
+ */
+export function uprightFromEngine(result: OcrResult): UprightResult {
+  const rotation = result.uprightRotation ?? 0;
+  const letters = result.text.match(/[\p{L}\p{N}]/gu)?.length ?? 0;
+  if (rotation === 0 || !result.imageSize || letters < ACCEPT_MIN_CHARS) return { result, rotation: 0 };
+  return {
+    result: { ...result, words: rotateWords(result.words, result.imageSize, rotation) },
+    rotation,
+    unrotated: result,
+  };
 }
 
 export interface UprightResult {

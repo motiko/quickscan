@@ -25,6 +25,7 @@ const box = (x: number, y: number, width: number, height: number) => ({ x, y, wi
 const result: RecognizeResult = {
   text: 'Total 12,50\n\nDanke',
   imageSize: { width: 1000, height: 2000 },
+  rotation: 180,
   blocks: [
     {
       text: 'Total 12,50',
@@ -69,6 +70,13 @@ describe('native OCR provider', () => {
     expect(toNativeLanguages(['eng', 'heb'], available)).toBeUndefined();
   });
 
+  it('matches by language when the engine spells tags without a region (Android)', () => {
+    const available = ['en', 'de', 'zh-Hans', 'sr-Latn'];
+    expect(toNativeLanguages(['deu', 'eng'], available)).toEqual(['de', 'en']);
+    expect(toNativeLanguages(['chi_sim'], available)).toEqual(['zh-Hans']);
+    expect(toNativeLanguages(['chi_tra'], available)).toBeUndefined();
+  });
+
   it('turns normalized boxes into pixels and confidence into 0–100', () => {
     const ocr = toOcrResult(result);
 
@@ -80,10 +88,12 @@ describe('native OCR provider', () => {
     ]);
     // Weighted by characters: 10 at 100 %, 5 at 50 %
     expect(ocr.confidence).toBeCloseTo(83.33, 1);
+    expect(ocr.uprightRotation).toBe(180);
+    expect(ocr.imageSize).toEqual({ width: 1000, height: 2000 });
   });
 
   it('gives zero confidence for an empty page', () => {
-    expect(toOcrResult({ text: '', imageSize: { width: 10, height: 10 }, blocks: [] })).toEqual({
+    expect(toOcrResult({ text: '', imageSize: { width: 10, height: 10 }, blocks: [], rotation: 0 })).toMatchObject({
       text: '',
       words: [],
       confidence: 0,
