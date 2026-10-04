@@ -6,6 +6,9 @@ const config: CapacitorConfig = {
   appId: 'app.quickscan',
   appName: 'QuickScan',
   webDir: 'out',
+  // Capacitor's default ('debug') prints every plugin result to the Xcode and JS consoles in
+  // Debug builds, and NativePasskey returns a PRF output, the secret that unwraps the vault key.
+  loggingBehavior: 'none',
   // No webContentsDebuggingEnabled: an explicit true would make release builds inspectable
   // too. Capacitor already enables Web Inspector for Debug builds (ios/debug.xcconfig).
 };
