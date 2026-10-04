@@ -9,6 +9,7 @@ import {
   finishPasskey,
   getPasskeySupport,
   listPasskeys,
+  nativePrfSaltMode,
   passkeysForThisSite,
   removePasskey,
   renamePasskey,
@@ -17,6 +18,7 @@ import {
   type PasskeySupport,
 } from '@/lib/passkeys';
 import { VaultError } from '@/lib/vault-session';
+import { isNativeApp } from '@/lib/native-passkey';
 
 /*
  * Passkeys (WebAuthn PRF) as an extra way to unlock sync; see lib/passkeys.ts. WebAuthn
@@ -106,7 +108,8 @@ async function runAddPasskey(excludeIds: string[]): Promise<boolean> {
 
 /** After "Turn on sync" on the first device: offer a passkey, skippable. */
 export async function suggestPasskey(): Promise<void> {
-  if ((await getPasskeySupport()) === 'unsupported') return;
+  // The app can't add passkeys yet (lib/passkeys.ts)
+  if (isNativeApp() || (await getPasskeySupport()) === 'unsupported') return;
   const yes = await confirmDialog({
     title: 'Also add a passkey for faster unlock?',
     message:
@@ -140,6 +143,17 @@ export function UnlockWithPasskey() {
     setError(null);
     try {
       await unlockWithPasskey(here);
+      // Device test (docs/native/m0-spike.md): which PRF salt the native API needed. Remove
+      // once settled.
+      if (nativePrfSaltMode) {
+        void alertDialog({
+          title: 'Unlocked with a passkey',
+          message:
+            nativePrfSaltMode === 'as-on-web'
+              ? 'Passkey test: iOS took the PRF salt as the website passes it.'
+              : 'Passkey test: iOS needed the PRF salt pre-hashed.',
+        });
+      }
     } catch (err) {
       setError(passkeyErrorText(err));
     } finally {

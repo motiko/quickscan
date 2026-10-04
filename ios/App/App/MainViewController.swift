@@ -25,5 +25,9 @@ class MainViewController: CAPBridgeViewController {
     override func router() -> Router {
         StaticExportRouter()
     }
+
+    override func capacitorDidLoad() {
+        bridge?.registerPluginInstance(NativePasskeyPlugin())
+    }
 }
 
