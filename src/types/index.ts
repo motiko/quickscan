@@ -78,14 +78,18 @@ export interface OcrWord {
   confidence: number;
 }
 
+/** 'vision' is Apple Vision, through capacitor-native-ocr (src/lib/platform/native/ocr.ts). */
+export type DeviceOcrEngine = 'tesseract' | 'vision';
+
 interface OcrInfoBase {
   detectedLanguage?: string; // Tesseract language code
   recognizedAt: Date;
 }
 
-export interface TesseractOcrInfo extends OcrInfoBase {
-  engine: 'tesseract';
-  languages: string[]; // traineddata used
+/** Text recognized on the device: Tesseract, or Apple Vision in the iOS app. */
+export interface DeviceOcrInfo extends OcrInfoBase {
+  engine: DeviceOcrEngine;
+  languages: string[]; // Tesseract codes of the OCR languages setting at the time
   confidence?: number; // 0-100
 }
 
@@ -96,7 +100,7 @@ export interface LlmOcrInfo extends OcrInfoBase {
   model: string;
 }
 
-export type OcrInfo = TesseractOcrInfo | LlmOcrInfo;
+export type OcrInfo = DeviceOcrInfo | LlmOcrInfo;
 
 export interface Page {
   id: string;

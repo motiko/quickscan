@@ -1,5 +1,6 @@
 import { db } from '@/lib/db';
-import { recognize, type OcrResult } from '@/lib/ocr';
+import type { OcrResult } from '@/lib/ocr';
+import { ocrProviderFor, tesseractOcr, type OcrProvider } from '@/lib/platform/ocr';
 import { getSettings } from '@/lib/settings';
 import { pageImage } from '@/lib/page-image';
 import { recognizeUpright, type Rotation, type UprightResult } from '@/lib/ocr-orientation';
@@ -45,6 +46,31 @@ function mayAutoOrient(page: Page): boolean {
  * uncropped frames) are scaled down for recognition only, and the word boxes are mapped back.
  */
 const OCR_MAX_DIMENSION = 2500;
+
+/**
+ * Recognize the OCR copy with the page's engine. Only Tesseract probes the orientation: its
+ * confidence drops sharply on text the wrong way round, which the probe relies on, and Vision
+ * reads sideways text as it is. A native failure falls back to Tesseract.
+ */
+async function recognizeWith(
+  provider: OcrProvider,
+  image: Blob,
+  langs: string[],
+  autoOrient: boolean
+): Promise<{ recognized: UprightResult; engine: OcrProvider['engine'] }> {
+  if (provider !== tesseractOcr) {
+    try {
+      return { recognized: { result: await provider.recognize(image, langs), rotation: 0 }, engine: provider.engine };
+    } catch (err) {
+      console.warn(`${provider.engine} OCR failed; using Tesseract:`, err);
+    }
+  }
+  const recognize = (b: Blob) => tesseractOcr.recognize(b, langs);
+  const recognized = autoOrient
+    ? await recognizeUpright(image, recognize, rotateImage)
+    : { result: await recognize(image), rotation: 0 as const };
+  return { recognized, engine: 'tesseract' };
+}
 
 /** Word boxes measured on the OCR copy, in the page image's pixels. */
 function scaleToPage(upright: UprightResult, scale: number): UprightResult {
@@ -165,12 +191,16 @@ export async function processPendingOcr(): Promise<void> {
 
         try {
           const langs = settings.ocrLanguages;
-          // Tesseract and the orientation probes work on a bounded copy (OCR_MAX_DIMENSION)
+          // OCR and the orientation probes work on a bounded copy (OCR_MAX_DIMENSION)
           const { blob: ocrImage, scale } = await fitImage(blob, OCR_MAX_DIMENSION);
-          // An upside-down or sideways page is turned upright when that's clearly where its text reads
-          const recognized: UprightResult = mayAutoOrient(current)
-            ? await recognizeUpright(ocrImage, (b) => recognize(b, langs), rotateImage)
-            : { result: await recognize(ocrImage, langs), rotation: 0 };
+          // With Tesseract, an upside-down or sideways page is turned upright when that's
+          // clearly where its text reads
+          const { recognized, engine } = await recognizeWith(
+            await ocrProviderFor(langs),
+            ocrImage,
+            langs,
+            mayAutoOrient(current)
+          );
           const upright = scaleToPage(recognized, scale);
 
           let result = upright.result;
@@ -195,7 +225,7 @@ export async function processPendingOcr(): Promise<void> {
             ocrWords: r.words,
             ocrLang: langs.join('+'),
             ocrInfo: {
-              engine: 'tesseract' as const,
+              engine,
               languages: [...langs],
               detectedLanguage: detectOcrLanguage(r.text),
               confidence: Math.round(r.confidence),
