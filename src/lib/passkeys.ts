@@ -4,6 +4,7 @@ import { getAuthState, type AuthUser } from '@/lib/auth';
 import { getSupabase } from '@/lib/supabase';
 import { fromBytea, toBytea } from '@/lib/bytea';
 import { getVaultStatus, unlockWithPairedKey } from '@/lib/vault-session';
+import { NATIVE_PASSKEY_RP_ID, getNativePrf, isNativeApp, isNativePasskeySupported } from '@/lib/native-passkey';
 
 /*
  * Passkeys as an extra way to unlock sync, through the WebAuthn PRF extension. The recovery
@@ -27,7 +28,9 @@ import { getVaultStatus, unlockWithPairedKey } from '@/lib/vault-session';
  * output opens the wrapped key.
  *
  * rpId is the page's hostname, so passkeys made on production don't work on preview
- * deployments (other hostnames), and vice versa.
+ * deployments (other hostnames), and vice versa. The native app (origin capacitor://localhost)
+ * uses the production hostname and asks iOS through lib/native-passkey.ts; it can unlock with
+ * a passkey but not add one yet.
  *
  * WebAuthn calls need a recent user gesture (Safari is strict), so everything that needs
  * the network (the list of passkey rows) is fetched before the button is pressed and passed
@@ -66,6 +69,7 @@ export type PasskeyErrorCode =
   | 'unsupported'
   | 'cancelled'
   | 'already-added'
+  | 'add-on-web'
   | 'no-passkeys'
   | 'unknown-passkey'
   | 'wrong-passkey'
@@ -81,6 +85,7 @@ const MESSAGES: Record<PasskeyErrorCode, string> = {
     "This browser or password manager can't unlock sync with a passkey. Use your recovery key, or scan a QR code from another device, instead. Nothing was saved.",
   cancelled: 'The passkey request was cancelled or timed out. Try again when you’re ready.',
   'already-added': 'This password manager already has a QuickScan passkey for your account.',
+  'add-on-web': 'The app can unlock sync with a passkey but not add one yet. Add it on the website, then unlock here.',
   'no-passkeys': 'No passkey is set up to unlock sync on this site. Use your recovery key.',
   'unknown-passkey':
     "That passkey isn't set up to unlock sync for this account (it may have been removed). Try another passkey or use your recovery key.",
@@ -128,6 +133,7 @@ export type PasskeySupport = 'supported' | 'unsupported' | 'unknown';
  */
 export async function getPasskeySupport(): Promise<PasskeySupport> {
   if (typeof window === 'undefined' || !globalThis.isSecureContext) return 'unsupported';
+  if (isNativeApp()) return (await isNativePasskeySupported().catch(() => false)) ? 'supported' : 'unsupported';
   const PKC = globalThis.PublicKeyCredential as
     | (typeof PublicKeyCredential & { getClientCapabilities?: () => Promise<Record<string, boolean | undefined>> })
     | undefined;
@@ -174,7 +180,7 @@ function requireUser(): AuthUser {
 }
 
 function currentRpId(): string {
-  return globalThis.location.hostname;
+  return isNativeApp() ? NATIVE_PASSKEY_RP_ID : globalThis.location.hostname;
 }
 
 async function supabase() {
@@ -212,7 +218,7 @@ function forgetCredential(rpId: string, credentialId: string) {
   const PKC = globalThis.PublicKeyCredential as
     | { signalUnknownCredential?: (o: { rpId: string; credentialId: string }) => Promise<void> }
     | undefined;
-  if (rpId !== currentRpId() || typeof PKC?.signalUnknownCredential !== 'function') return;
+  if (isNativeApp() || rpId !== currentRpId() || typeof PKC?.signalUnknownCredential !== 'function') return;
   PKC.signalUnknownCredential({ rpId, credentialId }).catch(() => {});
 }
 
@@ -289,6 +295,7 @@ export async function removePasskey(passkey: Pick<PasskeyInfo, 'id' | 'rpId'>): 
  * call `finishPasskey(err.pending)` from another button press.
  */
 export async function addPasskey(opts: { excludeIds?: string[]; label?: string } = {}): Promise<PasskeyInfo> {
+  if (isNativeApp()) throw new PasskeyError('add-on-web');
   const user = requireUser();
   if (getVaultStatus().status !== 'unlocked') throw new PasskeyError('locked');
   const rpId = currentRpId();
@@ -425,6 +432,8 @@ export async function unlockWithPasskey(passkeys?: PasskeyInfo[]): Promise<void>
   const candidates = passkeysForThisSite(passkeys ?? (await listPasskeys()));
   if (candidates.length === 0) throw new PasskeyError('no-passkeys');
 
+  if (isNativeApp()) return unlockWithNativePasskey(user, candidates);
+
   let credential: PublicKeyCredential;
   try {
     const got = await navigator.credentials.get({
@@ -450,29 +459,87 @@ export async function unlockWithPasskey(passkeys?: PasskeyInfo[]): Promise<void>
     const credentialId = credentialIdOf(credential);
     if (!candidates.some((p) => p.id === credentialId)) throw new PasskeyError('unknown-passkey');
     if (!output) throw new PasskeyError('unsupported');
-
-    // Fetched after the prompt (a removed row must not unlock), never cached.
-    const client = await supabase();
-    const { data, error } = await client
-      .from('vault_keys')
-      .select('wrapped_key, params')
-      .eq('id', credentialId)
-      .eq('method', 'passkey')
-      .maybeSingle();
-    if (error) throw new PasskeyError('network', { cause: error });
-    if (!data) throw new PasskeyError('unknown-passkey');
-
-    let vaultKey: CryptoKey;
-    try {
-      vaultKey = await unwrapVaultKey({ wrappedKey: fromBytea(data.wrapped_key), params: data.params }, output, {
-        userId: user.id,
-      });
-    } catch (cause) {
-      if (cause instanceof CryptoError && cause.code === 'auth-failed') throw new PasskeyError('wrong-passkey', { cause });
-      throw new PasskeyError('failed', { cause });
-    }
-    await unlockWithPairedKey(vaultKey, user.id); // VaultError 'signed-out' if the account changed meanwhile
+    await unlockWithPrf(user, credentialId, output);
   } finally {
     output?.fill(0);
   }
+}
+
+/** Opens the passkey's `vault_keys` row with its PRF output and unlocks this device. */
+async function unlockWithPrf(user: AuthUser, credentialId: string, output: Uint8Array): Promise<void> {
+  // Fetched after the prompt (a removed row must not unlock), never cached.
+  const client = await supabase();
+  const { data, error } = await client
+    .from('vault_keys')
+    .select('wrapped_key, params')
+    .eq('id', credentialId)
+    .eq('method', 'passkey')
+    .maybeSingle();
+  if (error) throw new PasskeyError('network', { cause: error });
+  if (!data) throw new PasskeyError('unknown-passkey');
+
+  let vaultKey: CryptoKey;
+  try {
+    vaultKey = await unwrapVaultKey({ wrappedKey: fromBytea(data.wrapped_key), params: data.params }, output, {
+      userId: user.id,
+    });
+  } catch (cause) {
+    if (cause instanceof CryptoError && cause.code === 'auth-failed') throw new PasskeyError('wrong-passkey', { cause });
+    throw new PasskeyError('failed', { cause });
+  }
+  await unlockWithPairedKey(vaultKey, user.id); // VaultError 'signed-out' if the account changed meanwhile
+}
+
+/**
+ * The browser hashes each PRF salt (SHA-256("WebAuthn PRF" || 0x00 || salt)) before the
+ * authenticator sees it. Whether iOS's native PRF API does the same is what the device test
+ * in docs/native/m0-spike.md settles: until then the app tries the salt as the web passes
+ * it, and on a failed unwrap asks once more with the pre-hashed salt.
+ */
+async function webauthnPrfSalt(salt: Uint8Array): Promise<Uint8Array<ArrayBuffer>> {
+  const label = new TextEncoder().encode('WebAuthn PRF');
+  const input = new Uint8Array(label.length + 1 + salt.length);
+  input.set(label);
+  input.set(salt, label.length + 1);
+  return new Uint8Array(await crypto.subtle.digest('SHA-256', input));
+}
+
+/** Last native unlock's salt handling, for the device test (no secret). */
+export let nativePrfSaltMode: 'as-on-web' | 'pre-hashed' | null = null;
+
+async function unlockWithNativePasskey(user: AuthUser, candidates: PasskeyInfo[]): Promise<void> {
+  for (const mode of ['as-on-web', 'pre-hashed'] as const) {
+    const credentials = await Promise.all(
+      candidates.map(async (p) => ({
+        id: p.id,
+        salt: mode === 'as-on-web' ? p.prfSalt : toBase64(await webauthnPrfSalt(fromBase64(p.prfSalt))),
+      })),
+    );
+    let result: { credentialId: string; first: Uint8Array };
+    try {
+      result = await getNativePrf(credentials);
+    } catch (cause) {
+      throw nativePasskeyError(cause);
+    }
+    try {
+      if (!candidates.some((p) => p.id === result.credentialId)) throw new PasskeyError('unknown-passkey');
+      await unlockWithPrf(user, result.credentialId, result.first);
+      nativePrfSaltMode = mode;
+      console.info(`Native passkey unlock: PRF salt ${mode}`);
+      return;
+    } catch (err) {
+      if (!(err instanceof PasskeyError && err.code === 'wrong-passkey') || mode === 'pre-hashed') throw err;
+    } finally {
+      result.first.fill(0);
+    }
+  }
+}
+
+/** Plugin rejections (`code` from NativePasskeyPlugin.swift) → friendly codes. */
+function nativePasskeyError(cause: unknown): PasskeyError {
+  const code = (cause as { code?: string } | null)?.code;
+  if (code === 'cancelled') return new PasskeyError('cancelled', { cause });
+  if (code === 'unsupported') return new PasskeyError('unsupported', { cause });
+  if (code === 'not-associated') return new PasskeyError('site', { cause });
+  return new PasskeyError('failed', { cause });
 }

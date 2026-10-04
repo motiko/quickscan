@@ -45,6 +45,25 @@ The probe page, sample image and scanner plugin used for the checks were removed
 - **M3 — import shape.** The scanner returns one file per page (≈1.5 MB JPEG each on the Simulator sample). The app should import a scan as one document with several pages (`importPagesToDocument`) and re-encode to the 150–400 KB target (M9).
 - **M6 — PRF parity test.** Wrap a test value with a passkey's PRF output on the web, then unwrap it with the native API for the same credential and salt. If the native API doesn't apply WebAuthn's salt hashing (SHA-256("WebAuthn PRF" ‖ 0x00 ‖ salt)), the plugin has to hash the salt itself. This needs the AASA file deployed on the production domain, the Team ID, and a device. It is the owner's call, because the AASA file is a public change to the site.
 
+## Passkey device test (set up 2026-10-04)
+
+- **Website:** `scantab.vercel.app` serves `/.well-known/apple-app-site-association` for `RWNFPY7RQK.app.quickscan` (`webcredentials` only); Apple's CDN already has it.
+- **App:**
+  - `ios/App/App/App.entitlements` holds `webcredentials:scantab.vercel.app`, and the project signs automatically with team `RWNFPY7RQK`.
+  - `NativePasskeyPlugin.swift` asks ASAuthorization for a passkey assertion with PRF (iOS 18+).
+  - `lib/native-passkey.ts` calls it, and `unlockWithPasskey` takes the native path inside the app. The app can unlock with a passkey but not add one.
+- **Salt question:** the app first passes each PRF salt as the website does. If the vault key doesn't unwrap, it asks once more with the salt pre-hashed the way browsers hash it. A dialog after unlocking says which worked; remove it, and the losing branch, once the answer is known.
+- **Steps:**
+  1. Register the App ID `app.quickscan` with Associated Domains.
+  2. Add your Apple ID in Xcode → Settings → Accounts.
+  3. On the iPhone, in Safari on `scantab.vercel.app`: sign in, turn on sync, add a passkey.
+  4. Run the app from Xcode on the iPhone (`npm run ios`, pick the phone, ▶).
+  5. In the app: Settings → sign in → Unlock with a passkey.
+- **Reading the result:**
+  - "Passkeys don't work on this address": the association isn't active. Check the App ID and the entitlement.
+  - Unlocked: the dialog names the salt handling.
+  - "That passkey couldn't unlock sync": neither salt worked.
+
 ## Native OCR
 
 M4's native OCR is a separate open-source plugin, `capacitor-native-ocr`; no existing plugin combines Apple Vision, word boxes and SPM. Design, API and plan: [ocr-plugin.md](ocr-plugin.md).

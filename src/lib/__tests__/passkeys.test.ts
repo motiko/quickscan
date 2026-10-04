@@ -108,9 +108,50 @@ const authenticator = {
 const b64url = (bytes: Uint8Array) =>
   btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
-async function prfOf(cred: FakeCredential, salt: BufferSource): Promise<ArrayBuffer> {
-  return crypto.subtle.sign('HMAC', cred.secret, salt);
+/** What a browser hands the authenticator for a PRF salt (WebAuthn: SHA-256("WebAuthn PRF" || 0x00 || salt)). */
+async function webauthnSalt(salt: BufferSource): Promise<ArrayBuffer> {
+  const bytes = ArrayBuffer.isView(salt) ? new Uint8Array(salt.buffer, salt.byteOffset, salt.byteLength) : new Uint8Array(salt);
+  const label = new TextEncoder().encode('WebAuthn PRF');
+  const input = new Uint8Array(label.length + 1 + bytes.length);
+  input.set(label);
+  input.set(bytes, label.length + 1);
+  return crypto.subtle.digest('SHA-256', input);
 }
+
+/** Browser PRF: hmac-secret over the hashed salt. */
+async function prfOf(cred: FakeCredential, salt: BufferSource): Promise<ArrayBuffer> {
+  return crypto.subtle.sign('HMAC', cred.secret, await webauthnSalt(salt));
+}
+
+// --- Fake native app (lib/native-passkey.ts) ----------------------------------------------
+
+const native = {
+  on: false,
+  /** Whether iOS's PRF API hashes the salt like a browser, or hands it to the authenticator raw. */
+  hashesSalt: true,
+  failNext: null as string | null,
+  calls: [] as { id: string; salt: string }[][],
+};
+
+vi.mock('@/lib/native-passkey', () => ({
+  NATIVE_PASSKEY_RP_ID: 'quickscan.test',
+  isNativeApp: () => native.on,
+  isNativePasskeySupported: async () => true,
+  getNativePrf: async (credentials: { id: string; salt: string }[]) => {
+    native.calls.push(credentials);
+    if (native.failNext) {
+      const code = native.failNext;
+      native.failNext = null;
+      throw Object.assign(new Error(code), { code });
+    }
+    const allowed = credentials.map((c) => c.id);
+    const cred = authenticator.credentials.filter((c) => allowed.includes(b64url(c.rawId)))[authenticator.pick];
+    if (!cred) throw Object.assign(new Error('failed'), { code: 'failed' });
+    const salt = Uint8Array.from(atob(credentials.find((c) => c.id === b64url(cred.rawId))!.salt), (ch) => ch.charCodeAt(0));
+    const output = native.hashesSalt ? await prfOf(cred, salt) : await crypto.subtle.sign('HMAC', cred.secret, salt);
+    return { credentialId: b64url(cred.rawId), first: new Uint8Array(output) };
+  },
+}));
 
 function domError(name: string) {
   return Object.assign(new Error(name), { name });
@@ -228,6 +269,7 @@ beforeEach(async () => {
   server.rows.clear();
   server.failNext = false;
   Object.assign(authenticator, { credentials: [], prf: true, prfAtCreate: true, failNext: null, forceCredential: null, pick: 0, calls: [] });
+  Object.assign(native, { on: false, hashesSalt: true, failNext: null, calls: [] });
   vi.clearAllMocks();
   const crypto = await import('@/lib/crypto');
   const { db } = await import('@/lib/db');
@@ -424,6 +466,69 @@ describe('unlockWithPasskey', () => {
     // Same credential id, different secret: the PRF output doesn't open the wrapped key.
     authenticator.credentials[0].secret = await crypto.subtle.generateKey({ name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
     await expect(device.passkeys.unlockWithPasskey()).rejects.toMatchObject({ code: 'wrong-passkey' });
+  });
+});
+
+describe('unlockWithPasskey in the native app', () => {
+  it('asks iOS instead of the web view, with the salt as the website passes it', async () => {
+    const first = await unlockedDevice();
+    await first.passkeys.addPasskey();
+    const expected = await probe();
+
+    const device = await newDevice();
+    native.on = true;
+    await device.passkeys.unlockWithPasskey();
+
+    expect(credentialsApi.get).not.toHaveBeenCalled();
+    expect(native.calls).toHaveLength(1);
+    expect(native.calls[0][0].salt).toBe(passkeyRows()[0].params.prfSalt);
+    expect(device.passkeys.nativePrfSaltMode).toBe('as-on-web');
+    expect(device.vault.getVaultStatus().status).toBe('unlocked');
+    expect(await probe()).toEqual(expected);
+  });
+
+  it('asks once more with the pre-hashed salt when iOS takes the salt raw', async () => {
+    const first = await unlockedDevice();
+    await first.passkeys.addPasskey();
+    const device = await newDevice();
+    native.on = true;
+    native.hashesSalt = false;
+    await device.passkeys.unlockWithPasskey();
+
+    expect(native.calls).toHaveLength(2);
+    const salt = Uint8Array.from(atob(passkeyRows()[0].params.prfSalt as string), (c) => c.charCodeAt(0));
+    expect(native.calls[1][0].salt).toBe(btoa(String.fromCharCode(...new Uint8Array(await webauthnSalt(salt)))));
+    expect(device.passkeys.nativePrfSaltMode).toBe('pre-hashed');
+    expect(device.vault.getVaultStatus().status).toBe('unlocked');
+  });
+
+  it('reports wrong-passkey when neither salt opens the key', async () => {
+    const first = await unlockedDevice();
+    await first.passkeys.addPasskey();
+    const device = await newDevice();
+    native.on = true;
+    authenticator.credentials[0].secret = await crypto.subtle.generateKey({ name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    await expect(device.passkeys.unlockWithPasskey()).rejects.toMatchObject({ code: 'wrong-passkey' });
+    expect(native.calls).toHaveLength(2);
+    expect(device.vault.getVaultStatus().status).toBe('locked');
+  });
+
+  it('turns plugin errors into friendly codes', async () => {
+    const first = await unlockedDevice();
+    await first.passkeys.addPasskey();
+    const device = await newDevice();
+    native.on = true;
+    native.failNext = 'cancelled';
+    await expect(device.passkeys.unlockWithPasskey()).rejects.toMatchObject({ code: 'cancelled' });
+    native.failNext = 'not-associated';
+    await expect(device.passkeys.unlockWithPasskey()).rejects.toMatchObject({ code: 'site' });
+  });
+
+  it("can't add a passkey yet", async () => {
+    const first = await unlockedDevice();
+    native.on = true;
+    await expect(first.passkeys.addPasskey()).rejects.toMatchObject({ code: 'add-on-web' });
+    expect(credentialsApi.create).not.toHaveBeenCalled();
   });
 });
 
