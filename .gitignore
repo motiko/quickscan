@@ -73,3 +73,6 @@ tests/fixtures/camera/*.MOV
 
 # Static export for the native app: server-only files parked by scripts/build-export.mjs
 /.export-stash/
+/bench/corpus/ocr-crops/
+# tesseract.js caches language data in the working directory when the bench runs in Node
+/*.traineddata
