@@ -7,7 +7,9 @@ vi.mock('@/lib/annotations/flatten', () => ({ getRenderedBlob: vi.fn(async () =>
 import { db } from '@/lib/db';
 import {
   addPageToDocument,
+  addPagesToDocument,
   createDocument,
+  createDocumentWithPages,
   deleteDocument,
   deletePage,
   renameDocument,
@@ -41,6 +43,20 @@ describe('outbox: documents and pages', () => {
     const pageEntry = await getOutboxEntry('page', page.id);
     expect(pageEntry?.fileChanged).toBe(true);
     expect(page.updatedAt).toBeInstanceOf(Date);
+  });
+
+  it('records a multi-page scan written in one go, pages in order', async () => {
+    const docId = await createDocumentWithPages('Scan', [blob('1'), blob('2')]);
+    await addPagesToDocument(docId, [blob('3')]);
+    const pages = await db.pages.where('documentId').equals(docId).sortBy('pageNumber');
+    expect(await Promise.all(pages.map((p) => p.processedBlob!.text()))).toEqual(['1', '2', '3']);
+    expect(pages.map((p) => [p.pageNumber, p.ocrStatus, p.filter, p.corners])).toEqual([
+      [1, 'pending', 'original', undefined],
+      [2, 'pending', 'original', undefined],
+      [3, 'pending', 'original', undefined],
+    ]);
+    expect((await db.documents.get(docId))?.pageCount).toBe(3);
+    expect(await entries()).toEqual([`document:${docId}:upsert`, ...pages.map((p) => `page:${p.id}:upsert`)].sort());
   });
 
   it('records document updates and bumps nothing for thumbnail or derived-field writes', async () => {

@@ -1,4 +1,4 @@
-import type { DocumentScannerPlugin } from '@capgo/capacitor-document-scanner';
+import type { DocumentScannerPlugin, ResponseType } from '@capgo/capacitor-document-scanner';
 
 /*
  * The system document scanner through @capgo/capacitor-document-scanner: VisionKit's document
@@ -37,35 +37,38 @@ export function unavailableReason(err: unknown): ScannerUnavailableReason {
   return 'failed';
 }
 
-/** A scanned page, read through the web view's file URL (`Capacitor.convertFileSrc`). */
-async function readPage(path: string): Promise<Blob> {
-  const capacitor = (globalThis as { Capacitor?: { convertFileSrc?: (path: string) => string } }).Capacitor;
-  const url = capacitor?.convertFileSrc?.(path) ?? path;
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`Couldn't read the scanned page (${response.status})`);
-  return response.blob();
+/** A page as the plugin returns it (base64 JPEG) → Blob. */
+function decodePage(base64: string): Blob {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: 'image/jpeg' });
 }
 
 /**
  * Open the system scanner and wait for the user. Resolves with the pages in order, or
  * `cancelled`, or `unavailable` when the scanner couldn't start (the caller falls back to the
- * built-in camera). Rejects only when the scanned pages can't be read.
+ * built-in camera).
  */
 export async function scanWithSystemScanner(): Promise<SystemScan> {
-  let paths: string[];
+  let images: string[];
   try {
     const { native } = await documentScanner();
-    // letUserAdjustCrop: false keeps VisionKit's own flow. The plugin's default (true), like
-    // a page limit, swizzles private VisionKit classes to force a review after each capture.
-    // VisionKit's review already lets the user adjust the crop; ML Kit's always does.
-    const response = await native.scanDocument({ letUserAdjustCrop: false });
+    const response = await native.scanDocument({
+      // letUserAdjustCrop: false keeps VisionKit's own flow. The plugin's default (true), like
+      // a page limit, swizzles private VisionKit classes to force a review after each capture.
+      // VisionKit's review already lets the user adjust the crop; ML Kit's always does.
+      letUserAdjustCrop: false,
+      // Base64 rather than file paths: on iOS the plugin writes each page to Documents/ and
+      // never deletes it (≈1.5 MB a page, backed up to iCloud); the app has no file plugin
+      // to clean up after it.
+      responseType: 'base64' as ResponseType,
+    });
     if (response.status === 'cancel' || !response.scannedImages?.length) return { status: 'cancelled' };
-    paths = response.scannedImages;
+    images = response.scannedImages;
   } catch (err) {
     console.warn('System document scanner unavailable:', err);
     return { status: 'unavailable', reason: unavailableReason(err) };
   }
-  const pages: Blob[] = [];
-  for (const path of paths) pages.push(await readPage(path));
-  return { status: 'scanned', pages };
+  return { status: 'scanned', pages: images.map(decodePage) };
 }

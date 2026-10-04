@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Like Capacitor's registerPlugin: a proxy that turns every property, `then` included, into a
 // native call. The native side has no "then" method, so that call never answers.
@@ -22,35 +22,24 @@ const { scanWithSystemScanner, unavailableReason } = await import('@/lib/platfor
 describe('system document scanner', () => {
   beforeEach(() => {
     calls.length = 0;
-    vi.stubGlobal('Capacitor', { convertFileSrc: (path: string) => `https://localhost/_capacitor_file_${path}` });
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: string) => new Response(new Blob([url], { type: 'image/jpeg' })))
-    );
   });
 
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it('returns the pages in order, read through their file URLs', async () => {
-    scanDocument = async () => ({ status: 'success', scannedImages: ['/cache/page-0.jpg', '/cache/page-1.jpg'] });
+  it('returns the pages in order as JPEG blobs', async () => {
+    scanDocument = async () => ({ status: 'success', scannedImages: [btoa('page 1'), btoa('page 2')] });
 
     const scan = await scanWithSystemScanner();
 
     expect(scan.status).toBe('scanned');
     const pages = scan.status === 'scanned' ? scan.pages : [];
-    expect(await Promise.all(pages.map((p) => p.text()))).toEqual([
-      'https://localhost/_capacitor_file_/cache/page-0.jpg',
-      'https://localhost/_capacitor_file_/cache/page-1.jpg',
-    ]);
+    expect(pages.map((p) => p.type)).toEqual(['image/jpeg', 'image/jpeg']);
+    expect(await Promise.all(pages.map((p) => p.text()))).toEqual(['page 1', 'page 2']);
     expect(calls.map((c) => c.method)).not.toContain('then');
   });
 
-  it('keeps VisionKit’s own flow (no private-API review screen)', async () => {
+  it('keeps VisionKit’s own flow and leaves no files behind', async () => {
     scanDocument = async () => ({ status: 'cancel' });
     await scanWithSystemScanner();
-    expect(calls).toEqual([{ method: 'scanDocument', args: [{ letUserAdjustCrop: false }] }]);
+    expect(calls).toEqual([{ method: 'scanDocument', args: [{ letUserAdjustCrop: false, responseType: 'base64' }] }]);
   });
 
   it('reports a cancelled or empty scan as cancelled', async () => {
@@ -66,12 +55,6 @@ describe('system document scanner', () => {
       throw new Error('The ML Kit Document Scanner requires Google Play Services, which is not available or needs an update. ');
     };
     await expect(scanWithSystemScanner()).resolves.toEqual({ status: 'unavailable', reason: 'play-services' });
-  });
-
-  it('fails when a scanned page can’t be read', async () => {
-    scanDocument = async () => ({ status: 'success', scannedImages: ['/gone.jpg'] });
-    vi.stubGlobal('fetch', async () => new Response(null, { status: 404 }));
-    await expect(scanWithSystemScanner()).rejects.toThrow('(404)');
   });
 
   it('tells apart why the scanner didn’t start', () => {

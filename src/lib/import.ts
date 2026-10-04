@@ -1,4 +1,4 @@
-import { addPageToDocument, createDocument } from '@/hooks/useDocuments';
+import { addPageToDocument, addPagesToDocument, createDocument, createDocumentWithPages } from '@/hooks/useDocuments';
 import { encodeJpeg } from '@/lib/image-processing';
 
 /** File types the upload picker accepts. HEIC/HEIF only decode where the browser supports them (Safari). */
@@ -169,8 +169,9 @@ export function scanName(now = new Date()): string {
  * One scan from the system document scanner: its pages, in order, become one new document
  * (or are appended to `documentId`), each queued for OCR. The scanner has already found the
  * edges and flattened the pages, so they're stored like a cropped camera capture: no
- * `corners`, filter `original`. Every page is re-encoded before anything is written, so a
- * page that can't be read leaves no half-imported document. Returns the document's id.
+ * `corners`, filter `original`. Every page is re-encoded first and then all are written in
+ * one transaction, so a page that can't be read leaves no half-imported document. Returns
+ * the document's id.
  */
 export async function importScan(pages: Blob[], documentId?: string): Promise<string> {
   if (pages.length === 0) throw new Error('The scan has no pages');
@@ -178,12 +179,9 @@ export async function importScan(pages: Blob[], documentId?: string): Promise<st
   // One at a time: each decode holds a full-size bitmap
   for (const page of pages) encoded.push(await encodeJpeg(page, SCAN_MAX_EDGE, SCAN_JPEG_QUALITY));
 
-  let id = documentId;
-  let rest = encoded;
-  if (!id) {
-    id = await createDocument(scanName(), encoded[0]);
-    rest = encoded.slice(1);
+  if (documentId) {
+    await addPagesToDocument(documentId, encoded);
+    return documentId;
   }
-  for (const page of rest) await addPageToDocument(id, page);
-  return id;
+  return createDocumentWithPages(scanName(), encoded);
 }
