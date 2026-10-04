@@ -33,12 +33,12 @@ The probe page, sample image and scanner plugin used for the checks were removed
 
 ## Findings for later milestones
 
-- **M1 — CSP.** The static export has no CSP yet, because there's no proxy. Before anything ships, a post-build step must:
-  - Put a `<meta http-equiv="Content-Security-Policy">` first in each exported page's `<head>`, with a `sha256` hash for every inline Next script and the web policy's other directives.
-  - Check a test that every inline script's hash is in its page's policy.
-  - Meta can't set `frame-ancestors`, reporting, nosniff or COOP; `SECURITY.md` should say so.
-  - The workers lose their `'wasm-unsafe-eval'` header policy, so check in the Simulator that WASM still compiles and `eval` doesn't.
-  - No remote scripts or `server.url` in release configs. `webContentsDebuggingEnabled` stays unset, so release builds aren't inspectable.
+- **M1 — CSP. Done.** See [SECURITY.md → Native app](../../SECURITY.md#native-app-static-export).
+  - `scripts/export-csp.mjs` runs after `next build` in `npm run build:export`. It puts a `<meta http-equiv="Content-Security-Policy">` right after `<meta charset>` in every exported page. The policy is `buildExportCsp` from `src/lib/csp.ts`: the web policy, with a `sha256` hash for every inline Next script in place of the nonce, and no `frame-ancestors`.
+  - The same step fails the build if any inline script's hash is missing from its page's policy. Unit tests: `src/lib/__tests__/export-csp.test.ts`.
+  - `SECURITY.md` lists what `<meta>` can't do (`frame-ancestors`, reporting, `sandbox`, nosniff, COOP) and what covers each in the app.
+  - Checked in the iOS Simulator: the gallery, `/scan` and `/settings` load with no violations, `eval('1')` and injected inline scripts are blocked, and Tesseract OCR of an imported page finishes. The workers get no policy at all: a page's `<meta>` doesn't reach them, and the shell sends no header. So WASM compiles without `'wasm-unsafe-eval'`, but `eval` isn't blocked inside workers.
+  - Still holds: no remote scripts or `server.url` in release configs. `webContentsDebuggingEnabled` stays unset, so release builds aren't inspectable.
 - **M1 — no file moving.** `build-export.mjs` moves the server-only files aside, and `next.config.ts` refuses a web build while they're parked. Excluding them with a build-target-specific `pageExtensions` would leave the web tree untouched.
 - **M1 — LLM proxy.** The app has no `/api/llm`, so providers that need the proxy don't work there. Options: Capacitor's native HTTP, or CORS for `capacitor://localhost` on the hosted proxy. The latter needs a fresh look at the proxy's abuse surface.
 - **M1 — full page loads.** `DatabaseGate` uses `location.reload()`; with the custom router that now reloads the right page.

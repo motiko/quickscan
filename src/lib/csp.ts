@@ -3,8 +3,9 @@
  * but usable by any script running in our origin, so XSS is the threat that matters most:
  * keep script-src tight and read SECURITY.md before adding a network destination.
  *
- * Shared by `src/proxy.ts` (per-request nonce policy for documents) and `next.config.ts`
- * (static headers, plus the policy dedicated workers get from their script's response).
+ * Shared by `src/proxy.ts` (per-request nonce policy for documents), `next.config.ts`
+ * (static headers, plus the policy dedicated workers get from their script's response) and
+ * `scripts/export-csp.mjs` (a <meta> policy with script hashes for the static export).
  */
 
 export interface CspOptions {
@@ -54,6 +55,31 @@ function serialize(directives: Record<string, string[]>, upgradeInsecureRequests
   return parts.join('; ');
 }
 
+/**
+ * Every document directive but script-src. `meta`: the policy goes in a <meta> tag, where
+ * browsers ignore frame-ancestors (with a console warning), so it's left out.
+ */
+function documentDirectives(scriptSrc: string[], options: CspOptions, meta = false): Record<string, string[]> {
+  return {
+    'default-src': ["'self'"],
+    'script-src': scriptSrc,
+    // Both workers load from same-origin URLs: Tesseract from public/tesseract, the scanner as a Next chunk
+    'worker-src': ["'self'"],
+    // React renders style="" attributes into the HTML. CSS can't run script, and
+    // img-src/font-src keep CSS-based exfiltration on our own origin.
+    'style-src': ["'self'", "'unsafe-inline'"],
+    'img-src': ["'self'", 'blob:', 'data:'],
+    'font-src': ["'self'"],
+    'connect-src': connectSources(options),
+    'manifest-src': ["'self'"],
+    'frame-src': ["'none'"],
+    'object-src': ["'none'"],
+    'base-uri': ["'self'"],
+    'form-action': ["'self'"],
+    ...(meta ? {} : { 'frame-ancestors': ["'none'"] }),
+  };
+}
+
 /** Policy for documents, sent by the proxy with a fresh nonce per response. */
 export function buildCsp(options: CspOptions = {}): string {
   const { nonce, dev } = options;
@@ -66,27 +92,21 @@ export function buildCsp(options: CspOptions = {}): string {
     ...(dev ? ["'unsafe-eval'"] : []),
   ];
 
-  return serialize(
-    {
-      'default-src': ["'self'"],
-      'script-src': scriptSrc,
-      // Both workers load from same-origin URLs: Tesseract from public/tesseract, the scanner as a Next chunk
-      'worker-src': ["'self'"],
-      // React renders style="" attributes into the HTML. CSS can't run script, and
-      // img-src/font-src keep CSS-based exfiltration on our own origin.
-      'style-src': ["'self'", "'unsafe-inline'"],
-      'img-src': ["'self'", 'blob:', 'data:'],
-      'font-src': ["'self'"],
-      'connect-src': connectSources(options),
-      'manifest-src': ["'self'"],
-      'frame-src': ["'none'"],
-      'object-src': ["'none'"],
-      'base-uri': ["'self'"],
-      'form-action': ["'self'"],
-      'frame-ancestors': ["'none'"],
-    },
-    options.upgradeInsecureRequests
-  );
+  return serialize(documentDirectives(scriptSrc, options), options.upgradeInsecureRequests);
+}
+
+/**
+ * Policy for a page of the static export (the native app), which `scripts/export-csp.mjs`
+ * puts in a <meta> tag at the top of each exported page. There's no server to mint a nonce,
+ * so the page's inline scripts (Next's bootstrap and flight data) are allowed by their
+ * SHA-256 hashes (base64), and Next's chunks by 'self': the app's origin, capacitor://localhost
+ * on iOS and https://localhost on Android. No 'strict-dynamic': it would block the chunks'
+ * parser-inserted <script src> tags, which carry no hash. The document needs no WebAssembly;
+ * the workers get no policy at all in the app (SECURITY.md, "Native app").
+ */
+export function buildExportCsp(scriptHashes: string[], options: Omit<CspOptions, 'nonce' | 'dev'> = {}): string {
+  const scriptSrc = ["'self'", ...scriptHashes.map((hash) => `'sha256-${hash}'`)];
+  return serialize(documentDirectives(scriptSrc, options, true), options.upgradeInsecureRequests);
 }
 
 /**
