@@ -44,7 +44,7 @@ Other things to know:
 
 ## Content-Security-Policy and headers
 
-Documents get a CSP with a fresh nonce on every response, set in `src/proxy.ts`. Worker scripts get a static policy, set in `next.config.ts`. Both are built by `src/lib/csp.ts`. The production document policy, with the Supabase origin derived from `NEXT_PUBLIC_SUPABASE_URL` at build time, is:
+On the website, documents get a CSP with a fresh nonce on every response, set in `src/proxy.ts`. Worker scripts get a static policy, set in `next.config.ts`. Both are built by `src/lib/csp.ts`, which also builds the native app's `<meta>` policy (see "Native app" below). The production document policy, with the Supabase origin derived from `NEXT_PUBLIC_SUPABASE_URL` at build time, is:
 
 ```
 default-src 'self';
@@ -100,6 +100,48 @@ Every response also gets these headers:
 `e2e/security.spec.ts` checks the headers on every page, a fresh nonce per response, and that there are no `securitypolicyviolation` events while the gallery, settings, scanner (camera + edge-detection worker), upload, OCR (Tesseract worker) and PDF export run. It also checks inside each worker that WebAssembly compiles and `eval` doesn't.
 
 **Adding a network destination** (a new provider, CDN, analytics, fonts): don't widen the policy casually. Prefer self-hosting. Add the exact origin to the right directive in `src/lib/csp.ts`, never to `script-src`, and update this file and the unit tests. Never add `'unsafe-inline'` or `'unsafe-eval'` to `script-src`, or a public CDN host.
+
+### Native app (static export)
+
+The iOS and Android apps load the static export (`npm run build:export` → `out/`) from the app bundle, with no server, so there is no proxy, no nonce and no response header. `scripts/export-csp.mjs` runs after `next build` instead. It puts a `<meta http-equiv="Content-Security-Policy">` into every exported page, right after `<meta charset>` and before anything that loads or runs. The policy comes from `buildExportCsp` in `src/lib/csp.ts`, and allows each page's inline scripts (Next's bootstrap and flight data) by their SHA-256 hashes. The script then checks every page: an inline script whose hash isn't in its page's policy fails `npm run build:export`. The policy is the same on both platforms:
+
+```
+default-src 'self';
+script-src 'self' 'sha256-<bootstrap>' 'sha256-<flight data>';
+worker-src 'self';
+style-src 'self' 'unsafe-inline';
+img-src 'self' blob: data:;
+font-src 'self';
+connect-src 'self' https://<project>.supabase.co wss://<project>.supabase.co https: http://localhost:* http://127.0.0.1:*;
+manifest-src 'self';
+frame-src 'none';
+object-src 'none';
+base-uri 'self';
+form-action 'self';
+upgrade-insecure-requests
+```
+
+- **`'self'` is the app's origin:** `capacitor://localhost` on iOS, `https://localhost` on Android. It covers Next's chunks, the Tesseract worker and cores in `/tesseract/`, the scanner worker, and native files through `Capacitor.convertFileSrc` (`/_capacitor_file_/…` on the same origin). Neither origin is named: `'self'` matched `capacitor://` in the iOS Simulator.
+- **Hashes, not `'strict-dynamic'`.** Next writes its chunks as parser-inserted `<script src>` tags with no hash, which `'strict-dynamic'` would block. So `'self'` allows script files, and hashes allow exactly the inline scripts the build produced. There's no `'unsafe-inline'` or `'unsafe-eval'`.
+- **connect-src** is the web policy's: the Supabase origins from `NEXT_PUBLIC_SUPABASE_URL` (loaded from the same `.env` files `next build` reads), and `https:` for Tesseract's language data on `cdn.jsdelivr.net` and the LLM providers the app calls directly. `/api/llm` is a relative path, so in the app it points at the app's own origin, where nothing serves it; providers that need the proxy don't work in the app (`docs/native/m0-spike.md`). No absolute proxy URL is needed.
+- **Workers have no policy.** A same-origin worker takes its CSP from its own script's response, never from the page's `<meta>`. The app's asset handler sends no CSP header, so the Tesseract and scanner workers run without a policy. WebAssembly compiles, so `'wasm-unsafe-eval'` isn't needed, but `eval` isn't blocked in workers either. Checked in Chromium, Playwright's WebKit and the iOS Simulator. `worker-src 'self'` still decides which scripts may become workers, and those scripts are our own bundled code, which doesn't `eval` input. Giving workers their policy back would need the native asset handler to add the header to worker scripts.
+- **The Capacitor bridge isn't affected.** iOS adds it as a `WKUserScript`. Android adds it with `addDocumentStartJavaScript` or, on old WebViews, as an inline script before the `<meta>`. Native code calls into the page through `evaluateJavaScript`. CSP governs none of these.
+- **`<meta charset>` stays first**, because it must be in the first 1024 bytes, and the iOS asset handler sends `text/html` without a charset. It loads nothing.
+- **`upgrade-insecure-requests`** is set, as on the HTTPS website. The app's origin is a secure context.
+
+A `<meta>` policy can't do everything a header can, and the app sends no headers at all:
+
+| Missing | Why | What covers it in the app |
+| --- | --- | --- |
+| `frame-ancestors` (and `X-Frame-Options`) | Ignored in `<meta>` | No other page can frame the app. Its origin exists only inside its own WebView, and navigations to other origins leave the WebView for the system browser. The website still sends both. |
+| `report-uri` / `report-to` | Ignored in `<meta>` | No violation reports. The build-time hash check catches the likely breakage, a Next inline script without its hash, before a build ships. In debug builds violations show in Web Inspector. |
+| `sandbox` | Ignored in `<meta>` | Not used on the web either. |
+| `X-Content-Type-Options: nosniff` | A header only | Every response comes from the app bundle, with a `Content-Type` set from the file extension. No user content is served from the app's origin: imported images are `blob:` URLs shown in `<img>`. |
+| `Cross-Origin-Opener-Policy` | A header only | The app opens no cross-origin windows that keep a handle on it. External links leave the WebView for the system browser. |
+| `Strict-Transport-Security`, `Permissions-Policy`, `Cross-Origin-Resource-Policy` | Headers only | No HTTP is involved in loading the app. Remote calls are `https:` (with `upgrade-insecure-requests`). The camera is granted by the OS prompt (`NSCameraUsageDescription`, Android's `CAMERA` permission). Nothing else can load the app's resources. |
+| `Referrer-Policy` | Covered | Each exported page gets `<meta name="referrer" content="no-referrer">` next to its CSP, as the web build's header. |
+
+Release builds must also not load remote code: no `server.url` in `capacitor.config.ts`, and `webContentsDebuggingEnabled` stays unset, so release builds can't be inspected.
 
 ## XSS review
 

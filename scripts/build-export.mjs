@@ -4,6 +4,8 @@
 // `output: 'export'` refuses what only a server can do, so the server-only files are moved
 // aside for the build and always moved back: the proxy (per-request CSP nonce), the /api/llm
 // route handler, and /doc/[id] (unknown ids can't be prerendered; the export uses /doc?id=).
+// The proxy's CSP is replaced by a hash-based <meta> policy in every page (export-csp.mjs),
+// which also checks it: a page with an inline script the policy doesn't allow fails the build.
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, renameSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -51,5 +53,10 @@ try {
   status = result.status ?? 1;
 } finally {
   restore();
+}
+if (status === 0) {
+  // export-csp.mjs imports src/lib/csp.ts with Node's type stripping; package.json has no "type"
+  const args = ['--disable-warning=MODULE_TYPELESS_PACKAGE_JSON', join(root, 'scripts/export-csp.mjs')];
+  status = spawnSync(process.execPath, args, { cwd: root, stdio: 'inherit' }).status ?? 1;
 }
 process.exit(status);

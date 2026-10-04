@@ -78,15 +78,18 @@ export interface OcrWord {
   confidence: number;
 }
 
-/** 'vision' is Apple Vision, through capacitor-native-ocr (src/lib/platform/native/ocr.ts). */
-export type DeviceOcrEngine = 'tesseract' | 'vision';
+/**
+ * 'vision' is Apple Vision (iOS app) and 'mlkit' is ML Kit (Android app), both through
+ * capacitor-native-ocr (src/lib/platform/native/ocr.ts).
+ */
+export type DeviceOcrEngine = 'tesseract' | 'vision' | 'mlkit';
 
 interface OcrInfoBase {
   detectedLanguage?: string; // Tesseract language code
   recognizedAt: Date;
 }
 
-/** Text recognized on the device: Tesseract, or Apple Vision in the iOS app. */
+/** Text recognized on the device: Tesseract, or the native engine inside the app. */
 export interface DeviceOcrInfo extends OcrInfoBase {
   engine: DeviceOcrEngine;
   languages: string[]; // Tesseract codes of the OCR languages setting at the time

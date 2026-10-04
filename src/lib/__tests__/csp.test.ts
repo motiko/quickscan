@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ASSET_CSP, SECURITY_HEADERS, buildCsp, buildWorkerCsp, createNonce, supabaseOrigins } from '../csp';
+import { ASSET_CSP, SECURITY_HEADERS, buildCsp, buildExportCsp, buildWorkerCsp, createNonce, supabaseOrigins } from '../csp';
 
 function directive(csp: string, name: string): string[] | undefined {
   for (const part of csp.split(';')) {
@@ -96,5 +96,23 @@ describe('SECURITY_HEADERS', () => {
     expect(policy).toContain('camera=(self)');
     expect(policy).toContain('microphone=()');
     expect(policy).toContain('geolocation=()');
+  });
+});
+
+describe('export CSP', () => {
+  it('allows the given inline-script hashes and same-origin chunks, with no nonce, inline or eval', () => {
+    const csp = buildExportCsp(['aGFzaDE=', 'aGFzaDI=']);
+    expect(directive(csp, 'script-src')).toEqual(["'self'", "'sha256-aGFzaDE='", "'sha256-aGFzaDI='"]);
+    expect(directive(csp, 'script-src')!.join(' ')).not.toMatch(/unsafe-inline|unsafe-eval|strict-dynamic|nonce-/);
+    expect(csp).not.toMatch(/unsafe-eval/);
+  });
+
+  it('matches the document policy except script-src and frame-ancestors, which <meta> ignores', () => {
+    const options = { supabaseUrl: 'https://abc.supabase.co', upgradeInsecureRequests: true };
+    const web = buildCsp({ nonce: 'n', ...options }).split('; ');
+    const exported = buildExportCsp(['aA=='], options).split('; ');
+    const rest = (parts: string[]) => parts.filter((p) => !/^(script-src|frame-ancestors) /.test(p));
+    expect(rest(exported)).toEqual(rest(web));
+    expect(directive(buildExportCsp([]), 'frame-ancestors')).toBeUndefined();
   });
 });

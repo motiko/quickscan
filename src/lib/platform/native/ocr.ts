@@ -4,8 +4,8 @@ import type { OcrProvider } from '@/lib/platform/ocr';
 import type { OcrWord } from '@/types';
 
 /*
- * OcrProvider on capacitor-native-ocr: Apple Vision in the iOS app (Android is a stub until
- * M5). Only loaded inside the app, from platform/ocr.ts. The plugin returns boxes normalized
+ * OcrProvider on capacitor-native-ocr: Apple Vision in the iOS app, ML Kit in the Android
+ * app. Only loaded inside the app, from platform/ocr.ts. The plugin returns boxes normalized
  * to 0..1 of the image and confidences of 0..1; QuickScan stores pixels and 0–100.
  */
 
@@ -137,8 +137,12 @@ async function toBase64(blob: Blob): Promise<string> {
   return btoa(binary);
 }
 
+function platform(): string | undefined {
+  return (globalThis as { Capacitor?: { getPlatform?: () => string } }).Capacitor?.getPlatform?.();
+}
+
 export const nativeOcr: OcrProvider = {
-  engine: 'vision',
+  engine: platform() === 'android' ? 'mlkit' : 'vision',
   async recognize(image, langs) {
     const languages = toNativeLanguages(langs, await supportedLanguages());
     if (!languages) throw new Error(`Native OCR can't read ${langs.join('+')}`);

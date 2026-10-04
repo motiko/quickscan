@@ -1,0 +1,120 @@
+apply plugin: 'com.android.application'
+
+// versionName is package.json's version. versionCode must grow with every upload to Google Play:
+// CI passes its run number as ANDROID_VERSION_CODE; local builds default to 1. See
+// docs/native/android.md ("Release builds").
+def packageJson = new groovy.json.JsonSlurper().parse(rootProject.file('../package.json'))
+def appVersionName = packageJson.version
+def appVersionCode = (System.getenv('ANDROID_VERSION_CODE') ?: '1').trim()
+if (!(appVersionCode ==~ /[1-9][0-9]{0,9}/) || appVersionCode.toLong() > 2100000000L) {
+    throw new GradleException("ANDROID_VERSION_CODE must be a whole number from 1 to 2100000000, got '${appVersionCode}'")
+}
+
+// The upload key (Google Play App Signing holds the real app signing key). Read from the gitignored
+// android/keystore.properties, or from environment variables (CI). Without either, release builds
+// are left unsigned: Play refuses them, but CI can still check that the release build works.
+def keystorePropertiesFile = rootProject.file('keystore.properties')
+def releaseSigning = null
+if (keystorePropertiesFile.exists()) {
+    def props = new Properties()
+    keystorePropertiesFile.withInputStream { props.load(it) }
+    releaseSigning = [
+        source: 'android/keystore.properties',
+        storeFile: props.getProperty('storeFile') ? rootProject.file(props.getProperty('storeFile')) : null,
+        storePassword: props.getProperty('storePassword'),
+        keyAlias: props.getProperty('keyAlias'),
+        keyPassword: props.getProperty('keyPassword'),
+    ]
+} else if (System.getenv('ANDROID_KEYSTORE_FILE')) {
+    releaseSigning = [
+        source: 'the ANDROID_KEYSTORE_* environment variables',
+        storeFile: file(System.getenv('ANDROID_KEYSTORE_FILE')),
+        storePassword: System.getenv('ANDROID_KEYSTORE_PASSWORD'),
+        keyAlias: System.getenv('ANDROID_KEY_ALIAS'),
+        keyPassword: System.getenv('ANDROID_KEY_PASSWORD'),
+    ]
+}
+if (releaseSigning != null) {
+    def missing = ['storeFile', 'storePassword', 'keyAlias', 'keyPassword'].findAll { !releaseSigning[it] }
+    if (missing) {
+        throw new GradleException("Release signing from ${releaseSigning.source} is missing: ${missing.join(', ')}")
+    }
+    if (!releaseSigning.storeFile.exists()) {
+        throw new GradleException("Release signing from ${releaseSigning.source}: keystore ${releaseSigning.storeFile} doesn't exist")
+    }
+}
+
+android {
+    namespace = "app.quickscan"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "app.quickscan"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode appVersionCode.toInteger()
+        versionName appVersionName
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    signingConfigs {
+        if (releaseSigning != null) {
+            release {
+                storeFile releaseSigning.storeFile
+                storePassword releaseSigning.storePassword
+                keyAlias releaseSigning.keyAlias
+                keyPassword releaseSigning.keyPassword
+            }
+        }
+    }
+    buildTypes {
+        release {
+            // R8: Capacitor and ML Kit bring their own keep rules; ours are in proguard-rules.pro.
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (releaseSigning != null) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+}
+
+gradle.taskGraph.whenReady { graph ->
+    if (releaseSigning == null && graph.allTasks.any { it.name in ['bundleRelease', 'assembleRelease'] }) {
+        logger.warn('QuickScan: no upload key (android/keystore.properties or ANDROID_KEYSTORE_* variables), ' +
+            'so the release build is UNSIGNED and Google Play will refuse it. See docs/native/android.md.')
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}
