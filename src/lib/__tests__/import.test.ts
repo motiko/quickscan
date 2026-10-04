@@ -15,6 +15,8 @@ import {
   dismissImportFailures,
   imagesFromClipboard,
   importPagesToDocument,
+  importScan,
+  scanName,
 } from '@/lib/import';
 
 const mockCreateDocument = vi.mocked(createDocument);
@@ -191,5 +193,59 @@ describe('importPagesToDocument', () => {
       { fileName: 'anim.gif', reason: 'Unsupported file type' },
       { fileName: 'broken.png', reason: 'This browser cannot read this image format' },
     ]);
+  });
+});
+
+describe('importScan', () => {
+  beforeEach(() => {
+    mockCreateDocument.mockClear();
+    mockAddPage.mockClear();
+    stubImageDecoding();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const page = (name: string) => new File(['data'], name, { type: 'image/jpeg' });
+
+  it('makes one document of the scan, pages in order, re-encoded to the M9 size', async () => {
+    const id = await importScan([page('p1.jpg'), page('p2.jpg'), page('p3.jpg')]);
+
+    expect(id).toBe('doc-id');
+    expect(mockCreateDocument).toHaveBeenCalledTimes(1);
+    const [name, first, nameSource] = mockCreateDocument.mock.calls[0];
+    expect(name).toMatch(/^Scan \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+    expect(nameSource).toBeUndefined(); // 'default': auto-naming may replace it
+    expect(first.type).toBe('image/jpeg');
+    expect(await first.text()).toBe('2500x1250');
+    expect(mockAddPage.mock.calls.map(([docId]) => docId)).toEqual(['doc-id', 'doc-id']);
+  });
+
+  it('keeps the page order', async () => {
+    const order: string[] = [];
+    vi.stubGlobal('createImageBitmap', async (blob: File) => {
+      order.push(blob.name);
+      return { width: 1000, height: 1400, close: () => {} };
+    });
+    await importScan([page('p1.jpg'), page('p2.jpg'), page('p3.jpg')]);
+    expect(order).toEqual(['p1.jpg', 'p2.jpg', 'p3.jpg']);
+    expect(mockAddPage).toHaveBeenCalledTimes(2);
+  });
+
+  it('appends to an existing document', async () => {
+    await expect(importScan([page('p1.jpg'), page('p2.jpg')], 'doc-1')).resolves.toBe('doc-1');
+    expect(mockCreateDocument).not.toHaveBeenCalled();
+    expect(mockAddPage.mock.calls.map(([docId]) => docId)).toEqual(['doc-1', 'doc-1']);
+  });
+
+  it('writes nothing when a page can’t be read', async () => {
+    await expect(importScan([page('p1.jpg'), page('broken.jpg')])).rejects.toThrow();
+    expect(mockCreateDocument).not.toHaveBeenCalled();
+    expect(mockAddPage).not.toHaveBeenCalled();
+  });
+
+  it('names the document like a camera scan', () => {
+    expect(scanName(new Date(2026, 9, 4, 9, 5))).toBe('Scan 2026-10-04 09:05');
   });
 });

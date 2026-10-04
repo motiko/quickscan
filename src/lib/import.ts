@@ -1,5 +1,5 @@
 import { addPageToDocument, createDocument } from '@/hooks/useDocuments';
-import { canvasToBlob } from '@/lib/image-processing';
+import { encodeJpeg } from '@/lib/image-processing';
 
 /** File types the upload picker accepts. HEIC/HEIF only decode where the browser supports them (Safari). */
 export const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
@@ -37,29 +37,8 @@ export function nameForFile(fileName: string, now = new Date()): { name: string;
 }
 
 /** Decode an uploaded image (applying EXIF orientation), cap its size and re-encode as JPEG. */
-export async function normalizeImage(file: Blob): Promise<Blob> {
-  let bitmap: ImageBitmap;
-  try {
-    bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
-  } catch {
-    throw new Error('This browser cannot read this image format');
-  }
-
-  try {
-    const scale = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height));
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.round(bitmap.width * scale);
-    canvas.height = Math.round(bitmap.height * scale);
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('Could not get canvas context');
-    // Transparent PNG areas would turn black in JPEG
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    return await canvasToBlob(canvas, 'image/jpeg', JPEG_QUALITY);
-  } finally {
-    bitmap.close();
-  }
+export function normalizeImage(file: Blob): Promise<Blob> {
+  return encodeJpeg(file, MAX_EDGE, JPEG_QUALITY);
 }
 
 export interface ImportFailure {
@@ -172,4 +151,39 @@ export async function importPagesToDocument(documentId: string, files: File[]): 
     }
   }
   return failures;
+}
+
+// Pages from the system document scanner: M9's text page target is a 150–400 KB JPEG at
+// about 2500 px on the long edge (docs/scanner-standards.md). The scanners return far more
+// (≈1.5 MB per page from VisionKit, uncompressed-quality JPEGs from ML Kit).
+const SCAN_MAX_EDGE = 2500;
+const SCAN_JPEG_QUALITY = 0.8;
+
+/** "Scan YYYY-MM-DD HH:MM", the name the camera gives a new document. */
+export function scanName(now = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `Scan ${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+}
+
+/**
+ * One scan from the system document scanner: its pages, in order, become one new document
+ * (or are appended to `documentId`), each queued for OCR. The scanner has already found the
+ * edges and flattened the pages, so they're stored like a cropped camera capture: no
+ * `corners`, filter `original`. Every page is re-encoded before anything is written, so a
+ * page that can't be read leaves no half-imported document. Returns the document's id.
+ */
+export async function importScan(pages: Blob[], documentId?: string): Promise<string> {
+  if (pages.length === 0) throw new Error('The scan has no pages');
+  const encoded: Blob[] = [];
+  // One at a time: each decode holds a full-size bitmap
+  for (const page of pages) encoded.push(await encodeJpeg(page, SCAN_MAX_EDGE, SCAN_JPEG_QUALITY));
+
+  let id = documentId;
+  let rest = encoded;
+  if (!id) {
+    id = await createDocument(scanName(), encoded[0]);
+    rest = encoded.slice(1);
+  }
+  for (const page of rest) await addPageToDocument(id, page);
+  return id;
 }

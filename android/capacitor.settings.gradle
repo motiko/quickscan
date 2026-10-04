@@ -2,5 +2,8 @@
 include ':capacitor-android'
 project(':capacitor-android').projectDir = new File('../node_modules/@capacitor/android/capacitor')
 
+include ':capgo-capacitor-document-scanner'
+project(':capgo-capacitor-document-scanner').projectDir = new File('../node_modules/@capgo/capacitor-document-scanner/android')
+
 include ':capacitor-native-ocr'
 project(':capacitor-native-ocr').projectDir = new File('../node_modules/capacitor-native-ocr/android')
