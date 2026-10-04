@@ -7,6 +7,8 @@
 
 import type { AppSettings, LlmApiSchema } from '@/types';
 import { resolveModel } from './models';
+import { llmFetch } from './transport';
+import { isNativeApp } from '@/lib/native-passkey';
 
 export interface LlmConfig {
   schema: LlmApiSchema | 'gemini';
@@ -107,6 +109,43 @@ export function joinUrl(baseUrl: string, path: string): string {
 
 export function chatCompletionsUrl(baseUrl: string): string {
   return joinUrl(baseUrl, 'chat/completions');
+}
+
+/**
+ * Whether a request to `url` goes through /api/llm: on the web only, for chat-completions
+ * endpoints on PROXIED_HOSTS. The app has no /api/llm and needs none: it calls every endpoint
+ * over native HTTP (`llmFetch`), where CORS doesn't apply.
+ */
+export function viaLlmProxy(url: string, schema: LlmConfig['schema']): boolean {
+  return !isNativeApp() && schema === 'chat-completions' && isProxiedUrl(url);
+}
+
+/**
+ * Whether requests to `url` cross the internet unencrypted: plain http:// to a host that isn't
+ * this device or on the local network (private IPv4 ranges, Tailscale's 100.64/10, IPv6 ULA
+ * and link-local, `.local`, single-label names). The app reaches such endpoints (native HTTP
+ * allows cleartext for self-hosted servers), but the API key and the documents travel in clear.
+ */
+export function isCleartextOverInternet(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url.trim());
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== 'http:') return false;
+  const host = parsed.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  if (host === 'localhost' || host.endsWith('.local') || !host.includes('.') && !host.includes(':')) return false;
+  const v4 = host.match(/^(\d+)\.(\d+)\.\d+\.\d+$/);
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])];
+    const local =
+      a === 10 || a === 127 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) ||
+      (a === 169 && b === 254) || (a === 100 && b >= 64 && b <= 127);
+    return !local;
+  }
+  if (host.includes(':')) return !(host === '::1' || /^f[cd]/.test(host) || /^fe[89ab]/.test(host));
+  return true;
 }
 
 export function isProxiedUrl(url: string): boolean {
@@ -228,7 +267,7 @@ export function buildRequest(request: LlmRequest, config: LlmConfig): ProviderRe
 
 /** Send a single-turn request and return the model's reply text, without thinking parts the API marks as such. */
 export async function callLlm(request: LlmRequest, config: LlmConfig, options: LlmCallOptions = {}): Promise<string> {
-  const { fetchImpl = fetch, signal } = options;
+  const { fetchImpl = llmFetch, signal } = options;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), request.timeoutMs);
   const onAbort = () => controller.abort(signal?.reason);
@@ -239,7 +278,7 @@ export async function callLlm(request: LlmRequest, config: LlmConfig, options: L
     const model = await resolveModel(config, fetchImpl);
     const built = buildRequest(request, { ...config, model });
     // The proxy only forwards chat completions requests to allowlisted hosts
-    const viaProxy = config.schema === 'chat-completions' && isProxiedUrl(built.url);
+    const viaProxy = viaLlmProxy(built.url, config.schema);
     if (viaProxy) built.headers[PROXY_TARGET_HEADER] = built.url;
 
     const response = await fetchImpl(viaProxy ? PROXY_PATH : built.url, {
