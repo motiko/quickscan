@@ -53,6 +53,8 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+const ENGINE_NAMES: Record<string, string> = { tesseract: 'Tesseract', vision: 'Apple Vision', mlkit: 'ML Kit' };
+
 function PageInfo({
   page,
   heading,
@@ -87,7 +89,7 @@ function PageInfo({
             </>
           ) : (
             <>
-              <InfoRow label="Method" value={info?.engine === 'vision' ? 'Apple Vision' : 'Tesseract'} />
+              <InfoRow label="Method" value={ENGINE_NAMES[info?.engine ?? 'tesseract'] ?? 'Tesseract'} />
               <InfoRow
                 label="OCR languages"
                 value={languages.length ? languages.map(ocrLanguageName).join(', ') : '—'}

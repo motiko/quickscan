@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Typecheck: `npm run typecheck`
 - Lint: `npm run lint`
 - Lint Fix: `npm run lint:fix`
-- Static export for the native app: `npm run build:export` (→ `out/`); `npm run cap:sync` also copies it into `ios/`; `npm run ios` opens Xcode
+- Static export for the native app: `npm run build:export` (→ `out/`); `npm run cap:sync` also copies it into `ios/` and `android/`; `npm run ios` opens Xcode, `npm run android` Android Studio
 
 ### Testing
 - Unit Tests (Vitest): `npm run test`
