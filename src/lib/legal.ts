@@ -3,9 +3,8 @@
  * /privacy. The stores link to that page, so keep it current.
  */
 export const PRIVACY_CONTACT = {
-  // TODO(owner): the controller's name and the dedicated privacy address
-  name: 'TODO: owner name',
-  email: 'TODO: privacy address',
+  name: 'Moti Koritz',
+  email: 'indeecjo@gmail.com',
 };
 
 /** Date the privacy policy last changed in substance. */
