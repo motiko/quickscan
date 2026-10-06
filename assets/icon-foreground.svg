@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- The mark of icon.svg without its background: Android's adaptive icon foreground. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#1d4ed8"/>
+    </linearGradient>
+  </defs>
+    <g fill="none" stroke="#ffffff" stroke-width="44" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M292 392 V292 H392"/><path d="M632 292 H732 V392"/><path d="M732 632 V732 H632"/><path d="M392 732 H292 V632"/>
+  </g>
+  <path d="M402 342 H572 L622 392 V682 H402 Z" fill="#ffffff"/>
+  <path d="M572 342 V392 H622 Z" fill="#bfdbfe"/>
+  <g fill="#93c5fd">
+    <rect x="442" y="432" width="132" height="22" rx="11"/><rect x="442" y="486" width="132" height="22" rx="11"/>
+    <rect x="442" y="540" width="96" height="22" rx="11"/><rect x="442" y="594" width="118" height="22" rx="11"/>
+  </g>
+</svg>

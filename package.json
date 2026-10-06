@@ -23,6 +23,7 @@
     "bench:validate": "node bench/tools/validate-manifest.mjs",
     "bench:fetch": "node bench/tools/fetch-corpus.mjs",
     "build:export": "node scripts/copy-tesseract.mjs && node scripts/build-export.mjs",
+    "icons": "node scripts/render-icons.mjs",
     "cap:sync": "npm run build:export && cap sync",
     "ios": "npm run cap:sync && cap open ios",
     "android": "npm run cap:sync && cap open android"

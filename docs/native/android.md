@@ -66,13 +66,21 @@ Checked on the release bundle with `bundletool dump manifest` and on the APKs bu
 
 ## App identity
 
-`applicationId` `app.quickscan`, label "QuickScan". The launcher icon and the splash are the web app's icon (`src/app/icon.png`, `public/icons/`: a grey ring and white disc on `#2563eb`); the iOS app still has Capacitor's placeholder icon. Sources are in `assets/`, rendered at 1024 px (splash 2732 px, light and dark), and the Android resources were generated once with:
+`applicationId` `app.quickscan`, label "QuickScan". One icon for web, iOS and Android: "Viewfinder", the scanner's corner guides around a page, white on a blue gradient (`#3b82f6` → `#1d4ed8`). The masters are SVGs in `assets/`:
+- `icon.svg`: the full icon
+- `icon-foreground.svg`: the mark alone
+- `icon-monochrome.svg`: the page's lines cut out, for Android 13+ themed icons
 
-```bash
-npx @capacitor/assets@3.0.5 generate --android
-```
+`npm run icons` (`scripts/render-icons.mjs`, Playwright's Chromium) renders every file from them:
+- **Web:** `src/app/icon.png`, `apple-icon.png`, `favicon.ico`, and `public/icons/` (also the maskable manifest icon).
+- **iOS:** the 1024 px App Store icon and the launch image, both without an alpha channel, which App Store Connect requires.
+- **Android:**
+  - legacy square and round launcher icons per density
+  - the adaptive icon's foreground and monochrome layers at the inset layer's size (72 dp: 54–288 px). `ic_launcher.xml` insets them by 16.7%, on the gradient background `drawable/ic_launcher_gradient.xml`.
+  - the pre-Android-12 `drawable*/splash.png`, at the sizes already there
+- **`assets/*.png`:** copies for `@capacitor/assets`.
 
-Then, by hand: the adaptive icon's background is the colour `@color/ic_launcher_background` instead of an inset PNG, and `ic_launcher_foreground.png` is rendered at the inset layer's size (72 dp: 72–288 px), not `@capacitor/assets`' 108 dp. Android 12+ draws its own launch screen from the adaptive icon on `@color/splash_background` (white, `#0a0a0a` at night); older versions show `drawable*/splash.png`.
+Change a master, run `npm run icons`, and commit the results. Android 12+ draws its own launch screen from the adaptive icon on `@color/splash_background` (white, `#0a0a0a` at night).
 
 ## Google Play: owner checklist
 
