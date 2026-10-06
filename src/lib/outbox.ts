@@ -65,7 +65,7 @@ export function applyUntracked<T>(fn: () => Promise<T>): Promise<T> {
   }
   return db.transaction(
     'rw',
-    [db.documents, db.pages, db.folders, db.signatures, db.settings, db.outbox, db.syncMeta],
+    [db.documents, db.pages, db.images, db.folders, db.signatures, db.settings, db.outbox, db.syncMeta],
     (tx) => {
       markUntracked(tx.idbtrans);
       return fn();

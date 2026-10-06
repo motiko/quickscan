@@ -47,13 +47,16 @@ export async function seedDocument(
         const req = indexedDB.open('QuickScanDB');
         req.onsuccess = () => {
           const db = req.result;
-          const tx = db.transaction(['documents', 'pages'], 'readwrite');
+          const tx = db.transaction(['documents', 'pages', 'images'], 'readwrite');
           const now = new Date();
+          // Images are rows of their own that records point to (src/lib/images.ts)
+          tx.objectStore('images').put({ id: 'img1', blob, createdAt: now });
+          tx.objectStore('images').put({ id: 'thumb1', blob, createdAt: now });
           tx.objectStore('documents').put({
-            id: 'd1', name, createdAt: now, updatedAt: now, pageCount: 1, nameSource: 'default', thumbnailBlob: blob,
+            id: 'd1', name, createdAt: now, updatedAt: now, pageCount: 1, nameSource: 'default', thumbnailId: 'thumb1',
           });
           tx.objectStore('pages').put({
-            id: 'p1', documentId: 'd1', pageNumber: 1, originalBlob: blob, processedBlob: blob,
+            id: 'p1', documentId: 'd1', pageNumber: 1, originalImageId: 'img1', processedImageId: 'img1',
             filter: 'original', createdAt: now, ocrStatus: 'done', ocrText: text, ocrWords: [],
             ...(ocrInfo && { ocrInfo: { engine: 'tesseract', recognizedAt: now, ...ocrInfo } }),
           });
@@ -131,15 +134,18 @@ export async function seedPages(
         const req = indexedDB.open('QuickScanDB');
         req.onsuccess = () => {
           const db = req.result;
-          const tx = db.transaction(['documents', 'pages', 'settings'], 'readwrite');
+          const tx = db.transaction(['documents', 'pages', 'images', 'settings'], 'readwrite');
           const now = new Date();
+          // Images are rows of their own that records point to (src/lib/images.ts)
+          tx.objectStore('images').put({ id: 'img1', blob, createdAt: now });
+          tx.objectStore('images').put({ id: 'thumb1', blob, createdAt: now });
           tx.objectStore('documents').put({
-            id: 'd1', name, createdAt: now, updatedAt: now, pageCount: pages, nameSource: 'user', thumbnailBlob: blob,
+            id: 'd1', name, createdAt: now, updatedAt: now, pageCount: pages, nameSource: 'user', thumbnailId: 'thumb1',
             ...(tags && { tags }),
           });
           for (let i = 1; i <= pages; i++) {
             tx.objectStore('pages').put({
-              id: `p${i}`, documentId: 'd1', pageNumber: i, originalBlob: blob, processedBlob: blob,
+              id: `p${i}`, documentId: 'd1', pageNumber: i, originalImageId: 'img1', processedImageId: 'img1',
               filter: 'original', createdAt: now, updatedAt: now, ocrStatus, ocrText: text, ocrWords: [],
             });
           }

@@ -25,7 +25,7 @@ export interface OutboxEntry {
   op: 'upsert' | 'delete';
   /** Time of the latest local write (epoch ms) — the last-write-wins clock, with the device id as tie-breaker. */
   updatedAt: number;
-  /** The synced file (page processedBlob / signature PNG) changed since the last push; always false for deletes. */
+  /** The synced file (page processedImageId / signature PNG) changed since the last push; always false for deletes. */
   fileChanged: boolean;
   /** Bumped on every coalesced change, so acknowledging a pushed entry never drops a newer edit. */
   rev: number;
@@ -58,8 +58,9 @@ interface TrackedTable {
 export const TRACKED_TABLES: Readonly<Record<string, TrackedTable>> = {
   // searchText and pageCount are derived from the pages and recomputed on every device (after
   // a pull too), so keeping them current must not queue the document or win it a newer clock
-  documents: { kind: 'document', localOnly: ['thumbnailBlob', 'searchText', 'pageCount'] },
-  pages: { kind: 'page', localOnly: ['originalBlob', 'ocrStatus', 'keepOrientation'], file: 'processedBlob' },
+  documents: { kind: 'document', localOnly: ['thumbnailId', 'searchText', 'pageCount'] },
+  // Every new image gets a new `images` row id, so a changed processedImageId is a changed file
+  pages: { kind: 'page', localOnly: ['originalImageId', 'ocrStatus', 'keepOrientation'], file: 'processedImageId' },
   folders: { kind: 'folder', localOnly: [] },
   signatures: { kind: 'signature', localOnly: [], file: 'blob' },
   settings: { kind: 'settings', localOnly: [] },

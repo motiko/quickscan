@@ -26,6 +26,7 @@ import { listUnverifiedDeletions } from '@/lib/sync/unverified';
 import { materialHash } from '@/lib/sync/payload';
 import { FakeSupabase } from './fake-supabase';
 import type { Annotation, Page } from '@/types';
+import { imageText } from './image-test-utils';
 
 const USER_A = '00000000-0000-4000-8000-00000000000a';
 const USER_B = '00000000-0000-4000-8000-00000000000b';
@@ -155,7 +156,7 @@ describe('conflicted copies', () => {
     expect(await readOutbox()).toEqual([]);
     // The copy's image arrived on B too (it reuses the existing file)
     const copy = await db.pages.get(onB[1].id);
-    expect(await copy!.processedBlob!.text()).toBe('page');
+    expect(await imageText(copy!.processedImageId)).toBe('page');
   });
 
   it('makes the copy on the losing side when its own edit lost', async () => {

@@ -14,7 +14,8 @@ import { hideDevOverlay } from './helpers';
  * locally:
  *   npm run build && E2E_SERVER=prod npx playwright test e2e/upgrade.spec.ts
  *
- * Seeded records carry no Blobs: Playwright's WebKit can't store Blobs in IndexedDB.
+ * Seeded records carry no Blobs (Playwright's WebKit can't store Blobs in IndexedDB), except in
+ * the v8 image move test, which skips WebKit.
  */
 
 /**
@@ -22,11 +23,21 @@ import { hideDevOverlay } from './helpers';
  * isn't the app. With `hold`, that page keeps its connection open and, like a frozen tab,
  * never closes it when asked.
  */
-async function seedV6(page: Page, { hold = false } = {}) {
+async function seedV6(page: Page, { hold = false, images = false } = {}) {
   await page.goto('/manifest.webmanifest');
   await page.evaluate(
-    (hold) =>
-      new Promise<void>((resolve, reject) => {
+    async ({ hold, images }) => {
+      // Images were Blobs on the records until v8
+      let image: Blob | undefined;
+      if (images) {
+        const canvas = new OffscreenCanvas(30, 40);
+        const ctx = canvas.getContext('2d')!;
+        ctx.fillStyle = '#c33';
+        ctx.fillRect(0, 0, 30, 40);
+        image = await canvas.convertToBlob({ type: 'image/png' });
+      }
+      const withImage = (fields: Record<string, Blob | undefined>) => (image ? fields : {});
+      return new Promise<void>((resolve, reject) => {
         const req = indexedDB.open('QuickScanDB', 60);
         req.onupgradeneeded = () => {
           const db = req.result;
@@ -43,8 +54,14 @@ async function seedV6(page: Page, { hold = false } = {}) {
           for (const i of ['name', 'createdAt', 'updatedAt']) folders.createIndex(i, i);
           const now = new Date();
           folders.put({ id: 'f1', name: 'Taxes', createdAt: now, updatedAt: now });
-          docs.put({ id: 'd1', name: 'Old Lease', createdAt: now, updatedAt: now, pageCount: 1, folderId: 'f1', tags: ['home'] });
-          pages.put({ id: 'p1', documentId: 'd1', pageNumber: 1, filter: 'original', createdAt: now, ocrStatus: 'done', ocrText: 'lease' });
+          docs.put({
+            id: 'd1', name: 'Old Lease', createdAt: now, updatedAt: now, pageCount: 1, folderId: 'f1', tags: ['home'],
+            ...withImage({ thumbnailBlob: image }),
+          });
+          pages.put({
+            id: 'p1', documentId: 'd1', pageNumber: 1, filter: 'original', createdAt: now, ocrStatus: 'done', ocrText: 'lease',
+            ...withImage({ originalBlob: image, processedBlob: image }),
+          });
           req.transaction!.objectStore('settings').put({ key: 'ocrLanguages', value: ['eng'] });
         };
         req.onsuccess = () => {
@@ -53,8 +70,9 @@ async function seedV6(page: Page, { hold = false } = {}) {
           resolve();
         };
         req.onerror = () => reject(req.error);
-      }),
-    hold
+      });
+    },
+    { hold, images }
   );
 }
 
@@ -81,7 +99,40 @@ test.describe('Upgrading an older database', () => {
     await page.goto('/');
     await expect(page.getByText('Old Lease')).toBeVisible();
     await expect(page.getByTestId('database-gate')).toHaveCount(0);
-    expect(await nativeVersion(page)).toBe(70);
+    expect(await nativeVersion(page)).toBe(80);
+  });
+
+  test('moves stored images into their own table and still shows them (v8, #89)', async ({ page, browserName }) => {
+    test.skip(browserName === 'webkit', "Playwright's WebKit can't store Blobs in IndexedDB");
+    await seedV6(page, { images: true });
+    await page.goto('/');
+    const thumbnail = page.locator('a[href*="d1"] img');
+    await expect(thumbnail).toBeVisible();
+    await expect.poll(() => thumbnail.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(30);
+
+    const stored = await page.evaluate(
+      () =>
+        new Promise<{ page: Record<string, unknown>; doc: Record<string, unknown>; images: number }>((resolve) => {
+          const req = indexedDB.open('QuickScanDB');
+          req.onsuccess = () => {
+            const tx = req.result.transaction(['pages', 'documents', 'images']);
+            const out: Record<string, unknown> = {};
+            tx.objectStore('pages').get('p1').onsuccess = (e) => (out.page = (e.target as IDBRequest).result);
+            tx.objectStore('documents').get('d1').onsuccess = (e) => (out.doc = (e.target as IDBRequest).result);
+            tx.objectStore('images').count().onsuccess = (e) => (out.images = (e.target as IDBRequest).result);
+            tx.oncomplete = () => {
+              req.result.close();
+              resolve(out as never);
+            };
+          };
+        })
+    );
+    expect(stored.page.processedBlob).toBeUndefined();
+    expect(stored.page.originalBlob).toBeUndefined();
+    expect(stored.page.processedImageId).toBe(stored.page.originalImageId);
+    expect(stored.doc.thumbnailBlob).toBeUndefined();
+    expect(stored.doc.thumbnailId).toEqual(expect.any(String));
+    expect(stored.images).toBe(2);
   });
 
   test('says when another tab blocks the upgrade, and continues once it closes', async ({ page, context }) => {
@@ -111,7 +162,7 @@ test.describe('Upgrading an older database', () => {
     const result = await newer.evaluate(
       () =>
         new Promise<string>((resolve) => {
-          const req = indexedDB.open('QuickScanDB', 80);
+          const req = indexedDB.open('QuickScanDB', 90);
           req.onblocked = () => resolve('blocked');
           req.onsuccess = () => {
             req.result.close();

@@ -12,7 +12,7 @@ function page(id: string, pageNumber: number, overrides: Partial<Page> = {}): Pa
     id,
     documentId: 'doc1',
     pageNumber,
-    originalBlob: new Blob([id]),
+    originalImageId: `img-${id}`,
     filter: 'original',
     createdAt: new Date(),
     updatedAt: new Date(),

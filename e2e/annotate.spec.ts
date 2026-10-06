@@ -21,8 +21,12 @@ function thumbnailSize(page: Page) {
       new Promise<number>((resolve) => {
         const req = indexedDB.open('QuickScanDB');
         req.onsuccess = () => {
-          const get = req.result.transaction('documents').objectStore('documents').get('d1');
-          get.onsuccess = () => resolve(get.result.thumbnailBlob.size);
+          const tx = req.result.transaction(['documents', 'images']);
+          const doc = tx.objectStore('documents').get('d1');
+          doc.onsuccess = () => {
+            const image = tx.objectStore('images').get(doc.result.thumbnailId);
+            image.onsuccess = () => resolve(image.result.blob.size);
+          };
         };
       })
   );

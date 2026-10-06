@@ -1,6 +1,8 @@
 import { db } from '@/lib/db';
 import { applyUntracked, type OutboxEntry } from '@/lib/outbox';
 import type { Folder, Page, ScannedDocument, Signature } from '@/types';
+import { hasPageImage } from '@/lib/page-image';
+import { deleteImagesIfUnused, imageIdsOf } from '@/lib/images';
 import { withSyncLock } from './lock';
 import { badRowsKey, cursorKey, fileKey, FILE_PREFIX, LAST_USER_KEY, mergeKey, unverifiedKey, type FileRef } from './state';
 
@@ -68,7 +70,7 @@ export function planRemoval(userId: string, s: Snapshot): RemovalPlan {
     pagesByDoc.set(page.documentId, list);
   }
   const pageSynced = (p: Page) =>
-    !pending.has(`page:${p.id}`) && (hasRemoteFile('page', p.id) || (p.processedBlob == null && p.originalBlob == null));
+    !pending.has(`page:${p.id}`) && (hasRemoteFile('page', p.id) || !hasPageImage(p));
 
   const keptFolderIds = new Set<string>();
   for (const doc of s.documents) {
@@ -144,8 +146,12 @@ export async function removeSyncedFromDevice(userId: string): Promise<RemovalPla
     applyUntracked(async () => {
       const plan = planRemoval(userId, await snapshot(userId));
       if (!plan.synced) return plan;
+      // Their images go now, not at a later start: this is how a shared device is cleaned up
+      const pages = (await db.pages.bulkGet(plan.pages)).flatMap((p) => (p ? imageIdsOf(p) : []));
+      const docs = (await db.documents.bulkGet(plan.documents)).flatMap((d) => (d ? imageIdsOf(d) : []));
       await db.pages.bulkDelete(plan.pages);
       await db.documents.bulkDelete(plan.documents);
+      await deleteImagesIfUnused([...pages, ...docs]);
       await db.folders.bulkDelete(plan.folders);
       await db.signatures.bulkDelete(plan.signatures);
       await db.syncMeta.bulkDelete(plan.refKeys);

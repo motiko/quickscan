@@ -3,6 +3,8 @@ import type { ScannedDocument, Page, Signature, Folder } from '@/types';
 import { LEGACY_LLM_KEYS, migrateLegacyLlmSettings } from './llm-settings-migration';
 import { SYNCED_SETTING_KEYS, syncTrackingMiddleware, type OutboxEntry } from './sync-tracking';
 import { trackDatabase } from './db-status';
+import type { StoredImage } from './images';
+import { prepareImages } from './image-migration';
 
 export interface SettingRow {
   key: string;
@@ -17,6 +19,7 @@ const db = new Dexie('QuickScanDB') as Dexie & {
   folders: EntityTable<Folder, 'id'>;
   outbox: Table<OutboxEntry, [OutboxEntry['kind'], string]>;
   syncMeta: EntityTable<SettingRow, 'key'>;
+  images: EntityTable<StoredImage, 'id'>;
 };
 
 // Records local changes of synced tables in the outbox (see sync-tracking.ts)
@@ -93,7 +96,7 @@ db.version(7)
     await tx
       .table<Page, string>('pages')
       .toCollection()
-      .modify((page: Page) => {
+      .modify((page: Page & { processedBlob?: Blob }) => {
         page.updatedAt ??= docUpdated.get(page.documentId) ?? page.createdAt ?? now;
         queue('page', page.id, page.updatedAt, page.processedBlob != null);
       });
@@ -104,5 +107,18 @@ db.version(7)
 
     await tx.table('outbox').bulkPut(entries);
   });
+
+// Images get a table of their own, whose rows are never rewritten (lib/images.ts, #89). The
+// Blobs already stored on pages and documents move over when the database opens, not here:
+// see image-migration.ts. The id fields are indexed to find whether anything still uses an
+// image (deleteImagesIfUnused).
+db.version(8).stores({
+  documents: 'id, name, createdAt, updatedAt, folderId, *tags, thumbnailId',
+  pages: 'id, documentId, [documentId+pageNumber], ocrStatus, processedImageId, originalImageId',
+  images: 'id',
+});
+
+// Sticky: runs on every open, before any other query goes through
+db.on('ready', (vipDb) => prepareImages(vipDb), true);
 
 export { db };

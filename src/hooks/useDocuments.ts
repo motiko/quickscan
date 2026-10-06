@@ -7,6 +7,7 @@ import { createThumbnail } from '@/lib/image-processing';
 import { rebuildSearchText } from '@/lib/ocr-queue';
 import { getRenderedBlob } from '@/lib/annotations/flatten';
 import { hasPageImage } from '@/lib/page-image';
+import { deleteImagesIfUnused, imageIdsOf, putImage, setThumbnail } from '@/lib/images';
 import type { ScannedDocument, Page, ImageFilter, Annotation } from '@/types';
 
 export function useDocuments() {
@@ -42,9 +43,8 @@ export async function createDocument(
 
 /**
  * A new document with these pages, in order, written in one transaction, so OCR can't pick
- * up page 1 while later pages are still being added. OCR's record updates rewrite the
- * records' blobs, and in WebKit (iOS app) such rewrites racing with other writes left blobs
- * pointing at deleted files (docs/native/android.md, "System document scanner").
+ * up page 1 while later pages are still being added. The images go into `images` in the same
+ * transaction (lib/images.ts).
  */
 export async function createDocumentWithPages(
   name: string,
@@ -56,30 +56,34 @@ export async function createDocumentWithPages(
   const now = new Date();
   const thumbnailBlob = await createThumbnail(pageBlobs[0]);
 
-  await db.transaction('rw', [db.documents, db.pages], async () => {
+  await db.transaction('rw', [db.documents, db.pages, db.images], async () => {
     await db.documents.add({
       id: docId,
       name,
       createdAt: now,
       updatedAt: now,
       pageCount: pageBlobs.length,
-      thumbnailBlob,
+      thumbnailId: await putImage(thumbnailBlob),
       nameSource,
     });
 
-    await db.pages.bulkAdd(pageBlobs.map((blob, i) => newPage(docId, i + 1, blob, 'original', now)));
+    const pages: Page[] = [];
+    for (const [i, blob] of pageBlobs.entries()) pages.push(await newPage(docId, i + 1, blob, 'original', now));
+    await db.pages.bulkAdd(pages);
   });
 
   return docId;
 }
 
-function newPage(documentId: string, pageNumber: number, blob: Blob, filter: ImageFilter, now: Date): Page {
+/** A new page whose original and processed image are `blob` (one stored image). In a transaction with `images`. */
+async function newPage(documentId: string, pageNumber: number, blob: Blob, filter: ImageFilter, now: Date, id = nanoid()): Promise<Page> {
+  const imageId = await putImage(blob);
   return {
-    id: nanoid(),
+    id,
     documentId,
     pageNumber,
-    originalBlob: blob,
-    processedBlob: blob,
+    originalImageId: imageId,
+    processedImageId: imageId,
     filter,
     createdAt: now,
     updatedAt: now,
@@ -90,10 +94,14 @@ function newPage(documentId: string, pageNumber: number, blob: Blob, filter: Ima
 /** Append pages, in order, to a document in one transaction (see createDocumentWithPages). */
 export async function addPagesToDocument(documentId: string, pageBlobs: Blob[]): Promise<void> {
   const now = new Date();
-  await db.transaction('rw', [db.documents, db.pages], async () => {
+  await db.transaction('rw', [db.documents, db.pages, db.images], async () => {
     const doc = await db.documents.get(documentId);
     if (!doc) throw new Error('Document not found');
-    await db.pages.bulkAdd(pageBlobs.map((blob, i) => newPage(documentId, doc.pageCount + i + 1, blob, 'original', now)));
+    const pages: Page[] = [];
+    for (const [i, blob] of pageBlobs.entries()) {
+      pages.push(await newPage(documentId, doc.pageCount + i + 1, blob, 'original', now));
+    }
+    await db.pages.bulkAdd(pages);
     await db.documents.update(documentId, { pageCount: doc.pageCount + pageBlobs.length, updatedAt: now });
   });
 }
@@ -111,18 +119,8 @@ export async function addPageToDocument(
 
   const newPageNumber = doc.pageCount + 1;
 
-  await db.transaction('rw', [db.documents, db.pages], async () => {
-    await db.pages.add({
-      id: pageId,
-      documentId,
-      pageNumber: newPageNumber,
-      originalBlob: imageBlob,
-      processedBlob: imageBlob,
-      filter,
-      createdAt: now,
-      updatedAt: now,
-      ocrStatus: 'pending',
-    });
+  await db.transaction('rw', [db.documents, db.pages, db.images], async () => {
+    await db.pages.add(await newPage(documentId, newPageNumber, imageBlob, filter, now, pageId));
 
     await db.documents.update(documentId, {
       pageCount: newPageNumber,
@@ -135,20 +133,26 @@ export async function addPageToDocument(
 
 export async function updatePage(
   pageId: string,
-  updates: Partial<Pick<Page, 'processedBlob' | 'filter' | 'corners' | 'annotations'>>
+  { processedImage, ...updates }: Partial<Pick<Page, 'filter' | 'corners' | 'annotations'>> & { processedImage?: Blob }
 ): Promise<void> {
-  // A new image invalidates any text recognized from the old one; one changed by hand (turned)
-  // is the orientation the user wants, so OCR mustn't turn it upright on its own
-  const ocrReset = updates.processedBlob ? { ocrStatus: 'pending' as const, keepOrientation: true } : {};
-  await db.pages.update(pageId, { ...updates, ...ocrReset });
+  await db.transaction('rw', [db.pages, db.images], async () => {
+    // A new image invalidates any text recognized from the old one; one changed by hand (turned)
+    // is the orientation the user wants, so OCR mustn't turn it upright on its own
+    const image = processedImage
+      ? { processedImageId: await putImage(processedImage), ocrStatus: 'pending' as const, keepOrientation: true }
+      : {};
+    await db.pages.update(pageId, { ...updates, ...image });
+  });
 }
 
 export async function deletePage(pageId: string): Promise<void> {
   const page = await db.pages.get(pageId);
   if (!page) return;
 
-  await db.transaction('rw', [db.documents, db.pages], async () => {
+  let newFirst: Page | undefined;
+  await db.transaction('rw', [db.documents, db.pages, db.images], async () => {
     await db.pages.delete(pageId);
+    const gone = imageIdsOf(page);
 
     const remaining = await db.pages
       .where('documentId')
@@ -164,24 +168,33 @@ export async function deletePage(pageId: string): Promise<void> {
       const newCount = remaining.length;
       if (newCount === 0) {
         await db.documents.delete(page.documentId);
+        gone.push(...imageIdsOf(doc));
       } else {
-        const newFirst = remaining[0];
         const updates: Partial<ScannedDocument> = {
           pageCount: newCount,
           updatedAt: new Date(),
         };
         if (page.pageNumber === 1) {
-          // A synced page may not have its image yet; sync rebuilds the thumbnail when it arrives
-          updates.thumbnailBlob = hasPageImage(newFirst)
-            ? await createThumbnail(await getRenderedBlob(newFirst))
-            : undefined;
+          newFirst = remaining[0];
+          // It showed the deleted page. The new first page's thumbnail is made below, outside
+          // the transaction; a synced page may not have its image yet, and sync makes it then
+          updates.thumbnailId = undefined;
+          gone.push(...imageIdsOf(doc));
         }
         await db.documents.update(page.documentId, updates);
       }
     }
+    await deleteImagesIfUnused(gone);
   });
 
   if (await db.documents.get(page.documentId)) {
+    if (newFirst && hasPageImage(newFirst)) {
+      try {
+        await setThumbnail(page.documentId, await createThumbnail(await getRenderedBlob(newFirst)));
+      } catch (err) {
+        console.warn('Thumbnail refresh failed:', err);
+      }
+    }
     await rebuildSearchText(page.documentId);
   }
 }
@@ -191,8 +204,7 @@ export async function savePageAnnotations(pageId: string, annotations: Annotatio
   await db.pages.update(pageId, { annotations });
   const page = await db.pages.get(pageId);
   if (page?.pageNumber === 1 && hasPageImage(page)) {
-    const thumbnailBlob = await createThumbnail(await getRenderedBlob(page));
-    await db.documents.update(page.documentId, { thumbnailBlob, updatedAt: new Date() });
+    await setThumbnail(page.documentId, await createThumbnail(await getRenderedBlob(page)), { updatedAt: new Date() });
   }
 }
 
@@ -202,9 +214,12 @@ export async function keepConflictedCopy(pageId: string): Promise<void> {
 }
 
 export async function deleteDocument(documentId: string): Promise<void> {
-  await db.transaction('rw', [db.documents, db.pages], async () => {
+  await db.transaction('rw', [db.documents, db.pages, db.images], async () => {
+    const pages = await db.pages.where('documentId').equals(documentId).toArray();
+    const doc = await db.documents.get(documentId);
     await db.pages.where('documentId').equals(documentId).delete();
     await db.documents.delete(documentId);
+    await deleteImagesIfUnused([...pages.flatMap(imageIdsOf), ...(doc ? imageIdsOf(doc) : [])]);
   });
 }
 

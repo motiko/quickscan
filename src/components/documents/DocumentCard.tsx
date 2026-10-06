@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { ScannedDocument } from '@/types';
-import { useBlobUrl } from '@/hooks/useBlobUrl';
+import { useImageUrl } from '@/hooks/useImageUrl';
 import { db } from '@/lib/db';
 import { generatePdf, pagesToPdfInput, shareOrDownload } from '@/lib/pdf';
 import { getRenderedBlob } from '@/lib/annotations/flatten';
@@ -57,7 +57,7 @@ function getRelativeTime(date: Date | number): string {
 }
 
 export function DocumentCard({ document, onDelete, isProcessing = false }: DocumentCardProps) {
-  const thumbnailUrl = useBlobUrl(document.thumbnailBlob);
+  const thumbnailUrl = useImageUrl(document.thumbnailId);
   const [isSharing, setIsSharing] = useState(false);
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'empty'>('idle');
 
