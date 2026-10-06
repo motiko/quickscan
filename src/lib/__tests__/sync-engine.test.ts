@@ -5,6 +5,8 @@ vi.mock('@/lib/image-processing', () => ({ createThumbnail: vi.fn(async () => ne
 vi.mock('@/lib/annotations/flatten', () => ({ getRenderedBlob: vi.fn(async () => new Blob(['rendered'])) }));
 
 import { db } from '@/lib/db';
+import { getImage } from '@/lib/images';
+import { addImage } from './image-test-utils';
 import { createDocument, addPageToDocument, deleteDocument, renameDocument, savePageAnnotations, updatePage } from '@/hooks/useDocuments';
 import { createFolder } from '@/lib/folders';
 import { updateSettings } from '@/lib/settings';
@@ -80,13 +82,14 @@ describe('push', () => {
     const doc = await decrypted(server, 'document', docId);
     expect(doc).toMatchObject({ name: 'Invoice ACME', folderId, tags: ['work'], nameSource: 'default' });
     // Derived and local-only fields stay home
-    expect(doc).not.toHaveProperty('thumbnailBlob');
+    expect(doc).not.toHaveProperty('thumbnailId');
     expect(doc).not.toHaveProperty('pageCount');
     expect(doc).not.toHaveProperty('searchText');
 
     const pagePayload = await decrypted<{ file: { id: string; type: string }; documentId: string }>(server, 'page', page.id);
     expect(pagePayload.documentId).toBe(docId);
-    expect(pagePayload).not.toHaveProperty('originalBlob');
+    expect(pagePayload).not.toHaveProperty('originalImageId');
+    expect(pagePayload).not.toHaveProperty('processedImageId');
     expect(pagePayload).not.toHaveProperty('ocrStatus');
     expect(pagePayload.file.type).toBe('image/jpeg');
     const path = `${USER_A}/${pagePayload.file.id}`;
@@ -178,12 +181,12 @@ describe('files', () => {
     expect(server.objects.size).toBe(1);
 
     // Same bytes written again (fileChanged), still no new upload
-    await updatePage(page.id, { processedBlob: img('v1') });
+    await updatePage(page.id, { processedImage: img('v1') });
     await runSync(ctx);
     expect(server.objects.size).toBe(1);
     expect((await getFileRef('page', page.id))!.fileId).toBe(first!.fileId);
 
-    await updatePage(page.id, { processedBlob: img('v2') });
+    await updatePage(page.id, { processedImage: img('v2') });
     await runSync(ctx);
     expect(server.objects.size).toBe(2);
     const second = await getFileRef('page', page.id);
@@ -249,8 +252,8 @@ describe('files', () => {
     expect(report.issues).toEqual([expect.objectContaining({ stage: 'download', id: 'p1' })]);
     const page = await db.pages.get('p1');
     expect(page).toMatchObject({ documentId: 'd1', ocrText: 'Hello', ocrStatus: 'done' });
-    expect(page!.processedBlob).toBeUndefined();
-    expect(page!.originalBlob).toBeUndefined();
+    expect(page!.processedImageId).toBeUndefined();
+    expect(page!.originalImageId).toBeUndefined();
     expect((await getFileRef('page', 'p1'))!.downloaded).toBe(false);
     expect(makeThumbnail).not.toHaveBeenCalled();
     expect(await readOutbox()).toEqual([]);
@@ -259,11 +262,12 @@ describe('files', () => {
     clock += 10_000;
     await runSync(ctx);
     const after = await db.pages.get('p1');
-    expect(await text(after!.processedBlob!)).toBe('remote-pixels');
-    expect(after!.processedBlob!.type).toBe('image/png');
+    const image = await getImage(after!.processedImageId);
+    expect(await text(image!)).toBe('remote-pixels');
+    expect(image!.type).toBe('image/png');
     expect((await getFileRef('page', 'p1'))!.downloaded).toBe(true);
     expect(makeThumbnail).toHaveBeenCalledTimes(1);
-    expect(await text((await db.documents.get('d1'))!.thumbnailBlob!)).toBe('thumb:p1');
+    expect(await text((await getImage((await db.documents.get('d1'))!.thumbnailId))!)).toBe('thumb:p1');
     // Writing the image didn't queue anything, and re-pushing would not re-upload
     expect(await readOutbox()).toEqual([]);
   });
@@ -290,14 +294,15 @@ describe('files', () => {
     const ctx = await context(server);
     await runSync(ctx);
     // The OCR queue is recognizing the image the page had before
-    await applyUntracked(() => db.pages.update('p1', { processedBlob: img('old-pixels'), ocrStatus: 'processing' }));
+    const old = await addImage(img('old-pixels'));
+    await applyUntracked(() => db.pages.update('p1', { processedImageId: old, ocrStatus: 'processing' }));
 
     server.objects.set(path, stored);
     clock += 10_000;
     await runSync(ctx);
 
     const page = await db.pages.get('p1');
-    expect(await text(page!.processedBlob!)).toBe('new-pixels');
+    expect(await text((await getImage(page!.processedImageId))!)).toBe('new-pixels');
     expect(page!.ocrStatus).toBe('pending');
     expect(await readOutbox()).toEqual([]);
   });

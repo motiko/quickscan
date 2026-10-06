@@ -23,6 +23,7 @@ import { previewRemoval, removeSyncedFromDevice } from '@/lib/sync/remove-local'
 import { getCursor, getFileRef, putFileRef, RetryTracker } from '@/lib/sync/state';
 import { getDeviceId } from '@/lib/outbox';
 import { FakeSupabase } from './fake-supabase';
+import { imageText } from './image-test-utils';
 
 const USER = '00000000-0000-4000-8000-00000000000a';
 const HOUR = 60 * 60_000;
@@ -67,7 +68,7 @@ describe('orphaned file cleanup', () => {
     await sync(); // past the first-sync merge
     const oldPath = await pagePath(page.id);
 
-    await updatePage(page.id, { processedBlob: img('v2') });
+    await updatePage(page.id, { processedImage: img('v2') });
     await sync();
     const newPath = await pagePath(page.id);
     expect(server.objects.size).toBe(2);
@@ -220,7 +221,7 @@ describe('remove synced documents from this device', () => {
     const back = await db.documents.get(synced);
     expect(back).toMatchObject({ name: 'Synced', folderId: folderA, pageCount: 1 });
     const [page] = await db.pages.where('documentId').equals(synced).toArray();
-    expect(await page.processedBlob!.text()).toBe('a');
+    expect(await imageText(page.processedImageId)).toBe('a');
   });
 
   it('keeps a document whose page image has not been uploaded', async () => {

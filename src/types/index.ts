@@ -41,7 +41,8 @@ export interface ScannedDocument {
   createdAt: Date;
   updatedAt: Date;
   pageCount: number;
-  thumbnailBlob?: Blob;
+  // Gallery thumbnail, an `images` row (lib/images.ts); local only
+  thumbnailId?: string;
   searchText?: string; // lower-cased OCR text of all pages, for gallery search
   // How the current name was chosen; auto-naming only replaces 'default' names.
   // Documents created before this field existed are treated like 'user'.
@@ -109,8 +110,10 @@ export interface Page {
   id: string;
   documentId: string;
   pageNumber: number;
-  originalBlob?: Blob; // raw capture; never syncs, so absent on pages pulled from another device
-  processedBlob?: Blob; // what's shown and exported; absent until a pulled page's image has downloaded
+  // Images are `images` rows (lib/images.ts), never stored on the page itself: rewriting a
+  // record that holds a Blob, as every OCR status change does, loses Blobs in WebKit (#89)
+  originalImageId?: string; // raw capture; never syncs, so absent on pages pulled from another device
+  processedImageId?: string; // what's shown and exported; absent until a pulled page's image has downloaded
   corners?: Quad;
   filter: ImageFilter;
   rotation?: number; // 0, 90, 180, 270

@@ -25,7 +25,7 @@ export async function getImageSize(blob: Blob): Promise<{ width: number; height:
 
 /** The page image with its annotations burned in, at the original resolution. */
 export async function getRenderedBlob(page: Page): Promise<Blob> {
-  const base = requirePageImage(page);
+  const base = await requirePageImage(page);
   if (!page.annotations || page.annotations.length === 0) return base;
 
   const [bitmap, signatures] = await Promise.all([

@@ -44,7 +44,7 @@ describe('pagesToPdfInput', () => {
   const base = {
     documentId: 'd',
     pageNumber: 1,
-    originalBlob: new Blob(['o']),
+    originalImageId: 'o',
     filter: 'original' as const,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -56,14 +56,15 @@ describe('pagesToPdfInput', () => {
       { ...base, id: 'a', ocrStatus: 'done', ocrWords: words },
       { ...base, id: 'b', ocrStatus: 'pending', ocrWords: words },
     ];
-    const input = await pagesToPdfInput(pages);
+    // The default renderer reads the stored image; that's not what this is about
+    const input = await pagesToPdfInput(pages, async () => new Blob(['o']));
     expect(input[0].words).toBe(words);
     expect(input[1].words).toBeUndefined();
   });
 
   it('uses the rendered (annotated) image when a renderer is given', async () => {
     const annotated = new Blob(['annotated']);
-    const pages: Page[] = [{ ...base, id: 'a', processedBlob: new Blob(['plain']) }];
+    const pages: Page[] = [{ ...base, id: 'a', processedImageId: 'plain' }];
     const input = await pagesToPdfInput(pages, async () => annotated);
     expect(input[0].blob).toBe(annotated);
   });

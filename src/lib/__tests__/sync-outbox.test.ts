@@ -22,6 +22,7 @@ import { updateSettings } from '@/lib/settings';
 import { ackOutbox, applyUntracked, getDeviceId, getOutboxEntry, readOutbox } from '@/lib/outbox';
 import { coalesce } from '@/lib/sync-tracking';
 import type { Annotation } from '@/types';
+import { addImage, imageText } from './image-test-utils';
 
 const blob = (s: string) => new Blob([s]);
 
@@ -49,7 +50,7 @@ describe('outbox: documents and pages', () => {
     const docId = await createDocumentWithPages('Scan', [blob('1'), blob('2')]);
     await addPagesToDocument(docId, [blob('3')]);
     const pages = await db.pages.where('documentId').equals(docId).sortBy('pageNumber');
-    expect(await Promise.all(pages.map((p) => p.processedBlob!.text()))).toEqual(['1', '2', '3']);
+    expect(await Promise.all(pages.map((p) => imageText(p.processedImageId)))).toEqual(['1', '2', '3']);
     expect(pages.map((p) => [p.pageNumber, p.ocrStatus, p.filter, p.corners])).toEqual([
       [1, 'pending', 'original', undefined],
       [2, 'pending', 'original', undefined],
@@ -63,7 +64,7 @@ describe('outbox: documents and pages', () => {
     const docId = await createDocument('Scan', blob('img'));
     await db.outbox.clear();
 
-    await db.documents.update(docId, { thumbnailBlob: blob('t') });
+    await db.documents.update(docId, { thumbnailId: await addImage('t') });
     // Derived from the pages and recomputed on every device: never synced
     await db.documents.update(docId, { searchText: 'invoice', pageCount: 2 });
     expect(await entries()).toEqual([]);
@@ -92,7 +93,7 @@ describe('outbox: documents and pages', () => {
     let entry = await getOutboxEntry('page', pageId);
     expect(entry).toMatchObject({ op: 'upsert', fileChanged: false });
 
-    await updatePage(pageId, { processedBlob: blob('cropped') });
+    await updatePage(pageId, { processedImage: blob('cropped') });
     await expectBumped();
     entry = await getOutboxEntry('page', pageId);
     expect(entry?.fileChanged).toBe(true);
@@ -125,7 +126,7 @@ describe('outbox: documents and pages', () => {
     await db.pages.update(page.id, { ocrStatus: 'processing' });
     // As resetStaleOcr / requeueAllOcr do
     await db.pages.toCollection().modify({ ocrStatus: 'pending' });
-    await db.pages.update(page.id, { originalBlob: blob('raw') });
+    await db.pages.update(page.id, { originalImageId: await addImage('raw') });
     await db.pages.update(page.id, { keepOrientation: true });
     expect(await entries()).toEqual([]);
     expect((await db.pages.get(page.id))?.updatedAt).toEqual(page.updatedAt);
@@ -264,8 +265,8 @@ describe('applyUntracked', () => {
         id: 'p',
         documentId: 'd',
         pageNumber: 1,
-        originalBlob: blob('img'),
-        processedBlob: blob('img'),
+        originalImageId: 'img',
+        processedImageId: 'img',
         filter: 'original',
         createdAt: remoteTime,
         updatedAt: remoteTime,

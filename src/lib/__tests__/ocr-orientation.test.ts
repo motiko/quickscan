@@ -11,7 +11,7 @@ vi.mock('@/lib/image-processing', () => ({
 }));
 vi.mock('@/lib/annotations/flatten', () => ({
   getImageSize: vi.fn(async () => ({ width: 600, height: 800 })),
-  getRenderedBlob: vi.fn(async (page: { processedBlob?: Blob }) => page.processedBlob),
+  getRenderedBlob: vi.fn(async () => new Blob(['rendered'])),
 }));
 
 import { db } from '@/lib/db';
@@ -22,6 +22,7 @@ import { getImageSize } from '@/lib/annotations/flatten';
 import { applyUntracked, readOutbox } from '@/lib/outbox';
 import { savePageAnnotations, updatePage } from '@/hooks/useDocuments';
 import type { Annotation, Page } from '@/types';
+import { addImage, imageText } from './image-test-utils';
 
 // Measured with Tesseract (eng) on a rendered invoice: upright 94 % with 37 confident words,
 // upside down 26 % with 4, sideways 54 % with none.
@@ -103,8 +104,10 @@ describe('processPendingOcr orientation', () => {
 
   async function addPage(overrides: Partial<Page> = {}) {
     const now = new Date();
+    // A capture: original and processed image are the same stored image
+    const imageId = await addImage('img');
     await db.pages.add({
-      id, documentId: 'doc1', pageNumber: 1, originalBlob: new Blob(['img']), processedBlob: new Blob(['img']),
+      id, documentId: 'doc1', pageNumber: 1, originalImageId: imageId, processedImageId: imageId,
       filter: 'original', createdAt: now, updatedAt: now, ocrStatus: 'pending', annotations: [rect],
       ...overrides,
     });
@@ -112,7 +115,7 @@ describe('processPendingOcr orientation', () => {
     await db.outbox.clear();
   }
   const page = () => db.pages.get(id);
-  const image = async () => (await page())?.processedBlob?.text();
+  const image = async () => imageText((await page())?.processedImageId);
 
   beforeEach(async () => {
     id = `p${++n}`;
@@ -140,7 +143,7 @@ describe('processPendingOcr orientation', () => {
       expect(turned.x).toBeCloseTo(0.6);
       expect(turned.y).toBeCloseTo(0.7);
     }
-    expect(await (await db.documents.get('doc1'))?.thumbnailBlob?.text()).toBe('thumb');
+    expect(await imageText((await db.documents.get('doc1'))?.thumbnailId)).toBe('thumb');
   });
 
   it('queues the turned image for upload', async () => {
@@ -156,7 +159,7 @@ describe('processPendingOcr orientation', () => {
     await processPendingOcr();
 
     const doc = await db.documents.get('doc1');
-    expect(await doc?.thumbnailBlob?.text()).toBe('thumb');
+    expect(await imageText(doc?.thumbnailId)).toBe('thumb');
     expect(doc?.updatedAt).toEqual(docUpdatedAt);
   });
 
@@ -172,7 +175,7 @@ describe('processPendingOcr orientation', () => {
   it('remembers a page turned by hand across a reload', async () => {
     await addPage();
     // The user turns it (updatePage) and the tab closes while it's being recognized
-    await updatePage(id, { processedBlob: new Blob(['img']) });
+    await updatePage(id, { processedImage: new Blob(['img']) });
     await db.pages.update(id, { ocrStatus: 'processing' });
     db.close();
     await db.open();
@@ -190,7 +193,8 @@ describe('processPendingOcr orientation', () => {
   it('never turns an image downloaded from another device, even where the original is', async () => {
     // What a sync download leaves on the capturing device: the original, another device's image
     await addPage();
-    await applyUntracked(() => db.pages.update(id, { processedBlob: new Blob(['img']), keepOrientation: true }));
+    const downloaded = await addImage('img');
+    await applyUntracked(() => db.pages.update(id, { processedImageId: downloaded, keepOrientation: true }));
     await processPendingOcr();
 
     expect(await image()).toBe('img');
@@ -223,7 +227,8 @@ describe('processPendingOcr orientation', () => {
     mockRecognize.mockImplementation(async () => {
       if (!swapped) {
         swapped = true;
-        await applyUntracked(() => db.pages.update(id, { processedBlob: new Blob(['imh']) }));
+        const other = await addImage('imh');
+        await applyUntracked(() => db.pages.update(id, { processedImageId: other }));
       }
       return upsideDown;
     });
@@ -236,7 +241,7 @@ describe('processPendingOcr orientation', () => {
   });
 
   it('never turns a page pulled from another device (no original)', async () => {
-    await addPage({ originalBlob: undefined });
+    await addPage({ originalImageId: undefined });
     await processPendingOcr();
 
     expect(await image()).toBe('img');
@@ -278,7 +283,8 @@ describe('processPendingOcr orientation', () => {
       if (!swapped) {
         swapped = true;
         // A download stored without tracking (and without a status reset)
-        await applyUntracked(() => db.pages.update(id, { processedBlob: new Blob(['downloaded image']) }));
+        const download = await addImage('downloaded image');
+        await applyUntracked(() => db.pages.update(id, { processedImageId: download }));
       }
       return text === 'img@180' ? upright : upsideDown;
     });
@@ -293,7 +299,7 @@ describe('processPendingOcr orientation', () => {
 
   it('does not write a turn over an image the user changed while the size was measured', async () => {
     mockSize.mockImplementationOnce(async () => {
-      await updatePage(id, { processedBlob: new Blob(['user edit']) });
+      await updatePage(id, { processedImage: new Blob(['user edit']) });
       return { width: 600, height: 800 };
     });
     await addPage();
@@ -332,7 +338,7 @@ describe('processPendingOcr orientation', () => {
 
   it('does not mark a page as failed when its image changed before recognition failed', async () => {
     mockRecognize.mockImplementationOnce(async () => {
-      await updatePage(id, { processedBlob: new Blob(['user edit']) });
+      await updatePage(id, { processedImage: new Blob(['user edit']) });
       throw new Error('worker crashed');
     });
     await addPage();

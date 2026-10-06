@@ -74,7 +74,7 @@ QuickScan is a **mobile-first PWA** for scanning documents using the phone camer
 - **Passkeys** (`lib/passkeys.ts`): one extra `vault_keys` row per passkey (`method` 'passkey', `id` = base64url credential id), holding the vault key wrapped by the WebAuthn PRF output. The PRF output is a secret: keep it as transient bytes only, zero it after use, and never log or store it. The PRF salt isn't secret. Make `navigator.credentials.create/get` the first await after a tap, because Safari needs the user gesture, so load the passkey list beforehand. iOS/Safari report `prf.enabled` at create without results; a follow-up `get` with the same salt gets the output. Without PRF, save nothing. The rpId is `location.hostname`; inside the native app (origin `capacitor://localhost`) it is the production hostname (`NATIVE_PASSKEY_RP_ID` in `lib/native-passkey.ts`), and the unlock goes through `NativePasskeyPlugin.swift` instead of WebAuthn. Never let Capacitor log plugin results (`loggingBehavior: 'none'`): they carry the PRF output.
 - **QR pairing** (`lib/pairing-session.ts`): the new device's public key reaches the unlocked device only through the QR code, never through the server (ECIES doesn't authenticate the sender). The QR holds only `qs1:<requestId>:<public key>` — never a secret. Sending must update exactly one `pairing_requests` row (RLS limits it to the caller's own, unexpired, unanswered rows); zero rows means "not your code or expired" and nothing is sent. Test-only hooks are gated by `process.env.NODE_ENV !== 'production' && NEXT_PUBLIC_E2E_HOOKS === '1'` so production builds drop them.
 - **`bytea` via PostgREST** is `'\x' + hex` both ways — use `toBytea`/`fromBytea` from `src/lib/bytea.ts`. Plain hex or a `Uint8Array` is silently stored as the wrong bytes.
-- **Sync engine (`src/lib/sync/`):** Dexie is the source of truth; the server is an encrypted replica. Local code never talks to sync directly — it writes Dexie and the outbox records the change. Everything the engine writes locally (pulled records, downloaded images, renumbering, derived fields) goes through `applyUntracked`, inside which only direct Dexie calls may be awaited (nested native async helpers lose Dexie's transaction zone). Payloads go through `encryptRecord` and files through `encryptFile` — never plaintext. Last write wins per record by `(updatedAt, deviceId)`; a tombstone is a write. Original images never leave the device, so pages from another device have no `originalBlob` and, until it downloads, no `processedBlob` either: use `pageImage`/`requirePageImage` from `lib/page-image.ts` instead of `page.processedBlob || page.originalBlob`. To make a run happen call `requestSync()`; never block the UI on it.
+- **Sync engine (`src/lib/sync/`):** Dexie is the source of truth; the server is an encrypted replica. Local code never talks to sync directly — it writes Dexie and the outbox records the change. Everything the engine writes locally (pulled records, downloaded images, renumbering, derived fields) goes through `applyUntracked`, inside which only direct Dexie calls may be awaited (nested native async helpers lose Dexie's transaction zone). Payloads go through `encryptRecord` and files through `encryptFile` — never plaintext. Last write wins per record by `(updatedAt, deviceId)`; a tombstone is a write. Original images never leave the device, so pages from another device have no `originalImageId` and, until it downloads, no `processedImageId` either: use `pageImageId`/`hasPageImage`/`pageImage`/`requirePageImage` from `lib/page-image.ts`. To make a run happen call `requestSync()`; never block the UI on it.
 - **Sync clocks, conflicts and replays:**
   - **Clock rule:** a local write's clock is `writeClock(now, seen)` in `lib/sync-tracking.ts`: `max(now, newest version of the record seen + 1 ms)`, capped at `now + 5 min` (the server's clamp), where *seen* is the record marker's pulled `clock` or own pushed clock. Never stamp outbox clocks with raw `Date.now()`. A push rejected by a version this device had already seen is re-queued just past it.
   - **Record format v2** (`lib/crypto/records.ts`): `0x02 || u64be(clock) || iv || ct || tag`, AAD `encodeContext('quickscan/record', [userId, kind, id, u64be(clock), deviceId, deleted ? '1' : '0'], 0x02)`. Always pass the `RecordVersion` to `encryptRecord` (without it you get a legacy v1 payload) and the row's `deviceId`/`deleted` to `openRecord`. The clock is in the header because the server may lower `updated_at` (clamp): accept a row clock ≤ the authenticated one, never above. v1 payloads still decrypt, except for a record already seen in v2 (downgrade).
@@ -154,7 +154,7 @@ The IndexedDB schema is defined in `src/lib/db.ts`. Key entities:
   createdAt: Date;
   updatedAt: Date;
   pageCount: number;
-  thumbnailBlob: Blob; // small JPEG thumbnail of first page
+  thumbnailId?: string; // images row: small JPEG thumbnail of first page (local only)
   folderId?: string;   // FK → Folder.id; absent (or a deleted folder) = unfiled
   tags?: string[];     // free-form, normalized, sorted; see lib/tags.ts
 }
@@ -177,8 +177,8 @@ Folders are flat. Deleting a folder keeps its documents and unfiles them.
   id: string;          // nanoid
   documentId: string;  // FK → Document.id
   pageNumber: number;  // ordering
-  originalBlob: Blob;  // raw capture
-  processedBlob: Blob; // after crop + filter
+  originalImageId?: string;  // images row: raw capture (local only, absent on pulled pages)
+  processedImageId?: string; // images row: after crop + filter (the synced file)
   corners: [Point, Point, Point, Point];
   filter: 'original' | 'grayscale' | 'bw';
   createdAt: Date;
@@ -188,8 +188,18 @@ Folders are flat. Deleting a folder keeps its documents and unfiles them.
 }
 ```
 
+### Image
+```typescript
+{
+  id: string;          // nanoid; records point to it (page originalImageId/processedImageId, document thumbnailId)
+  blob: Blob;
+  createdAt: Date;
+}
+```
+Rows of `images` are written once (`putImage` / `setThumbnail` in `lib/images.ts`) and never changed: a new image is a new row, and a record points to the new id. **Never put a Blob on a page or document again.** WebKit's IndexedDB loses a Blob when the record holding it is rewritten while the old Blob is still being read or shown (#89), and pages and documents are rewritten all the time (OCR status, search text, names, sync). Rows nothing points to are pruned when the database opens (`lib/image-migration.ts`, which also moved the pre-v8 Blobs). Read a page's image with `pageImage`/`requirePageImage` (async) or show it with `useImageUrl(pageImageId(page))`, whose object URL stays the same as long as the id does.
+
 ### Sync bookkeeping
-- `outbox` — one pending change per synced record, keyed `[kind+id]` (`kind`: document, page, folder, signature, settings): `op` `'upsert' | 'delete'`, `updatedAt` (epoch ms of the latest local write, per `writeClock` — the last-write-wins clock), `fileChanged`, `rev`. A `'delete'` entry is the tombstone. Filled by the `syncTrackingMiddleware` in `lib/sync-tracking.ts` for **every** write in any read-write transaction — don't enqueue by hand. Writes that only touch local-only fields (thumbnails, the derived document `searchText`/`pageCount`, page `originalBlob`, `ocrStatus`, `keepOrientation`) and settings other than `ocrLanguages` aren't recorded.
+- `outbox` — one pending change per synced record, keyed `[kind+id]` (`kind`: document, page, folder, signature, settings): `op` `'upsert' | 'delete'`, `updatedAt` (epoch ms of the latest local write, per `writeClock` — the last-write-wins clock), `fileChanged`, `rev`. A `'delete'` entry is the tombstone. Filled by the `syncTrackingMiddleware` in `lib/sync-tracking.ts` for **every** write in any read-write transaction — don't enqueue by hand. Writes that only touch local-only fields (document `thumbnailId`, the derived document `searchText`/`pageCount`, page `originalImageId`, `ocrStatus`, `keepOrientation`) and settings other than `ocrLanguages` aren't recorded.
 - `syncMeta` — device-local sync state, never synced: device id, vault key and owner, and the engine's `sync:*` keys (last account, pull cursor per account, merge flag, record → remote file id / MIME / SHA-256 mappings, per-record markers `sync:mark:<kind>:<id>` (`RecordMark`: newest version pulled, own last push, base fingerprint, v2 seen), the account-switch answer).
 - `lib/outbox.ts` is the API for the sync engine: `readOutbox`, `getOutboxEntry`, `ackOutbox`, `applyUntracked` (writes pulled remote changes without re-queueing them), `getDeviceId`.
 

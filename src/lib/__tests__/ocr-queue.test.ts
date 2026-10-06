@@ -25,6 +25,7 @@ import { nativeOcr } from '@/lib/platform/native/ocr';
 import { processPendingOcr, onPageOcrDone, resetStaleOcr, retryDocumentOcr } from '@/lib/ocr-queue';
 import { updateSettings } from '@/lib/settings';
 import type { Page } from '@/types';
+import { addImage, imageText } from './image-test-utils';
 
 const mockRecognize = vi.mocked(recognize);
 const mockNativeRecognize = vi.mocked(nativeOcr.recognize);
@@ -34,7 +35,8 @@ function makePage(id: string, pageNumber: number, overrides: Partial<Page> = {})
     id,
     documentId: 'doc1',
     pageNumber,
-    originalBlob: new Blob([id]),
+    // The image's content is the page id (see beforeEach)
+    originalImageId: `img-${id}`,
     filter: 'original',
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -47,6 +49,7 @@ beforeEach(async () => {
   mockRecognize.mockReset();
   await db.delete();
   await db.open();
+  for (const id of ['p1', 'p2', 'other']) await addImage(id, `img-${id}`);
   await db.documents.add({
     id: 'doc1',
     name: 'Scan',
@@ -226,7 +229,7 @@ describe('OCR image size', () => {
     expect(await mockRotate.mock.calls[0][0].text()).toBe('p1-small');
     expect(await mockRotate.mock.calls[1][0].text()).toBe('p1');
     const page = await db.pages.get('p1');
-    expect(await page?.processedBlob?.text()).toBe('p1@180');
+    expect(await imageText(page?.processedImageId)).toBe('p1@180');
     expect(page?.ocrText).toBe('Invoice 2026-0042 Total amount');
     expect(page?.ocrWords?.[0].bbox).toEqual({ x0: 20, y0: 40, x1: 160, y1: 90 });
   });
@@ -270,7 +273,7 @@ describe('in the iOS app', () => {
 
     expect(mockRecognize).not.toHaveBeenCalled();
     const page = await db.pages.get('p1');
-    expect(await page?.processedBlob?.text()).toBe('p1@180');
+    expect(await imageText(page?.processedImageId)).toBe('p1@180');
     expect(page?.ocrWords?.[0].bbox).toEqual({ x0: 60, y0: 170, x1: 90, y1: 180 });
     expect(page?.ocrInfo).toMatchObject({ engine: 'vision' });
   });
@@ -289,7 +292,7 @@ describe('in the iOS app', () => {
 
     const page = await db.pages.get('p1');
     expect(page?.ocrText).toBe('Rechnung 2026-0042 Gesamtbetrag');
-    expect(page?.processedBlob).toBeUndefined();
+    expect(page?.processedImageId).toBeUndefined();
   });
 
   it('uses Tesseract for a language Vision doesn’t read', async () => {

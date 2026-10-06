@@ -52,7 +52,7 @@ describe('database status', () => {
     old.close();
     await opened;
     expect(status.getDatabaseStatus().state).toBe('ready');
-    expect(db.verno).toBe(7);
+    expect(db.verno).toBe(8);
     expect((await db.documents.get('d1'))?.name).toBe('Old document');
     expect(await db.outbox.count()).toBe(1);
   });
@@ -64,7 +64,7 @@ describe('database status', () => {
     expect(db.isOpen()).toBe(true);
 
     const upgraded = await new Promise<string>((resolve) => {
-      const req = indexedDB.open('QuickScanDB', 80);
+      const req = indexedDB.open('QuickScanDB', 90);
       req.onblocked = () => resolve('blocked');
       req.onsuccess = () => {
         req.result.close();

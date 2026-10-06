@@ -16,6 +16,7 @@ import { createSupabaseBackend, type SupabaseLike } from '@/lib/sync/backend';
 import { applyUnverifiedDeletion, runSync } from '@/lib/sync/engine';
 import { getFileRef, getMeta, RetryTracker, unverifiedKey, type UnverifiedDeletion } from '@/lib/sync/state';
 import { cleanupOrphanedFiles, ORPHAN_GRACE_MS } from '@/lib/sync/cleanup';
+import { imageText } from './image-test-utils';
 
 /*
  * Two simulated devices syncing through a real local Supabase: the upsert_records RPC, RLS,
@@ -107,8 +108,8 @@ describe.skipIf(!enabled)('sync through local Supabase', () => {
     expect(await db.folders.get(folderId)).toMatchObject({ name: 'Receipts' });
     expect((await db.settings.get('ocrLanguages'))?.value).toEqual(['eng', 'fra']);
     const [page] = await db.pages.where('documentId').equals(docId).toArray();
-    expect(await page.processedBlob!.text()).toBe('jpeg-bytes');
-    expect(page.originalBlob).toBeUndefined();
+    expect(await imageText(page.processedImageId)).toBe('jpeg-bytes');
+    expect(page.originalImageId).toBeUndefined();
   });
 
   it('resolves concurrent edits by last write wins on both devices', async () => {
@@ -188,7 +189,7 @@ describe.skipIf(!enabled)('sync through local Supabase', () => {
     await sync();
     const [page] = await db.pages.where('documentId').equals(docId).toArray();
     const firstPath = `${userId}/${(await getFileRef('page', page.id))!.fileId}`;
-    await updatePage(page.id, { processedBlob: new Blob(['two'], { type: 'image/jpeg' }) });
+    await updatePage(page.id, { processedImage: new Blob(['two'], { type: 'image/jpeg' }) });
     await sync();
     const currentPath = `${userId}/${(await getFileRef('page', page.id))!.fileId}`;
     expect(currentPath).not.toBe(firstPath);
@@ -220,7 +221,7 @@ describe.skipIf(!enabled)('sync through local Supabase', () => {
     const report = await sync();
     expect(report.issues).toEqual([]);
     const [laptopPage] = await db.pages.where('documentId').equals(docId).toArray();
-    expect(await laptopPage.processedBlob!.text()).toBe('two');
+    expect(await imageText(laptopPage.processedImageId)).toBe('two');
   });
 
   it('keeps the losing side of a concurrent annotation as a conflicted copy on both devices', async () => {

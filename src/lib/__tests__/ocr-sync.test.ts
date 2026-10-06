@@ -16,7 +16,7 @@ vi.mock('@/lib/image-processing', () => ({
 }));
 vi.mock('@/lib/annotations/flatten', () => ({
   getImageSize: vi.fn(async () => ({ width: 600, height: 800 })),
-  getRenderedBlob: vi.fn(async (page: { processedBlob?: Blob }) => page.processedBlob),
+  getRenderedBlob: vi.fn(async () => new Blob(['rendered'])),
 }));
 
 import { db } from '@/lib/db';
@@ -29,6 +29,7 @@ import { createSupabaseBackend } from '@/lib/sync/backend';
 import { runSync, type SyncContext } from '@/lib/sync/engine';
 import { RetryTracker } from '@/lib/sync/state';
 import { FakeSupabase } from './fake-supabase';
+import { imageText } from './image-test-utils';
 
 const USER = '00000000-0000-4000-8000-00000000000a';
 const word = (text: string, confidence: number) => ({ text, confidence, bbox: { x0: 0, y0: 0, x1: 1, y1: 1 } });
@@ -84,14 +85,14 @@ describe('OCR and sync', () => {
     });
     await runSync(ctx);
     const pulled = await db.pages.get(page.id);
-    expect(await pulled!.processedBlob!.text()).toBe('theirs');
-    expect(pulled!.originalBlob).toBeDefined();
+    expect(await imageText(pulled!.processedImageId)).toBe('theirs');
+    expect(pulled!.originalImageId).toBeDefined();
     expect(pulled!.ocrStatus).toBe('pending');
 
     await processPendingOcr();
 
     const after = await db.pages.get(page.id);
-    expect(await after!.processedBlob!.text()).toBe('theirs');
+    expect(await imageText(after!.processedImageId)).toBe('theirs');
     expect(after!.ocrText).toBe(upsideDown.text);
     // Only the recognized text goes back, not a new image
     expect(await readOutbox()).toEqual([expect.objectContaining({ kind: 'page', id: page.id, fileChanged: false })]);
@@ -145,14 +146,14 @@ describe('OCR and sync', () => {
     expect(during!.ocrText).toBeUndefined();
     expect(during!.ocrInfo).toBeUndefined();
     expect(during!.ocrStatus).toBeUndefined();
-    expect(await during!.processedBlob!.text()).toBe('mine');
+    expect(await imageText(during!.processedImageId)).toBe('mine');
     expect(await readOutbox()).toEqual([]);
 
     releaseDownload();
     await run;
 
     const downloaded = await db.pages.get(page.id);
-    expect(await downloaded!.processedBlob!.text()).toBe('theirs');
+    expect(await imageText(downloaded!.processedImageId)).toBe('theirs');
     expect(downloaded).toMatchObject({ ocrStatus: 'pending', keepOrientation: true });
 
     await processPendingOcr();
@@ -161,7 +162,7 @@ describe('OCR and sync', () => {
     expect(after!.ocrStatus).toBe('done');
     expect(after!.ocrText).toBe(upsideDown.text);
     // Recognized as it is, not turned
-    expect(await after!.processedBlob!.text()).toBe('theirs');
+    expect(await imageText(after!.processedImageId)).toBe('theirs');
     expect(await readOutbox()).toEqual([expect.objectContaining({ kind: 'page', id: page.id, fileChanged: false })]);
   });
 

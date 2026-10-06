@@ -2,7 +2,8 @@ import { db } from '@/lib/db';
 import type { OcrResult } from '@/lib/ocr';
 import { ocrProviderFor, tesseractOcr, type OcrProvider } from '@/lib/platform/ocr';
 import { getSettings } from '@/lib/settings';
-import { pageImage } from '@/lib/page-image';
+import { pageImageId, requirePageImage } from '@/lib/page-image';
+import { putImage, setThumbnail } from '@/lib/images';
 import { recognizeUpright, uprightFromEngine, type Rotation, type UprightResult } from '@/lib/ocr-orientation';
 import { createThumbnail, fitImage, rotateImage } from '@/lib/image-processing';
 import { getImageSize, getRenderedBlob } from '@/lib/annotations/flatten';
@@ -35,7 +36,7 @@ export async function keepPageOrientation(pageId: string): Promise<void> {
  * turning the image would be an edit the user didn't make.
  */
 function mayAutoOrient(page: Page): boolean {
-  return page.originalBlob != null && !page.keepOrientation && page.ocrInfo === undefined && page.ocrText === undefined;
+  return page.originalImageId != null && !page.keepOrientation && page.ocrInfo === undefined && page.ocrText === undefined;
 }
 
 /**
@@ -89,31 +90,6 @@ function scaleToPage(upright: UprightResult, scale: number): UprightResult {
     })),
   });
   return { ...upright, result: toPage(upright.result), unrotated: upright.unrotated && toPage(upright.unrotated) };
-}
-
-/**
- * What identifies the image a recognition ran on, from the image alone (an annotation edit or
- * renumbering mustn't throw a finished recognition away). Dexie hands out a new Blob on every
- * read, so identity can't be compared: every image change while a page is 'processing' resets
- * it to 'pending' (updatePage, sync downloads), this catches one that changes the size, type
- * or source, and `sameImage` compares the bytes before the result is written.
- */
-function imageToken(page: Page): string {
-  const image = pageImage(page);
-  const source = page.processedBlob ? 'processed' : page.originalBlob ? 'original' : 'none';
-  return [source, image?.size ?? -1, image?.type ?? ''].join('|');
-}
-
-/** Whether the page still shows exactly the image that was recognized. */
-async function sameImage(pageId: string, recognized: Blob): Promise<boolean> {
-  const page = await db.pages.get(pageId);
-  const image = page && pageImage(page);
-  if (!image || image.size !== recognized.size) return false;
-  const [a, b] = await Promise.all([image.arrayBuffer(), recognized.arrayBuffer()]);
-  const x = new Uint8Array(a);
-  const y = new Uint8Array(b);
-  for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return false;
-  return true;
 }
 
 /** Turn annotations with their image (clockwise, in 90° steps). Synchronous, for use in a transaction. */
@@ -182,15 +158,17 @@ export async function processPendingOcr(): Promise<void> {
           const fresh = await db.pages.get(page.id);
           // Deleted or changed while earlier pages were processing; a synced page whose image
           // hasn't downloaded yet stays pending until it has
-          if (!fresh || fresh.ocrStatus !== 'pending' || !pageImage(fresh)) return undefined;
+          if (!fresh || fresh.ocrStatus !== 'pending' || !pageImageId(fresh)) return undefined;
           await db.pages.update(page.id, { ocrStatus: 'processing' });
           return fresh;
         });
         if (!current) continue;
-        const blob = pageImage(current)!;
-        const token = imageToken(current);
+        // Stored images never change, so the id names exactly the image recognized: if the
+        // page points to another one when the result is written, it changed meanwhile
+        const imageId = pageImageId(current)!;
 
         try {
+          const blob = await requirePageImage(current);
           const langs = settings.ocrLanguages;
           // OCR and the orientation probes work on a bounded copy (OCR_MAX_DIMENSION)
           const { blob: ocrImage, scale } = await fitImage(blob, OCR_MAX_DIMENSION);
@@ -218,8 +196,6 @@ export async function processPendingOcr(): Promise<void> {
             }
           }
           const { detectOcrLanguage } = await import('@/lib/language-detect');
-          // Swapped for another image of the same size during recognition: recognize that one
-          const unchanged = await sameImage(page.id, blob);
           const ocrFields = (r: OcrResult) => ({
             ocrStatus: 'done' as const,
             ocrText: r.text,
@@ -236,7 +212,7 @@ export async function processPendingOcr(): Promise<void> {
 
           // Check and write in one transaction (only Dexie awaits inside), so nothing can
           // change the page in between
-          const written = await db.transaction('rw', db.pages, async () => {
+          const written = await db.transaction('rw', [db.pages, db.images], async () => {
             const after = await db.pages.get(page.id);
             if (!after) return undefined;
             if (after.ocrStatus !== 'processing') {
@@ -244,7 +220,7 @@ export async function processPendingOcr(): Promise<void> {
               if (after.ocrStatus === 'pending') rerunRequested = true;
               return undefined;
             }
-            if (!unchanged || imageToken(after) !== token) {
+            if (pageImageId(after) !== imageId) {
               // Its image changed without a reset: recognize the new one on the next pass
               await db.pages.update(page.id, { ocrStatus: 'pending' });
               rerunRequested = true;
@@ -257,7 +233,7 @@ export async function processPendingOcr(): Promise<void> {
                 // Annotations appeared that can't be turned without the size: keep it as scanned
                 fields = ocrFields(upright.unrotated ?? result);
               } else {
-                fields = { ...fields, processedBlob: turn.image };
+                fields = { ...fields, processedImageId: await putImage(turn.image) };
                 if (after.annotations?.length && turn.size) {
                   fields.annotations = rotateAnnotations(after.annotations, turn.size, turn.rotation);
                 }
@@ -292,10 +268,9 @@ export async function processPendingOcr(): Promise<void> {
 async function refreshThumbnail(pageId: string): Promise<void> {
   try {
     const page = await db.pages.get(pageId);
-    if (!page || !pageImage(page)) return;
-    const thumbnailBlob = await createThumbnail(await getRenderedBlob(page));
+    if (!page || !pageImageId(page)) return;
     // Thumbnail only: it's local, and bumping updatedAt would sync a document edit nobody made
-    await db.documents.update(page.documentId, { thumbnailBlob });
+    await setThumbnail(page.documentId, await createThumbnail(await getRenderedBlob(page)));
   } catch (err) {
     console.warn('Thumbnail refresh failed:', err);
   }

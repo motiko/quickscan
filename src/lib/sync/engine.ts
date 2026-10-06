@@ -3,6 +3,8 @@ import { db } from '@/lib/db';
 import { ackOutbox, applyUntracked, readOutbox, SYNCED_SETTING_KEYS, type OutboxEntry, type SyncKind } from '@/lib/outbox';
 import { decryptFile, encryptFile, encryptRecord, openRecord, type VaultKey } from '@/lib/crypto';
 import type { Folder, Page, ScannedDocument, Signature } from '@/types';
+import { getImage, putImage, setThumbnail } from '@/lib/images';
+import { hasPageImage } from '@/lib/page-image';
 import { SYNC_BATCH_SIZE, SyncBackendError, type PushRow, type RejectedRow, type RemoteRow, type SyncBackend } from './backend';
 import {
   defined,
@@ -339,7 +341,7 @@ async function startMerge(userId: string): Promise<void> {
 
     await db.documents.each((d) => queue('document', d.id, time(d.updatedAt, 1), false));
     await db.pages.each((p) =>
-      queue('page', p.id, time(p.updatedAt, time(p.createdAt, 1)), p.processedBlob != null)
+      queue('page', p.id, time(p.updatedAt, time(p.createdAt, 1)), p.processedImageId != null)
     );
     await db.folders.each((f) => queue('folder', f.id, time(f.updatedAt, time(f.createdAt, 1)), false));
     await db.signatures.each((s) => queue('signature', s.id, time(s.createdAt, 1), true));
@@ -557,7 +559,7 @@ async function localPayload(
     case 'page': {
       const page = await db.pages.get(entry.id);
       if (!page) return null;
-      const ref = await syncFile(ctx, 'page', entry.id, page.processedBlob, entry.fileChanged, report);
+      const ref = await syncFile(ctx, 'page', entry.id, await getImage(page.processedImageId), entry.fileChanged, report);
       return { payload: pagePayload(page, fileRefPayload(ref)), files: ref ? [filePath(ref)] : [] };
     }
     case 'signature': {
@@ -959,8 +961,8 @@ function keepLocalLoser(
       ocrInfo: local.ocrInfo,
       annotations: local.annotations,
       conflictOf: row.id,
-      originalBlob: local.originalBlob,
-      processedBlob: local.processedBlob,
+      originalImageId: local.originalImageId,
+      processedImageId: local.processedImageId,
       ocrStatus: local.ocrStatus === 'processing' ? 'pending' : local.ocrStatus,
       keepOrientation: local.keepOrientation,
     }),
@@ -1014,7 +1016,7 @@ function keepRemoteLoser(
       ocrInfo: loser.ocrInfo,
       annotations: loser.annotations,
       conflictOf: row.id,
-      processedBlob: sameImage ? local?.processedBlob : undefined,
+      processedImageId: sameImage ? local?.processedImageId : undefined,
       ocrStatus: hasOcr ? ('done' as const) : undefined,
     }),
     fileRef
@@ -1035,7 +1037,7 @@ function addConflictCopy(
   const page: Page = { ...fields, id, createdAt: new Date(now), updatedAt: new Date(now) };
   state.pages.set(id, page);
   if (ref) state.refs.set(fileKey('page', id), { ...ref, id });
-  state.outbox.push({ kind: 'page', id, op: 'upsert', updatedAt: now, fileChanged: page.processedBlob != null, rev: 1 });
+  state.outbox.push({ kind: 'page', id, op: 'upsert', updatedAt: now, fileChanged: page.processedImageId != null, rev: 1 });
   touched.documents.add(page.documentId);
   touched.pages.add(id);
   return id;
@@ -1061,7 +1063,7 @@ function applyUpsert(ctx: SyncContext, row: RemoteRow, value: RecordPayload, sta
           // Local-only and derived fields stay; derived ones are recomputed after the pull
           pageCount: existing?.pageCount ?? 0,
           searchText: existing?.searchText,
-          thumbnailBlob: existing?.thumbnailBlob,
+          thumbnailId: existing?.thumbnailId,
         })
       );
       touched.documents.add(id);
@@ -1084,7 +1086,7 @@ function applyUpsert(ctx: SyncContext, row: RemoteRow, value: RecordPayload, sta
       // A page without text that this device never recognized: recognize it here once its
       // image is here (now, if it already is; otherwise when it downloads)
       const ref = state.refs.get(fileKey('page', id));
-      if (!hasOcr && existing && existing.ocrStatus === undefined && existing.processedBlob && ref?.downloaded) {
+      if (!hasOcr && existing && existing.ocrStatus === undefined && existing.processedImageId && ref?.downloaded) {
         ocrStatus = 'pending';
       }
       state.pages.set(
@@ -1106,8 +1108,8 @@ function applyUpsert(ctx: SyncContext, row: RemoteRow, value: RecordPayload, sta
           updatedAt: new Date(row.updatedAt),
           // The original never syncs; it exists only on the device that captured the page.
           // Until a changed image downloads, the previous one keeps showing.
-          originalBlob: existing?.originalBlob,
-          processedBlob: existing?.processedBlob,
+          originalImageId: existing?.originalImageId,
+          processedImageId: existing?.processedImageId,
           ocrStatus,
           keepOrientation: existing?.keepOrientation,
         })
@@ -1207,7 +1209,7 @@ function applyTombstone(
   if (merge && localRecord(state, kind, id) !== undefined) {
     // First sync with this account deletes nothing: keep the local record and queue it with
     // a clock newer than the tombstone, which brings it back on the server too.
-    const hasFile = kind === 'page' ? state.pages.get(id)?.processedBlob != null : kind === 'signature';
+    const hasFile = kind === 'page' ? state.pages.get(id)?.processedImageId != null : kind === 'signature';
     state.outbox.push({
       kind,
       id,
@@ -1352,12 +1354,12 @@ export async function ignoreUnverifiedDeletion(userId: string, deletion: Unverif
       case 'document': {
         if (await db.documents.get(item.id)) records.push(['document', item.id, false]);
         const pages = await db.pages.where('documentId').equals(item.id).toArray();
-        for (const p of pages) records.push(['page', p.id, p.processedBlob != null]);
+        for (const p of pages) records.push(['page', p.id, p.processedImageId != null]);
         break;
       }
       case 'page': {
         const page = await db.pages.get(item.id);
-        if (page) records.push(['page', item.id, page.processedBlob != null]);
+        if (page) records.push(['page', item.id, page.processedImageId != null]);
         break;
       }
       case 'folder':
@@ -1454,7 +1456,7 @@ async function normalizeDocuments(ctx: Pick<SyncContext, 'makeThumbnail'>, touch
         await db.documents.update(docId, { pageCount: pages.length, searchText });
       }
       const first = pages[0];
-      if (first && (first.processedBlob || first.originalBlob) && (!doc.thumbnailBlob || touched.pages.has(first.id))) {
+      if (first && hasPageImage(first) && (!doc.thumbnailId || touched.pages.has(first.id))) {
         thumbnails.push(first);
       }
     }
@@ -1465,8 +1467,8 @@ async function normalizeDocuments(ctx: Pick<SyncContext, 'makeThumbnail'>, touch
 async function refreshThumbnail(ctx: Pick<SyncContext, 'makeThumbnail'>, page: Page): Promise<void> {
   if (!ctx.makeThumbnail) return;
   try {
-    const thumbnailBlob = await ctx.makeThumbnail(page);
-    await applyUntracked(() => db.documents.update(page.documentId, { thumbnailBlob }));
+    const thumbnail = await ctx.makeThumbnail(page);
+    await applyUntracked(() => setThumbnail(page.documentId, thumbnail));
   } catch (err) {
     console.warn('Sync: could not rebuild a thumbnail', err);
   }
@@ -1531,10 +1533,10 @@ async function storeDownloadedFile(ref: FileRef, blob: Blob, sha256: string): Pr
     // The image is another device's version, turned the way it was left there: OCR here must
     // not auto-orient it, even on the device that captured the page (which still has its
     // original and may not have recognized it yet)
-    const fields: Partial<Page> = { processedBlob: blob, keepOrientation: true };
+    const fields: Partial<Page> = { processedImageId: await putImage(blob), keepOrientation: true };
     await db.pages.update(ref.id, reset ? { ...fields, ocrStatus: 'pending' } : fields);
     await db.syncMeta.put({ key, value: done });
-    return { ...page, processedBlob: blob };
+    return { ...page, ...fields };
   }
 
   const existing = await db.signatures.get(ref.id);

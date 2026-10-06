@@ -330,9 +330,9 @@ export function DocumentViewer({ id }: { id: string }) {
     // The user picks the orientation now; text recognition (re-run below) mustn't turn it back
     keepPageOrientation(selectedPage.id);
     try {
-      const currentBlob = requirePageImage(selectedPage);
+      const currentBlob = await requirePageImage(selectedPage);
       const [rotatedBlob, size] = await Promise.all([rotateImage(currentBlob, 90), getImageSize(currentBlob)]);
-      await updatePage(selectedPage.id, { processedBlob: rotatedBlob });
+      await updatePage(selectedPage.id, { processedImage: rotatedBlob });
       // Keep annotations aligned with the rotated image (also refreshes the thumbnail for page 1)
       await savePageAnnotations(
         selectedPage.id,

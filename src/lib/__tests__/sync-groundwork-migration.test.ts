@@ -32,7 +32,7 @@ describe('sync groundwork schema upgrade (v7)', () => {
 
     const { db } = await import('@/lib/db');
     await db.open();
-    expect(db.verno).toBe(7);
+    expect(db.verno).toBe(8);
 
     const pages = await db.pages.orderBy('id').toArray();
     expect(pages.map((p) => p.updatedAt)).toEqual([edited, edited, created]);

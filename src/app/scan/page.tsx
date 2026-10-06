@@ -7,7 +7,7 @@ import { CameraView } from '@/components/camera/CameraView';
 import { CropOverlay } from '@/components/camera/CropOverlay';
 import { FilterBar } from '@/components/camera/FilterBar';
 import { applyFilter, rotateImage } from '@/lib/image-processing';
-import { createDocument, addPageToDocument } from '@/hooks/useDocuments';
+import { createDocumentWithPages, addPagesToDocument } from '@/hooks/useDocuments';
 import { useBlobUrl } from '@/hooks/useBlobUrl';
 import { useEscape } from '@/hooks/useEscape';
 import { alertDialog, confirmDialog } from '@/lib/dialogs';
@@ -109,15 +109,10 @@ function ScanPageContent() {
       if (!finalDocId) {
         const now = new Date();
         const docName = `Scan ${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-        finalDocId = await createDocument(docName, allBlobs[0]);
-
-        for (let i = 1; i < allBlobs.length; i++) {
-          await addPageToDocument(finalDocId, allBlobs[i]);
-        }
+        // All pages in one transaction, so OCR can't start on page 1 while the rest are written
+        finalDocId = await createDocumentWithPages(docName, allBlobs);
       } else {
-        for (const blob of allBlobs) {
-          await addPageToDocument(finalDocId, blob);
-        }
+        await addPagesToDocument(finalDocId, allBlobs);
       }
 
       router.push(docHref(finalDocId));

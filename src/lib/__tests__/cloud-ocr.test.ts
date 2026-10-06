@@ -22,6 +22,7 @@ import { cloudOcrPageUpdate, getCloudOcrStates, retryOcrWithLlm } from '@/lib/cl
 import { onPageOcrDone, retryOcr } from '@/lib/ocr-queue';
 import { updateSettings } from '@/lib/settings';
 import type { OcrWord, Page } from '@/types';
+import { addImage } from './image-test-utils';
 
 const mockRecognize = vi.mocked(recognize);
 const mockTranscribe = vi.mocked(transcribeWithLlm);
@@ -33,7 +34,7 @@ function makePage(overrides: Partial<Page> = {}): Page {
     id: 'p1',
     documentId: 'doc1',
     pageNumber: 1,
-    originalBlob: new Blob(['p1']),
+    originalImageId: 'img-p1',
     filter: 'original',
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -51,6 +52,7 @@ beforeEach(async () => {
   vi.mocked(prepareImageForLlm).mockResolvedValue({ mediaType: 'image/jpeg', data: 'AAAA' });
   await db.delete();
   await db.open();
+  await addImage('p1', 'img-p1');
   await db.documents.add({ id: 'doc1', name: 'Scan', createdAt: new Date(), updatedAt: new Date(), pageCount: 1 });
   await updateSettings({
     llmEnabled: true,
