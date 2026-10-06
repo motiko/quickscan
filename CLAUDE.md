@@ -36,6 +36,7 @@ QuickScan is a mobile-first Progressive Web App (PWA) built with Next.js 16 (App
     - `/scan`: Camera capture and scanning interface.
     - `/doc/[id]`: Document viewing, OCR text, annotation, and PDF export.
     - `/settings`: OCR languages and document naming / LLM configuration.
+    - `/privacy`: The privacy policy the app stores link to; the controller and contact are in `lib/legal.ts`. Keep it in step with what leaves the device (SECURITY.md, the store privacy answers).
     - `/`: Home page showing the document gallery.
 - `src/components/`: UI components categorized by feature (camera, documents, ui).
 - `src/lib/`: Core business logic and utilities.
