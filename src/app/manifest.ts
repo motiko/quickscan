@@ -15,6 +15,8 @@ export default function manifest(): MetadataRoute.Manifest {
     icons: [
       { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
       { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
+      // The mark sits inside the maskable safe zone, so Android can crop the same image to its shape
+      { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
     ],
   };
 }

@@ -1,7 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Layers rendered from assets/*.svg by scripts/render-icons.mjs; the PNGs hold the inset
+     72 dp layer, so the mark keeps clear of every launcher mask. Monochrome: Android 13+
+     themed icons. -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@color/ic_launcher_background" />
+    <background android:drawable="@drawable/ic_launcher_gradient" />
     <foreground>
         <inset android:drawable="@mipmap/ic_launcher_foreground" android:inset="16.7%" />
     </foreground>
+    <monochrome>
+        <inset android:drawable="@mipmap/ic_launcher_monochrome" android:inset="16.7%" />
+    </monochrome>
 </adaptive-icon>
