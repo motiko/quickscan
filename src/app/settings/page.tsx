@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useSettings } from '@/hooks/useSettings';
 import { updateSettings } from '@/lib/settings';
@@ -187,6 +188,12 @@ export default function SettingsPage() {
             {settings.llmEnabled && <AiProviderSettings settings={settings} />}
           </section>
         )}
+
+        <p className="mt-6 text-center text-sm">
+          <Link href="/privacy" className="inline-flex min-h-11 items-center px-3 font-medium text-gray-600 underline dark:text-gray-400">
+            Privacy policy
+          </Link>
+        </p>
       </main>
     </div>
   );
