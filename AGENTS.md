@@ -44,6 +44,12 @@ All changes must go through the Pull Request flow:
    git -C "$MAIN_DIR" checkout main
    git -C "$MAIN_DIR" pull origin main
    ```
+   When you worked in a worktree, remove it afterwards (each one holds 1–2 GB of `node_modules` and `.next`). Plain `git worktree remove` refuses if anything is uncommitted; if it does, stop and tell the user rather than forcing it:
+   ```bash
+   WT_DIR="$(git rev-parse --show-toplevel)"
+   git -C "$MAIN_DIR" worktree remove "$WT_DIR"
+   git -C "$MAIN_DIR" worktree prune
+   ```
 
 
 ## Project Overview
