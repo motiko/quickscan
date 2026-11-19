@@ -9,7 +9,9 @@ import { DatabaseGate } from '@/components/DatabaseGate';
 
 export const metadata: Metadata = {
   title: 'QuickScan',
-  description: 'Scan documents with your camera',
+  description:
+    'Scan documents with your phone camera: crop, enhance and export them as searchable PDFs with on-device text recognition. Offline-first and private, with no signup required.',
+  alternates: { canonical: 'https://scantab.vercel.app/' },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',

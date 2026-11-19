@@ -5,6 +5,7 @@ import { PRIVACY_CONTACT, PRIVACY_POLICY_UPDATED } from '@/lib/legal';
 
 export const metadata: Metadata = {
   title: 'Privacy policy · QuickScan',
+  alternates: { canonical: 'https://scantab.vercel.app/privacy' },
 };
 
 /*
