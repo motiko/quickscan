@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { connection } from 'next/server';
+import { Analytics } from '@vercel/analytics/next';
 import './globals.css';
 import { OcrRunner } from '@/components/OcrRunner';
 import { SyncRunner } from '@/components/SyncRunner';
@@ -43,6 +44,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         {children}
         <DialogHost />
         <DatabaseGate />
+        <Analytics />
       </body>
     </html>
   );
